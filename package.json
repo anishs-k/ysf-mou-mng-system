@@ -1,0 +1,37 @@
+{
+  "name": "mou-mng-system",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Centralised web platform for onboarding companies, capturing MOU commercial terms, and configuring scheme-wise trainee payroll across zones and plants.",
+  "packageManager": "npm@11.16.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "npm run build:api && npm run build:web",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "test": "npm run test:e2e",
+    "lint": "npm run lint:api && npm run lint:web",
+    "check-types": "npm run check-types:api && npm run check-types:web",
+    "clean": "rm -rf dist",
+    "build:api": "cd src/api && npm run build",
+    "dev:api": "cd src/api && npm run dev",
+    "build:web": "cd src/web && npm run build",
+    "dev:web": "cd src/web && npm run dev",
+    "lint:api": "cd src/api && npm run lint",
+    "lint:web": "cd src/web && npm run lint",
+    "check-types:api": "cd src/api && npm run check-types",
+    "check-types:web": "cd src/web && npm run check-types"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0",
+    "drizzle-kit": "^0.20.18",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^7.0.0"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
+  }
+}

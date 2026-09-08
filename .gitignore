@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+figma_code/
+.turbo/
+*.tsbuildinfo
+
+# Local dev environment files (see docs/devenv.md) - never committed
+environment.sh
+environment.bat
+.env
+.env.*
+!.env.example
+
+logs/
+*.log
+.DS_Store

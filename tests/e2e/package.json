@@ -1,0 +1,17 @@
+{
+  "name": "@mou/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
+    "clean": "rm -rf .turbo *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@mou/api": "*",
+    "@mou/web": "*",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}
