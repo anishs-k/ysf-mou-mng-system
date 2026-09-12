@@ -868,3 +868,41 @@ export async function fetchExportJob(jobId: string): Promise<ExportJobStatus> {
 export function exportDownloadUrl(jobId: string): string {
   return `${API_BASE_URL}/api/export/jobs/${jobId}/download`;
 }
+
+// ---------------------------------------------------------------------------
+// SPEC-14 Dashboard KPI + recent activity (Figma UI replication)
+// ---------------------------------------------------------------------------
+
+export interface DashboardSummary {
+  readonly totalCompanies: number;
+  readonly activeMou: number;
+  readonly expiringSoon: number;
+  readonly expired: number;
+  readonly pendingReview: number;
+}
+
+export async function fetchDashboardSummary(): Promise<DashboardSummary> {
+  const response = await request("/api/dashboard/summary");
+  if (!response.ok) {
+    throw new Error(`GET /api/dashboard/summary failed with status ${response.status}`);
+  }
+  return (await response.json()) as DashboardSummary;
+}
+
+export interface RecentActivityRow {
+  readonly type: "COMPANY_CREATED" | "MOU_EDITED";
+  readonly company: string;
+  readonly zone: string;
+  readonly plant: string | null;
+  readonly scheme: string | null;
+  readonly status: "ACTIVE" | "EXPIRED" | "NEW" | null;
+  readonly occurredAt: string;
+}
+
+export async function fetchRecentActivity(limit = 10): Promise<readonly RecentActivityRow[]> {
+  const response = await request(`/api/dashboard/recent-activity?limit=${limit}`);
+  if (!response.ok) {
+    throw new Error(`GET /api/dashboard/recent-activity failed with status ${response.status}`);
+  }
+  return (await response.json()) as readonly RecentActivityRow[];
+}

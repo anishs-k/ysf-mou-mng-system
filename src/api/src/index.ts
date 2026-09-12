@@ -24,6 +24,7 @@ import { createAuthRouter } from "./routes/auth.ts";
 import { createCompaniesRouter } from "./routes/companies.ts";
 import { createAgreementHistoryRouter } from "./routes/agreement-history.ts";
 import { createCompanyViewRouter } from "./routes/company-view.ts";
+import { createDashboardSummaryRouter } from "./routes/dashboard-summary.ts";
 import { createEditAgreementRouter } from "./routes/edit-agreement.ts";
 import { createEnumsRouter } from "./routes/enums.ts";
 import { createMouDocumentsRouter } from "./routes/mou-documents.ts";
@@ -62,6 +63,7 @@ export function createApp(pool: Pool): Express {
     createEditAgreementRouter(db, pool),
     createAgreementHistoryRouter(db, pool),
     createZoneDashboardRouter(db, pool),
+    createDashboardSummaryRouter(pool),
     createSearchExportRouter(db, pool),
     createAlertsRouter(pool),
   );
