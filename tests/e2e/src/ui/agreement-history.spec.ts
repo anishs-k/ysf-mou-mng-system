@@ -154,7 +154,9 @@ test("the Existing Company commercial page links to Agreement History with the M
   await page.getByRole("button", { name: "Next" }).click();
   await expect(page.getByRole("heading", { name: "Commercial Details" })).toBeVisible();
 
-  await page.getByRole("link", { name: "Agreement History" }).click();
+  // D93's persistent Sidebar also links "Agreement History" - scope to the
+  // routed page content so this matches the Existing Company page's own link.
+  await page.locator("main").getByRole("link", { name: "Agreement History" }).click();
   await expect(page.getByRole("heading", { name: "Agreement History" })).toBeVisible();
   await expect(page.getByText("No amendments recorded for this agreement.")).toBeVisible();
 });

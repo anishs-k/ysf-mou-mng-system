@@ -9,19 +9,26 @@
 
 import { MOU_STATUS_OPTIONS, SCHEME_OPTIONS } from "@mou/domain";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 
 import type { SearchRow, ZoneOption } from "../api/client.ts";
 import { fetchSearch, fetchZones } from "../api/client.ts";
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
+import { Card } from "../components/ui.tsx";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "mt-1 block w-full rounded-lg border border-border px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring";
 const PAGE_SIZE = 25;
 
 export function SearchPage() {
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
+  // D87: the shared Topbar's search box seeds this page's own query via
+  // ?q= on navigation - read once from the URL this page was opened with.
+  const [searchParams] = useSearchParams();
   const [zones, setZones] = useState<readonly ZoneOption[]>([]);
   const [by, setBy] = useState<"company" | "plant" | "scheme">("company");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => searchParams.get("q") ?? "");
   const [zoneId, setZoneId] = useState("");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -80,12 +87,13 @@ export function SearchPage() {
   if (status !== "") exportParams.set("status", status);
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Search</h1>
-
+    <>
+      <Topbar title="Search" subtitle="Find a record by company, plant or scheme" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl">
       {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      <div className="mb-6 flex flex-wrap items-end gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-6 flex flex-wrap items-end gap-4 glass-card rounded-xl p-4">
         <div>
           <label htmlFor="searchBy" className="block text-sm font-medium text-gray-700">
             Search By
@@ -184,7 +192,7 @@ export function SearchPage() {
         {attempted && (
           <Link
             to={`/export/excel?${exportParams.toString()}`}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
           >
             Export to Excel
           </Link>
@@ -192,20 +200,20 @@ export function SearchPage() {
       </div>
 
       {!queryValid && (
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           {by === "scheme" ? "Select a scheme to search." : "Enter at least 2 characters to search."}
         </p>
       )}
 
       {queryValid && attempted && total === 0 && (
-        <p className="text-sm text-gray-600">No records found for &lsquo;{trimmedQ}&rsquo;.</p>
+        <p className="text-sm text-muted-foreground">No records found for &lsquo;{trimmedQ}&rsquo;.</p>
       )}
 
       {queryValid && rows.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <Card className="overflow-x-auto p-4">
           <table className="w-full text-left text-sm">
             <thead>
-              <tr className="text-xs uppercase text-gray-500">
+              <tr className="text-xs uppercase text-muted-foreground">
                 <th className="py-1 font-medium">Company Name</th>
                 <th className="py-1 font-medium">Generated Code</th>
                 <th className="py-1 font-medium">Zone</th>
@@ -222,7 +230,8 @@ export function SearchPage() {
                   <td className="py-1">
                     <Link
                       to={`/companies?zoneId=${row.zoneId}&companyId=${row.companyId}`}
-                      className="font-medium text-blue-600 hover:underline"
+                      className="font-medium hover:underline"
+                      style={{ color: "#1B5FAE" }}
                     >
                       {row.companyName}
                     </Link>
@@ -245,7 +254,7 @@ export function SearchPage() {
                 type="button"
                 disabled={page <= 1}
                 onClick={() => setPage((p) => p - 1)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-lg border border-border px-3 py-1.5 text-foreground hover:bg-muted disabled:opacity-50"
               >
                 Previous
               </button>
@@ -256,14 +265,16 @@ export function SearchPage() {
                 type="button"
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-lg border border-border px-3 py-1.5 text-foreground hover:bg-muted disabled:opacity-50"
               >
                 Next
               </button>
             </div>
           )}
-        </div>
+        </Card>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

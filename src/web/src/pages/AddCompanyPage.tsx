@@ -20,7 +20,7 @@
 
 import { validateCommercialDetails, validateCompanyDetails, validatePayrollDetails } from "@mou/domain";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useOutletContext } from "react-router-dom";
 
 import type { CommercialItemOption, EnumOption, PayrollItemOption, ZoneOption } from "../api/client.ts";
 import {
@@ -34,6 +34,8 @@ import {
   validatePage1,
 } from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
 import {
   EMPTY_PAGE1,
   Page1,
@@ -88,6 +90,7 @@ const AUTHORING_ROLES: readonly string[] = ["ADMIN", "DATA_ENTRY"];
 export function AddCompanyPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
 
   const [state, setState] = useState<WizardState>({
     page1: DEFAULT_PAGE1,
@@ -207,14 +210,14 @@ export function AddCompanyPage() {
   // hole. It is placed after all hooks so React's rules of hooks are respected.
   if (user !== null && !AUTHORING_ROLES.includes(user.role)) {
     return (
-      <main className="min-h-screen bg-slate-100 p-8">
-        <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm">
-          <h1 className="text-base font-medium text-slate-900">Not available</h1>
-          <p className="mt-1 text-sm text-slate-600">
+      <div className="p-8">
+        <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm border border-border">
+          <h1 className="text-base font-medium text-foreground">Not available</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Your role ({user.role}) does not have access to this screen.
           </p>
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -410,50 +413,55 @@ export function AddCompanyPage() {
   }
 
   if (loading || referenceLoading) {
-    return <div className="p-6 text-gray-600">Loading…</div>;
+    return <div className="p-6 text-muted-foreground">Loading…</div>;
   }
 
   if (success !== null) {
     const schemeLabel =
       reference.schemes.find((option) => option.value === state.page3.scheme)?.label ?? state.page3.scheme;
     return (
-      <div className="mx-auto max-w-4xl p-6">
-        <div className="rounded-lg border border-green-200 bg-green-50 p-6">
-          <h2 className="mb-2 text-xl font-bold text-green-800">Company Saved</h2>
-          <p className="text-green-700">
-            <span className="font-semibold">{state.page1.companyName}</span> ({schemeLabel})
-          </p>
-          <p className="text-green-700">
-            Generated code: <span className="font-mono font-semibold">{success.generatedCode}</span>
-          </p>
-          <div className="mt-4 flex gap-3">
-            <button
-              onClick={() => navigate("/")}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              Back to Dashboard
-            </button>
+      <>
+        <Topbar title="Add New Company" onOpenMenu={openMobileMenu} />
+        <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-4xl">
+            <div className="rounded-xl border-2 border-green-200 bg-green-50/85 p-6">
+              <h2 className="mb-2 text-xl font-bold text-green-800">Company Saved</h2>
+              <p className="text-green-700">
+                <span className="font-semibold">{state.page1.companyName}</span> ({schemeLabel})
+              </p>
+              <p className="text-green-700">
+                Generated code: <span className="font-mono font-semibold">{success.generatedCode}</span>
+              </p>
+              <div className="mt-4 flex gap-3">
+                <button
+                  onClick={() => navigate("/")}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  Back to Dashboard
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div>
+    <div className="flex-1 flex flex-col overflow-hidden">
       {showResumePrompt && (
-        <div className="mx-auto mb-4 max-w-4xl rounded-lg border border-blue-200 bg-blue-50 p-4">
+        <div className="mx-6 mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
           <p className="text-sm text-blue-800">You have an unsaved draft. Would you like to resume where you left off?</p>
           <div className="mt-2 flex gap-3">
             <button
               onClick={() => setShowResumePrompt(false)}
-              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
             >
               Resume Draft
             </button>
             <button
               onClick={handleDiscardAndRestart}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Discard and Start New
             </button>

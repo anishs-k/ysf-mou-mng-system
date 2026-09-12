@@ -26,12 +26,19 @@ const ALL_ENTRY_POINTS = [
 /** SPEC-02 section 3.3: a VIEWER is refused these three. */
 const AUTHORING_ENTRY_POINTS = ["Add New Company", "Upload MOU PDF", "Edit Agreement"];
 
+/**
+ * D93's persistent Sidebar (built from this same entry-point list) now also
+ * links every visible entry point, so an unscoped `getByText(label)` matches
+ * both the sidebar link and the dashboard's own card and violates Playwright's
+ * strict mode. Scoping to `main` (the routed page content, not the sidebar)
+ * keeps these assertions about the dashboard's own "Choose a task" grid.
+ */
 test("AC6 Dashboard Home renders all ten entry points from section 3.1", async ({ page }) => {
   await signIn(page, accountFor("ADMIN"));
 
-  await expect(page.getByRole("listitem")).toHaveCount(10);
+  await expect(page.locator("main").getByRole("listitem")).toHaveCount(10);
   for (const label of ALL_ENTRY_POINTS) {
-    await expect(page.getByText(label, { exact: true })).toBeVisible();
+    await expect(page.locator("main").getByText(label, { exact: true })).toBeVisible();
   }
 });
 
@@ -49,14 +56,14 @@ test("every entry point has landed and none is disabled", async ({ page }) => {
 test("AC7 a VIEWER sees only the seven entry points their role allows", async ({ page }) => {
   await signIn(page, accountFor("VIEWER"));
 
-  await expect(page.getByRole("listitem")).toHaveCount(7);
+  await expect(page.locator("main").getByRole("listitem")).toHaveCount(7);
 
   for (const label of AUTHORING_ENTRY_POINTS) {
     await expect(page.getByText(label, { exact: true })).toHaveCount(0);
   }
 
   for (const label of ALL_ENTRY_POINTS.filter((entry) => !AUTHORING_ENTRY_POINTS.includes(entry))) {
-    await expect(page.getByText(label, { exact: true })).toBeVisible();
+    await expect(page.locator("main").getByText(label, { exact: true })).toBeVisible();
   }
 });
 
@@ -72,8 +79,8 @@ test("AC7 a VIEWER who types a restricted URL is refused", async ({ page }) => {
 test("a DATA_ENTRY user sees the authoring entry points but not Edit Agreement", async ({ page }) => {
   await signIn(page, accountFor("DATA_ENTRY"));
 
-  await expect(page.getByText("Add New Company", { exact: true })).toBeVisible();
-  await expect(page.getByText("Upload MOU PDF", { exact: true })).toBeVisible();
+  await expect(page.locator("main").getByText("Add New Company", { exact: true })).toBeVisible();
+  await expect(page.locator("main").getByText("Upload MOU PDF", { exact: true })).toBeVisible();
   await expect(page.getByText("Edit Agreement", { exact: true })).toHaveCount(0);
 });
 

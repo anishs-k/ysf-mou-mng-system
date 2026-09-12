@@ -10,7 +10,7 @@
 
 import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY, PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "@mou/domain";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useOutletContext, useSearchParams } from "react-router-dom";
 
 import type {
   CompanyListItem,
@@ -31,9 +31,12 @@ import {
   fetchZones,
   historyProofDownloadUrl,
 } from "../api/client.ts";
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
+import { brand } from "../components/ui.tsx";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "mt-1 block w-full rounded-lg border border-border px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring";
 
 function amountText(value: string | undefined): string {
   const trimmed = (value ?? "").trim();
@@ -118,6 +121,7 @@ function DetailView({ detail }: { readonly detail: HistoryDetail }) {
 }
 
 export function AgreementHistoryPage() {
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
   const [searchParams] = useSearchParams();
   // Read once, lazily, from the URL this page was opened with - never via an
   // effect, since a plain synchronous setState in an effect body trips
@@ -244,13 +248,14 @@ export function AgreementHistoryPage() {
   const compareOptions = [...rows.map((r) => ({ value: r.historyId, label: `Version ${r.version}` })), { value: "current", label: "Current" }];
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Agreement History</h1>
+    <>
+      <Topbar title="Agreement History" subtitle="Every past version of an agreement, with the reason" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl">
+          {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-
-      {mouId === "" && (
-        <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          {mouId === "" && (
+        <div className="space-y-4 glass-card rounded-xl p-6">
           <div>
             <label htmlFor="historyZone" className="block text-sm font-medium text-gray-700">
               Zone
@@ -322,7 +327,7 @@ export function AgreementHistoryPage() {
 
       {mouId !== "" && currentVersion !== null && (
         <div className="space-y-6">
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="glass-card rounded-xl p-6">
             <h2 className="mb-3 text-lg font-semibold text-gray-900">Versions</h2>
             <table className="w-full text-left text-sm">
               <thead>
@@ -348,7 +353,7 @@ export function AgreementHistoryPage() {
                     <button
                       type="button"
                       onClick={() => void viewDetail("current", "Current")}
-                      className="font-medium text-blue-600 hover:underline"
+                      className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
                     >
                       View
                     </button>
@@ -374,7 +379,7 @@ export function AgreementHistoryPage() {
                           href={historyProofDownloadUrl(mouId, r.historyId)}
                           target="_blank"
                           rel="noreferrer"
-                          className="font-medium text-blue-600 hover:underline"
+                          className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
                         >
                           Download
                         </a>
@@ -386,7 +391,7 @@ export function AgreementHistoryPage() {
                       <button
                         type="button"
                         onClick={() => void viewDetail(r.historyId, `Version ${r.version}`)}
-                        className="font-medium text-blue-600 hover:underline"
+                        className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         View
                       </button>
@@ -398,13 +403,13 @@ export function AgreementHistoryPage() {
           </div>
 
           {detail !== null && (
-            <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="glass-card rounded-xl p-6">
               <h2 className="mb-3 text-lg font-semibold text-gray-900">{detailLabel}</h2>
               <DetailView detail={detail} />
             </div>
           )}
 
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="glass-card rounded-xl p-6">
             <h2 className="mb-3 text-lg font-semibold text-gray-900">Compare</h2>
             <div className="flex flex-wrap items-end gap-4">
               <div>
@@ -434,7 +439,8 @@ export function AgreementHistoryPage() {
               <button
                 type="button"
                 onClick={() => void handleCompare()}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                style={{ background: brand.blue }}
               >
                 Compare
               </button>
@@ -482,6 +488,8 @@ export function AgreementHistoryPage() {
           </div>
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

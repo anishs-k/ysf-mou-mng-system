@@ -6,15 +6,20 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 
 import type { CompanyListItem, CompanyPlantOption, ExportJobStatus, ZoneOption } from "../api/client.ts";
 import { exportDownloadUrl, fetchCompanyPlants, fetchExportJob, fetchZoneCompanies, fetchZones, startPdfExport } from "../api/client.ts";
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
+import { Card, brand } from "../components/ui.tsx";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "mt-1 block w-full rounded-lg border border-border px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring";
 const POLL_INTERVAL_MS = 1500;
 
 export function ExportPdfPage() {
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
   const [scope, setScope] = useState<"all_zones" | "company">("all_zones");
 
   const [zones, setZones] = useState<readonly ZoneOption[]>([]);
@@ -101,12 +106,13 @@ export function ExportPdfPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Export PDF</h1>
-
+    <>
+      <Topbar title="Export PDF" subtitle="Download a PDF for all zones or a single company" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl">
       {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+      <Card className="space-y-4 p-6">
         <div>
           <label htmlFor="pdfScope" className="block text-sm font-medium text-gray-700">
             Scope
@@ -185,23 +191,26 @@ export function ExportPdfPage() {
           type="button"
           disabled={starting || !companyScopeReady}
           onClick={() => void handleStart()}
-          className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          style={{ background: brand.blue }}
         >
           Export
         </button>
 
         {job !== null && (
-          <div className="rounded-md bg-gray-50 p-3 text-sm">
-            {job.status === "pending" && <p className="text-gray-700">Preparing your export…</p>}
+          <div className="rounded-lg bg-muted/50 p-3 text-sm">
+            {job.status === "pending" && <p className="text-muted-foreground">Preparing your export…</p>}
             {job.status === "failed" && <p className="text-red-700">The export failed. Please try again.</p>}
             {job.status === "ready" && (
-              <a href={exportDownloadUrl(job.jobId)} className="font-medium text-blue-600 hover:underline">
+              <a href={exportDownloadUrl(job.jobId)} className="font-medium hover:underline" style={{ color: "#1B5FAE" }}>
                 Download PDF
               </a>
             )}
           </div>
         )}
+      </Card>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

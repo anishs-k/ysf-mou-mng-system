@@ -10,13 +10,15 @@
 
 import { MOU_STATUS_OPTIONS, SCHEME_OPTIONS } from "@mou/domain";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 
 import type { ZoneDashboardResponse, ZoneDrillDownRow } from "../api/client.ts";
 import { fetchZoneDashboard, fetchZoneDrillDown } from "../api/client.ts";
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "mt-1 block w-full rounded-lg border border-border px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring";
 
 interface DrillDownRequest {
   readonly zoneId: string;
@@ -26,6 +28,7 @@ interface DrillDownRequest {
 }
 
 export function ZoneWiseDashboardPage() {
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
   const [scheme, setScheme] = useState("");
   const [status, setStatus] = useState("");
   const [data, setData] = useState<ZoneDashboardResponse | null>(null);
@@ -63,22 +66,25 @@ export function ZoneWiseDashboardPage() {
 
   if (data === null) {
     return (
-      <div className="mx-auto max-w-5xl p-6">
-        <h1 className="mb-6 text-2xl font-bold text-gray-900">Zone Wise Dashboard</h1>
-        {error !== null && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-      </div>
+      <>
+        <Topbar title="Zone Wise Dashboard" subtitle="Companies and MOUs summarised by zone" onOpenMenu={openMobileMenu} />
+        <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+          {error !== null && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        </div>
+      </>
     );
   }
 
   const noCompanies = data.totals.companies === 0;
 
   return (
-    <div className="mx-auto max-w-5xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Zone Wise Dashboard</h1>
-
+    <>
+      <Topbar title="Zone Wise Dashboard" subtitle="Companies and MOUs summarised by zone" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-5xl">
       {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      <div className="mb-6 flex flex-wrap gap-4 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="mb-6 flex flex-wrap gap-4 glass-card rounded-xl p-4">
         <div>
           <label htmlFor="zoneScheme" className="block text-sm font-medium text-gray-700">
             Scheme
@@ -111,7 +117,7 @@ export function ZoneWiseDashboardPage() {
         <p className="text-sm text-gray-600">No companies recorded yet.</p>
       ) : (
         <>
-          <div className="mb-6 overflow-x-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-6 overflow-x-auto glass-card rounded-xl p-4">
             <h2 className="mb-3 text-lg font-semibold text-gray-900">Summary</h2>
             <table className="w-full text-left text-sm">
               <thead>
@@ -133,7 +139,7 @@ export function ZoneWiseDashboardPage() {
                       <button
                         type="button"
                         onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — all companies`)}
-                        className="font-medium text-blue-600 hover:underline"
+                        className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.zoneName}
                       </button>
@@ -144,7 +150,7 @@ export function ZoneWiseDashboardPage() {
                       <button
                         type="button"
                         onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — MOUs`)}
-                        className="text-blue-600 hover:underline"
+                        className="hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.mous}
                       </button>
@@ -153,7 +159,7 @@ export function ZoneWiseDashboardPage() {
                       <button
                         type="button"
                         onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — Active`, "ACTIVE")}
-                        className="text-blue-600 hover:underline"
+                        className="hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.active}
                       </button>
@@ -162,7 +168,7 @@ export function ZoneWiseDashboardPage() {
                       <button
                         type="button"
                         onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — Expired`, "EXPIRED")}
-                        className="text-blue-600 hover:underline"
+                        className="hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.expired}
                       </button>
@@ -171,7 +177,7 @@ export function ZoneWiseDashboardPage() {
                       <button
                         type="button"
                         onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — New`, "NEW")}
-                        className="text-blue-600 hover:underline"
+                        className="hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.new}
                       </button>
@@ -179,7 +185,7 @@ export function ZoneWiseDashboardPage() {
                     <td className="py-1">
                       <Link
                         to={`/alerts?zoneId=${zone.zoneId}&days=90`}
-                        className="text-blue-600 hover:underline"
+                        className="hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.expiringSoon}
                       </Link>
@@ -200,7 +206,7 @@ export function ZoneWiseDashboardPage() {
             </table>
           </div>
 
-          <div className="mb-6 overflow-x-auto rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="mb-6 overflow-x-auto glass-card rounded-xl p-4">
             <h2 className="mb-3 text-lg font-semibold text-gray-900">Scheme Breakdown</h2>
             <table className="w-full text-left text-sm">
               <thead>
@@ -242,7 +248,7 @@ export function ZoneWiseDashboardPage() {
       )}
 
       {drillDownRequest !== null && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="glass-card rounded-xl p-4">
           <h2 className="mb-3 text-lg font-semibold text-gray-900">{drillDownRequest.label}</h2>
           {drillDownRows.length === 0 ? (
             <p className="text-sm text-gray-600">No matching MOUs.</p>
@@ -271,7 +277,7 @@ export function ZoneWiseDashboardPage() {
                     <td className="py-1 text-right">
                       <Link
                         to={`/companies?zoneId=${drillDownRequest.zoneId}&companyId=${row.companyId}`}
-                        className="font-medium text-blue-600 hover:underline"
+                        className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         Open
                       </Link>
@@ -283,6 +289,8 @@ export function ZoneWiseDashboardPage() {
           )}
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }

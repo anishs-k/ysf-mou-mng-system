@@ -14,15 +14,15 @@ import { DASHBOARD_ENTRY_POINTS, canAccessPath } from "../dashboard/entry-points
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <main className="min-h-screen bg-slate-100 p-8">
-      <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm">
-        <h1 className="text-base font-medium text-slate-900">{title}</h1>
+    <div className="p-8 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-2xl glass-card rounded-xl p-8">
+        <h1 className="text-base font-medium text-foreground">{title}</h1>
         {children}
-        <Link className="mt-6 inline-block text-sm text-slate-600 underline" to="/">
+        <Link className="mt-6 inline-block text-sm hover:underline" style={{ color: "#1B5FAE" }} to="/">
           Back to the dashboard
         </Link>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -39,7 +39,7 @@ export function ComingSoonPage() {
   if (entry === undefined) {
     return (
       <Shell title="Page not found">
-        <p className="mt-1 text-sm text-slate-600">There is nothing at {location.pathname}.</p>
+        <p className="mt-1 text-sm text-muted-foreground">There is nothing at {location.pathname}.</p>
       </Shell>
     );
   }
@@ -47,7 +47,7 @@ export function ComingSoonPage() {
   if (!canAccessPath(user.role, location.pathname)) {
     return (
       <Shell title="Not available">
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-muted-foreground">
           Your role ({user.role}) does not have access to this screen.
         </p>
       </Shell>
@@ -56,8 +56,8 @@ export function ComingSoonPage() {
 
   return (
     <Shell title={entry.label}>
-      <p className="mt-1 text-sm text-slate-600">{entry.description}</p>
-      <p className="mt-4 text-sm text-slate-500">This screen is not built yet. It arrives with {entry.spec}.</p>
+      <p className="mt-1 text-sm text-muted-foreground">{entry.description}</p>
+      <p className="mt-4 text-sm text-muted-foreground">This screen is not built yet. It arrives with {entry.spec}.</p>
     </Shell>
   );
 }

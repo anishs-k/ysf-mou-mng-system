@@ -2,7 +2,16 @@
  * Purpose: The 3-step wizard shell for SPEC-03. Shows a step indicator and
  * Next/Back/Cancel buttons. The current page content is rendered as children.
  * Next is disabled when `canProceed` is false.
+ *
+ * SPEC-14 restyles the stepper and the surrounding chrome (Topbar, glass
+ * card) to match `figma_code`; the three page components' own field markup
+ * is unchanged (D80 - Page 1/2/3's ids, labels and behaviour cannot move).
  */
+
+import { useOutletContext } from "react-router-dom";
+import type { AppShellContext } from "../layout/AppShell.tsx";
+import { Topbar } from "../layout/Topbar.tsx";
+import { Card, brand } from "../ui.tsx";
 
 interface WizardShellProps {
   readonly currentStep: number;
@@ -27,89 +36,82 @@ export function WizardShell({
   onCancel,
   children,
 }: WizardShellProps) {
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
   const isLastStep = currentStep === STEPS.length;
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Add New Company</h1>
-
-      {/* Step indicator */}
-      <div className="mb-8 flex items-center justify-between">
-        {STEPS.map((label, index) => {
-          const stepNumber = index + 1;
-          const isActive = stepNumber === currentStep;
-          const isCompleted = stepNumber < currentStep;
-          return (
-            <div key={label} className="flex flex-1 items-center">
-              <div className="flex flex-col items-center">
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold ${
-                    isActive
-                      ? "bg-blue-600 text-white"
-                      : isCompleted
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-200 text-gray-600"
-                  }`}
-                >
-                  {isCompleted ? "✓" : stepNumber}
+    <>
+      <Topbar title="Add New Company" subtitle="Onboard a company through the three-page wizard" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl">
+          {/* Step indicator */}
+          <div className="mb-6 flex items-center justify-between">
+            {STEPS.map((label, index) => {
+              const stepNumber = index + 1;
+              const isActive = stepNumber === currentStep;
+              const isCompleted = stepNumber < currentStep;
+              return (
+                <div key={label} className="flex flex-1 items-center">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white"
+                      style={{ background: isActive ? brand.blue : isCompleted ? brand.green : "#D8E3F0", color: isActive || isCompleted ? "#fff" : "#5A7AA8" }}
+                    >
+                      {isCompleted ? "✓" : stepNumber}
+                    </div>
+                    <span
+                      className="mt-2 text-xs font-medium"
+                      style={{ color: isActive ? brand.blue : isCompleted ? brand.green : "#8A9BB5" }}
+                    >
+                      {label}
+                    </span>
+                  </div>
+                  {index < STEPS.length - 1 && (
+                    <div className="mx-2 h-1 flex-1 rounded-full" style={{ background: isCompleted ? brand.green : "#D8E3F0" }} />
+                  )}
                 </div>
-                <span
-                  className={`mt-2 text-xs font-medium ${
-                    isActive ? "text-blue-600" : isCompleted ? "text-green-600" : "text-gray-500"
-                  }`}
-                >
-                  {label}
-                </span>
-              </div>
-              {index < STEPS.length - 1 && (
-                <div
-                  className={`mx-2 h-1 flex-1 ${
-                    isCompleted ? "bg-green-600" : "bg-gray-200"
-                  }`}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
 
-      {/* Page content */}
-      <div className="mb-8 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-        {children}
-      </div>
+          {/* Page content */}
+          <Card className="mb-6 p-6">{children}</Card>
 
-      {/* Navigation buttons */}
-      <div className="flex justify-between">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isSubmitting}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-
-        <div className="flex gap-3">
-          {canGoBack && (
+          {/* Navigation buttons */}
+          <div className="flex justify-between">
             <button
               type="button"
-              onClick={onBack}
+              onClick={onCancel}
               disabled={isSubmitting}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
             >
-              Back
+              Cancel
             </button>
-          )}
-          <button
-            type="button"
-            onClick={onNext}
-            disabled={!canProceed || isSubmitting}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isSubmitting ? "Saving…" : isLastStep ? "Save" : "Next"}
-          </button>
+
+            <div className="flex gap-3">
+              {canGoBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  disabled={isSubmitting}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                >
+                  Back
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onNext}
+                disabled={!canProceed || isSubmitting}
+                className="rounded-lg text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                style={{ background: brand.blue }}
+              >
+                {isSubmitting ? "Saving…" : isLastStep ? "Save" : "Next"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

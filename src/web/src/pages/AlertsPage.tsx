@@ -3,20 +3,32 @@
  * alert, newest first, with threshold/zone/scheme/acknowledged filters and an
  * Acknowledge action (ADMIN/DATA_ENTRY only, enforced again on the server).
  * Each row links to the Existing Company view via its zoneId/companyId query
- * parameters (SPEC-07's deep-link support).
+ * parameters (SPEC-07's deep-link support). SPEC-14 restyles the list and
+ * adds a Renew shortcut per row (D90) - plain navigation to Upload MOU PDF,
+ * no query-string prefill, since that page does not accept one.
  */
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useOutletContext } from "react-router-dom";
 
 import type { AlertFilters, AlertRow, EnumOption, ZoneOption } from "../api/client.ts";
 import { acknowledgeAlert, fetchAlerts, fetchEnums, fetchZones } from "../api/client.ts";
 import { useAuth } from "../auth/AuthContext.tsx";
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
+import { Badge, Card } from "../components/ui.tsx";
 
 const AUTHORING_ROLES: readonly string[] = ["ADMIN", "DATA_ENTRY"];
 
+function statusVariant(status: string): "info" | "success" | "danger" {
+  if (status === "ACTIVE") return "success";
+  if (status === "EXPIRED") return "danger";
+  return "info";
+}
+
 export function AlertsPage() {
   const { user } = useAuth();
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
   const canAcknowledge = user !== null && AUTHORING_ROLES.includes(user.role);
 
   const [alerts, setAlerts] = useState<readonly AlertRow[]>([]);
@@ -74,119 +86,132 @@ export function AlertsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">MOU Expiry Alerts</h1>
+    <>
+      <Topbar title="MOU Expiry Alerts" subtitle="Agreements expiring in the next 30, 60 or 90 days" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-
-      <div className="mb-4 flex flex-wrap gap-3">
-        <select
-          aria-label="Threshold"
-          value={days}
-          onChange={(event) => setDays(event.target.value as AlertFilters["days"])}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
-        >
-          <option value="all">All thresholds</option>
-          <option value="30">30 days</option>
-          <option value="60">60 days</option>
-          <option value="90">90 days</option>
-        </select>
-        <select
-          aria-label="Zone"
-          value={zoneId}
-          onChange={(event) => setZoneId(event.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
-        >
-          <option value="">All zones</option>
-          {zones.map((z) => (
-            <option key={z.id} value={z.id}>
-              {z.name}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Scheme"
-          value={scheme}
-          onChange={(event) => setScheme(event.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
-        >
-          <option value="">All schemes</option>
-          {schemes.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Acknowledged"
-          value={acknowledged}
-          onChange={(event) => setAcknowledged(event.target.value as AlertFilters["acknowledged"])}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
-        >
-          <option value="false">Unacknowledged</option>
-          <option value="true">Acknowledged</option>
-          <option value="all">All</option>
-        </select>
-      </div>
-
-      {alerts.length === 0 ? (
-        <p className="text-sm text-gray-600">No alerts match these filters.</p>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-              <tr>
-                <th className="p-2">Company</th>
-                <th className="p-2">Code</th>
-                <th className="p-2">Zone</th>
-                <th className="p-2">Plant</th>
-                <th className="p-2">Scheme</th>
-                <th className="p-2">Start</th>
-                <th className="p-2">End</th>
-                <th className="p-2">Days Remaining</th>
-                <th className="p-2">Threshold</th>
-                <th className="p-2">Status</th>
-                <th className="p-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {alerts.map((alert) => (
-                <tr key={alert.alertId} className="border-t border-gray-100">
-                  <td className="p-2">{alert.companyName}</td>
-                  <td className="p-2">{alert.generatedCode}</td>
-                  <td className="p-2">{alert.zoneName}</td>
-                  <td className="p-2">{alert.plantName}</td>
-                  <td className="p-2">{alert.scheme}</td>
-                  <td className="p-2">{alert.mouStartDate}</td>
-                  <td className="p-2">{alert.endDate}</td>
-                  <td className="p-2">{alert.daysRemaining}</td>
-                  <td className="p-2">{alert.thresholdDays}</td>
-                  <td className="p-2">{alert.status}</td>
-                  <td className="p-2">
-                    <div className="flex gap-2">
-                      <Link
-                        to={`/companies?zoneId=${alert.zoneId}&companyId=${alert.companyId}`}
-                        className="text-blue-600 hover:underline"
-                      >
-                        Open
-                      </Link>
-                      {canAcknowledge && alert.acknowledgedAt === null && (
-                        <button
-                          type="button"
-                          onClick={() => void handleAcknowledge(alert.alertId)}
-                          className="text-gray-600 hover:underline"
-                        >
-                          Acknowledge
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mb-4 flex flex-wrap gap-3">
+          <select
+            aria-label="Threshold"
+            value={days}
+            onChange={(event) => setDays(event.target.value as AlertFilters["days"])}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="all">All thresholds</option>
+            <option value="30">30 days</option>
+            <option value="60">60 days</option>
+            <option value="90">90 days</option>
+          </select>
+          <select
+            aria-label="Zone"
+            value={zoneId}
+            onChange={(event) => setZoneId(event.target.value)}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="">All zones</option>
+            {zones.map((z) => (
+              <option key={z.id} value={z.id}>
+                {z.name}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Scheme"
+            value={scheme}
+            onChange={(event) => setScheme(event.target.value)}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="">All schemes</option>
+            {schemes.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label="Acknowledged"
+            value={acknowledged}
+            onChange={(event) => setAcknowledged(event.target.value as AlertFilters["acknowledged"])}
+            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="false">Unacknowledged</option>
+            <option value="true">Acknowledged</option>
+            <option value="all">All</option>
+          </select>
         </div>
-      )}
-    </div>
+
+        {alerts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No alerts match these filters.</p>
+        ) : (
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                  <tr>
+                    <th className="p-2.5">Company</th>
+                    <th className="p-2.5">Code</th>
+                    <th className="p-2.5">Zone</th>
+                    <th className="p-2.5">Plant</th>
+                    <th className="p-2.5">Scheme</th>
+                    <th className="p-2.5">Start</th>
+                    <th className="p-2.5">End</th>
+                    <th className="p-2.5">Days Remaining</th>
+                    <th className="p-2.5">Threshold</th>
+                    <th className="p-2.5">Status</th>
+                    <th className="p-2.5">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {alerts.map((alert) => (
+                    <tr key={alert.alertId} className="border-t border-border hover:bg-muted/30 transition-colors">
+                      <td className="p-2.5 font-semibold text-foreground">{alert.companyName}</td>
+                      <td className="p-2.5 mono text-muted-foreground">{alert.generatedCode}</td>
+                      <td className="p-2.5 text-muted-foreground">{alert.zoneName}</td>
+                      <td className="p-2.5 text-muted-foreground">{alert.plantName}</td>
+                      <td className="p-2.5">
+                        <Badge text={alert.scheme} variant="info" />
+                      </td>
+                      <td className="p-2.5 mono text-muted-foreground">{alert.mouStartDate}</td>
+                      <td className="p-2.5 mono text-muted-foreground">{alert.endDate}</td>
+                      <td className="p-2.5 mono text-muted-foreground">{alert.daysRemaining}</td>
+                      <td className="p-2.5 mono text-muted-foreground">{alert.thresholdDays}</td>
+                      <td className="p-2.5">
+                        <Badge text={alert.status} variant={statusVariant(alert.status)} />
+                      </td>
+                      <td className="p-2.5">
+                        <div className="flex gap-3">
+                          <Link
+                            to={`/companies?zoneId=${alert.zoneId}&companyId=${alert.companyId}`}
+                            className="font-semibold hover:underline"
+                            style={{ color: "#1B5FAE" }}
+                          >
+                            Open
+                          </Link>
+                          {canAcknowledge && (
+                            <Link to="/upload-mou" className="font-semibold hover:underline" style={{ color: "#F26522" }}>
+                              Renew
+                            </Link>
+                          )}
+                          {canAcknowledge && alert.acknowledgedAt === null && (
+                            <button
+                              type="button"
+                              onClick={() => void handleAcknowledge(alert.alertId)}
+                              className="font-semibold text-muted-foreground hover:underline hover:text-foreground"
+                            >
+                              Acknowledge
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+      </div>
+    </>
   );
 }

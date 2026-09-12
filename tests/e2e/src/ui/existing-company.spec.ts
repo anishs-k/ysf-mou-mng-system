@@ -232,7 +232,12 @@ test("AC7 nothing on any of the three pages is editable", async ({ page, request
   await page.getByRole("button", { name: "Next" }).click();
 
   await expect(page.getByRole("heading", { name: "Payroll Details" })).toBeVisible();
-  await expect(page.getByRole("textbox")).toHaveCount(0);
+  // D93's shared Topbar puts one textbox (its search input) on every page now -
+  // AC7's "nothing is editable" is about the payroll data itself, so the
+  // assertion allows exactly that one piece of page chrome, named "Search".
+  const textboxes = page.getByRole("textbox");
+  await expect(textboxes).toHaveCount(1);
+  await expect(textboxes.first()).toHaveAccessibleName("Search");
   await expect(page.getByRole("button", { name: "Save" })).toHaveCount(0);
 });
 

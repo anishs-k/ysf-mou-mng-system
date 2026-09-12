@@ -22,7 +22,11 @@ import {
 } from "@mou/domain";
 import type { CommercialDetailErrors, PayrollDetailErrors } from "@mou/domain";
 import { useEffect, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 
+import type { AppShellContext } from "../components/layout/AppShell.tsx";
+import { Topbar } from "../components/layout/Topbar.tsx";
+import { brand } from "../components/ui.tsx";
 import type {
   CommercialItemOption,
   CompanyListItem,
@@ -47,7 +51,7 @@ import {
 import { useAuth } from "../auth/AuthContext.tsx";
 
 const INPUT_CLASS =
-  "mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "mt-1 block w-full rounded-lg border border-border px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring";
 
 type Step = "select" | "reason" | "edit" | "review" | "done";
 
@@ -169,7 +173,7 @@ function OtherItemsEditor({
           <button
             type="button"
             onClick={() => onChange(items.filter((_, i) => i !== index))}
-            className="mt-1 h-9 rounded-md border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50"
+            className="mt-1 h-9 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-muted"
           >
             Remove
           </button>
@@ -178,7 +182,7 @@ function OtherItemsEditor({
       <button
         type="button"
         onClick={() => onChange([...items, { label: "", amount: "", itemType: "" }])}
-        className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
       >
         Add row
       </button>
@@ -188,6 +192,7 @@ function OtherItemsEditor({
 
 export function EditAgreementPage() {
   const { user } = useAuth();
+  const { openMobileMenu } = useOutletContext<AppShellContext>();
   const [step, setStep] = useState<Step>("select");
   const [error, setError] = useState<string | null>(null);
 
@@ -363,12 +368,12 @@ export function EditAgreementPage() {
 
   if (user !== null && user.role !== "ADMIN") {
     return (
-      <main className="min-h-screen bg-slate-100 p-8">
-        <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm">
-          <h1 className="text-base font-medium text-slate-900">Not available</h1>
-          <p className="mt-1 text-sm text-slate-600">Your role ({user.role}) does not have access to this screen.</p>
+      <div className="p-8">
+        <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm border border-border">
+          <h1 className="text-base font-medium text-foreground">Not available</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Your role ({user.role}) does not have access to this screen.</p>
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -377,13 +382,14 @@ export function EditAgreementPage() {
   const fixedPayrollItems = payrollItems.filter((item) => item.itemType !== null).slice().sort((a, b) => a.displayOrder - b.displayOrder);
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Edit Agreement</h1>
+    <>
+      <Topbar title="Edit Agreement" subtitle="Amend a saved agreement after stating a reason" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl">
+          {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
-
-      {step === "select" && (
-        <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          {step === "select" && (
+        <div className="space-y-4 glass-card rounded-xl p-6">
           <div>
             <label htmlFor="editZone" className="block text-sm font-medium text-gray-700">
               Zone
@@ -465,7 +471,8 @@ export function EditAgreementPage() {
               type="button"
               disabled={mouId === ""}
               onClick={proceedToReason}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              style={{ background: brand.blue }}
             >
               Next
             </button>
@@ -474,7 +481,7 @@ export function EditAgreementPage() {
       )}
 
       {step === "reason" && (
-        <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="space-y-4 glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900">Why are you editing this agreement?</h2>
           <div>
             <label htmlFor="editReason" className="block text-sm font-medium text-gray-700">
@@ -531,7 +538,7 @@ export function EditAgreementPage() {
             <button
               type="button"
               onClick={() => setStep("select")}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
             >
               Back
             </button>
@@ -539,7 +546,8 @@ export function EditAgreementPage() {
               type="button"
               disabled={!canContinueReason || requesting}
               onClick={() => void handleRequestEdit()}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              style={{ background: brand.blue }}
             >
               Continue
             </button>
@@ -548,7 +556,7 @@ export function EditAgreementPage() {
       )}
 
       {step === "edit" && commercial !== null && payroll !== null && (
-        <div className="space-y-6 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="space-y-6 glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900">Commercial Details</h2>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
@@ -688,7 +696,7 @@ export function EditAgreementPage() {
                       traineeCategories: payroll.traineeCategories.filter((_, i) => i !== index),
                     })
                   }
-                  className="mt-1 h-9 rounded-md border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50"
+                  className="mt-1 h-9 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-muted"
                 >
                   Remove
                 </button>
@@ -697,7 +705,7 @@ export function EditAgreementPage() {
             <button
               type="button"
               onClick={() => setPayroll({ ...payroll, traineeCategories: [...payroll.traineeCategories, ""] })}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
             >
               Add category
             </button>
@@ -775,14 +783,15 @@ export function EditAgreementPage() {
             <button
               type="button"
               onClick={() => setStep("reason")}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
             >
               Back
             </button>
             <button
               type="button"
               onClick={proceedToReview}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              style={{ background: brand.blue }}
             >
               Review changes
             </button>
@@ -791,7 +800,7 @@ export function EditAgreementPage() {
       )}
 
       {step === "review" && original !== null && commercial !== null && payroll !== null && (
-        <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="space-y-4 glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900">Review Changes</h2>
           {(() => {
             const diff = computeDiff(original, { commercial, payroll }, commercialItems, payrollItems);
@@ -824,7 +833,7 @@ export function EditAgreementPage() {
             <button
               type="button"
               onClick={() => setStep("edit")}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
             >
               Back
             </button>
@@ -832,7 +841,8 @@ export function EditAgreementPage() {
               type="button"
               disabled={applying}
               onClick={() => void handleApply()}
-              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              style={{ background: brand.blue }}
             >
               Apply
             </button>
@@ -841,18 +851,21 @@ export function EditAgreementPage() {
       )}
 
       {step === "done" && (
-        <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="space-y-4 glass-card rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900">Edit Applied</h2>
           <p className="text-sm text-gray-600">The agreement is now at version {appliedVersion}.</p>
           <button
             type="button"
             onClick={startAnother}
-            className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              style={{ background: brand.blue }}
           >
             Edit another agreement
           </button>
         </div>
       )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 }
