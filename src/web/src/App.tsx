@@ -5,12 +5,17 @@
  * screen. Every Dashboard Home entry point (`dashboard/entry-points.ts`) now has
  * a real route here - SPEC-13 was the last spec to land, so `ComingSoonPage` is
  * kept only as the catch-all for an unrecognised path.
+ *
+ * SPEC-14 wraps every authenticated route in `AppShell` (a nested layout
+ * route rendering the persistent Sidebar + each page's own content via
+ * `<Outlet/>`) - `/login` stays outside it, unchanged.
  */
 
 import { Route, Routes } from "react-router-dom";
 
 import { AuthProvider } from "./auth/AuthContext.tsx";
 import { RequireAuth } from "./auth/RequireAuth.tsx";
+import { AppShell } from "./components/layout/AppShell.tsx";
 import { AddCompanyPage } from "./pages/AddCompanyPage.tsx";
 import { AgreementHistoryPage } from "./pages/AgreementHistoryPage.tsx";
 import { AlertsPage } from "./pages/AlertsPage.tsx";
@@ -31,103 +36,27 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
-          path="/"
           element={
             <RequireAuth>
-              <DashboardPage />
+              <AppShell />
             </RequireAuth>
           }
-        />
-        <Route
-          path="/companies/new"
-          element={
-            <RequireAuth>
-              <AddCompanyPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/companies"
-          element={
-            <RequireAuth>
-              <ExistingCompanyPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/alerts"
-          element={
-            <RequireAuth>
-              <AlertsPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/upload-mou"
-          element={
-            <RequireAuth>
-              <UploadMouPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/agreements/edit"
-          element={
-            <RequireAuth>
-              <EditAgreementPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/agreements/history"
-          element={
-            <RequireAuth>
-              <AgreementHistoryPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/zones/overview"
-          element={
-            <RequireAuth>
-              <ZoneWiseDashboardPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/search"
-          element={
-            <RequireAuth>
-              <SearchPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/export/excel"
-          element={
-            <RequireAuth>
-              <ExportExcelPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/export/pdf"
-          element={
-            <RequireAuth>
-              <ExportPdfPage />
-            </RequireAuth>
-          }
-        />
-        {/* Every SPEC-07-13 destination now has a real page; ComingSoonPage
-            remains only as the catch-all below for an unrecognised path. */}
-        <Route
-          path="*"
-          element={
-            <RequireAuth>
-              <ComingSoonPage />
-            </RequireAuth>
-          }
-        />
+        >
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/companies/new" element={<AddCompanyPage />} />
+          <Route path="/companies" element={<ExistingCompanyPage />} />
+          <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/upload-mou" element={<UploadMouPage />} />
+          <Route path="/agreements/edit" element={<EditAgreementPage />} />
+          <Route path="/agreements/history" element={<AgreementHistoryPage />} />
+          <Route path="/zones/overview" element={<ZoneWiseDashboardPage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/export/excel" element={<ExportExcelPage />} />
+          <Route path="/export/pdf" element={<ExportPdfPage />} />
+          {/* Every SPEC-07-13 destination now has a real page; ComingSoonPage
+              remains only as the catch-all below for an unrecognised path. */}
+          <Route path="*" element={<ComingSoonPage />} />
+        </Route>
       </Routes>
     </AuthProvider>
   );
