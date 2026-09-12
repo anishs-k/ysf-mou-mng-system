@@ -2,8 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "module": "ESNext",
+    "moduleResolution": "bundler"
   },
-  "include": ["src"],
+  "include": ["src", "playwright.config.ts"],
   "exclude": ["node_modules"]
 }
