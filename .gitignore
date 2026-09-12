@@ -8,6 +8,7 @@ figma_code/
 # Local dev environment files (see docs/devenv.md) - never committed
 environment.sh
 environment.bat
+environment.ps1
 .env
 .env.*
 !.env.example
@@ -15,3 +16,11 @@ environment.bat
 logs/
 *.log
 .DS_Store
+
+# Uploaded MOU PDFs (SPEC-05 section 4) - never committed, see environment.sh
+.data/
+
+# Playwright artefacts (see tests/e2e/playwright.config.ts)
+test-results/
+playwright-report/
+blob-report/

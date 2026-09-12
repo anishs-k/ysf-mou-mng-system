@@ -7,31 +7,26 @@
   "engines": {
     "node": ">=24"
   },
+  "workspaces": [
+    "src/*",
+    "tests/e2e"
+  ],
   "scripts": {
-    "build": "npm run build:api && npm run build:web",
-    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
-    "test": "npm run test:e2e",
-    "lint": "npm run lint:api && npm run lint:web",
-    "check-types": "npm run check-types:api && npm run check-types:web",
-    "clean": "rm -rf dist",
-    "build:api": "cd src/api && npm run build",
-    "dev:api": "cd src/api && npm run dev",
-    "build:web": "cd src/web && npm run build",
-    "dev:web": "cd src/web && npm run dev",
-    "lint:api": "cd src/api && npm run lint",
-    "lint:web": "cd src/web && npm run lint",
-    "check-types:api": "cd src/api && npm run check-types",
-    "check-types:web": "cd src/web && npm run check-types"
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "test:domain": "turbo run test --filter=@mou/domain",
+    "test:integration": "turbo run test:integration",
+    "test:ui": "turbo run test:ui",
+    "lint": "turbo run lint",
+    "check-types": "turbo run check-types",
+    "clean": "turbo run clean",
+    "db:generate": "npm run db:generate --workspace=@mou/api",
+    "db:migrate": "npm run db:migrate --workspace=@mou/api",
+    "db:seed": "npm run db:seed --workspace=@mou/api"
   },
   "devDependencies": {
-    "concurrently": "^8.0.0",
-    "drizzle-kit": "^0.20.18",
-    "eslint": "^8.0.0",
-    "typescript": "^5.0.0",
-    "typescript-eslint": "^7.0.0"
-  },
-  "dependencies": {
-    "drizzle-orm": "^0.45.2",
-    "pg": "^8.23.0"
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.0"
   }
 }
