@@ -443,7 +443,7 @@ implemented one by one in numeric order.
 
 ## SPEC-13 — Search, Export Excel and Export PDF
 
-This is the last spec in the batch the user asked for in auto-mode
+This was the last spec in the batch the user asked for in auto-mode
 (SPEC-07 through SPEC-13).
 
 | # | Decision | Choice | Rationale |
@@ -486,3 +486,59 @@ This is the last spec in the batch the user asked for in auto-mode
   not landed is present but disabled" test was rewritten to assert the
   opposite - zero disabled entries - since its premise (some spec still
   pending) is no longer true.
+
+## SPEC-14 — Figma UI Replication
+
+A visual-only restyle of every already-implemented page against a Figma Make
+export (`figma_code/`), resolved through a grill-me interview rather than
+assumed. Full detail and page-by-page mapping in
+`docs/specifications/SPEC-14-figma-ui-replication.md` §0.
+
+| # | Decision | Choice | Rationale |
+|---|---|---|---|
+| D80 | SPEC-14 scope | **Visual/style replication only.** Every existing route, page boundary, step flow and data-entry interaction pattern (SPEC-01–13) stays exactly as implemented; only colours, typography, spacing, chrome and component styling change | Resolving what "100% accurate look" meant was the first branch — without this, every later SPEC-14 decision below is ambiguous |
+| D81 | Figma's floating multilingual AI chatbot widget | Excluded entirely — no spec backs it, and even a static version is new UI surface and new content beyond a visual reskin | Nothing in SPEC-01–13 describes a chatbot; adding one would be new scope smuggled into a restyle spec |
+| D82 | Fonts (Figma's `index.css` loads Roboto/Roboto Mono from Google Fonts via CDN `@import`) | **Self-hosted** instead — font files served from `@mou/web`'s own static assets | An internal enterprise app should not gain a runtime dependency on `fonts.googleapis.com` merely from a visual reskin |
+| D83 | Login page's "Remember Me" / "Forgot Password" (no SPEC-02 backing) | Rendered visually, wired to no-ops; real functionality logged separately in `SPEC-15-deferred-ui-features.md` | A pure UI-replication spec should not silently invent new authentication behaviour, but also should not just delete Figma-specified elements |
+| D84 | Dashboard KPI tiles (Total Companies, Active MOU, Expiring Soon, Expired, Pending Review) | Built as new minimal backend scope (SPEC-14 §5.1), not omitted or faked with static numbers | Faking counts on an internal ops dashboard is worse than not showing them; the four "real" KPIs were already one query away via SPEC-12's aggregation |
+| D85 | Meaning of "Pending Review" (no equivalent concept exists — MOU status is only NEW/ACTIVE/EXPIRED) | `COUNT(*)` on `company_draft` — unfinished onboarding wizard sessions (SPEC-03) | Reuses an existing table built for exactly this purpose; zero new schema |
+| D86 | Dashboard "Recent Activity" feed | Built from existing timestamps — `company.createdAt` UNION `agreement_history.createdAt` — not a new activity-log table | Both tables already carry the needed timestamps; instrumenting every mutating route for a dedicated audit table was explicitly rejected as oversized for this spec |
+| D87 | Topbar search box (decorative even in Figma's own code) and bell (wired in Figma to the expiry-alerts page) | Both wired for real: bell → `/alerts`, search box Enter → `/search?q=...` | Cheap, real wiring to routes that already exist, distinct from adopting Figma's rejected "global search" IA proposal (D80) |
+| D88 | Login page's four "live" stat tiles, which would need a new unauthenticated endpoint (every existing endpoint requires a session, SPEC-02) | Replaced with static marketing copy — icon + label, no numbers; no public endpoint added | Exposing aggregate business counts pre-authentication is a security-relevant change that a UI-replication spec should not make unilaterally |
+| D89 | Brand copy in `figma_code` ("NAPS Apprenticeship Portal · V2.0", "Ministry of Skill Development & Entrepreneurship") — not cross-referenced anywhere in `project_information.md`, and its scheme name doesn't match this system's (WILP/BOC and DVOC/MSBTE/FLEXI, not NATS) | Reproduced verbatim | User confirmed this is accurate to the real client context despite predating this repo's own docs |
+| D90 | Expiry Alert detail modal: Figma has no "Acknowledge" control (SPEC-08's required action) but does have a "Renew" button navigating to Upload MOU | Keep Acknowledge (SPEC-08 AC6 depends on it), add Figma's "Renew" as an additional shortcut to the existing `/upload-mou` route | Figma's design silently drops a required, already-implemented, tested acceptance criterion; SPEC-14 must not let a visual reskin regress functionality |
+| D91 | `figma_code`'s `napsData.ts`/`natsData.ts` mock rows (different scheme "NATS", city-level "zones") | Reference-only for visual design; not imported. Real zones/schemes stay exactly as SPEC-01 defines them | Confirms via `deriveStatus`/enum inspection that this mock data does not correspond to any real domain concept in this repo |
+| D92 | Sidebar navigation items/order/icons/role-visibility | Driven by the existing `DASHBOARD_ENTRY_POINTS` list (`src/web/src/dashboard/entry-points.ts`) | That file is already the single source of truth for the dashboard cards and route guards; a hand-duplicated sidebar list would drift from it |
+| D93 | No shared page chrome exists today (`src/web/src` has no Sidebar/Topbar/Layout component) | New `AppShell` layout route (Sidebar + Topbar + `Outlet`) wraps every authenticated route; `/login` stays outside it | Standard React Router nested-route pattern; the alternative (duplicating chrome markup into all thirteen pages) is the kind of drift this repo's other layers already avoid |
+| D94 | Design tokens (`figma_code/src/index.css`'s colour variables, radii, shadows, `.glass-*` classes) | Ported verbatim into `@mou/web`'s `index.css` `@theme` block; no `tailwind.config.js` introduced | Matches this repo's existing Tailwind v4 CSS-first convention, noted in `index.css` itself before SPEC-14 |
+| D95 | Icons (Figma uses inline SVG, no icon library) | Ported into a shared `icons.tsx` module, not a new dependency | Matches both `figma_code`'s own approach and `package.json`'s already-minimal dependency set |
+| D96 | Export Excel/PDF are two routes (SPEC-13); Figma has one combined `ExportPage` | Stay two routes; Figma's single page's visuals are split across both | Consistent with D80 — no route merges regardless of how Figma grouped the screens |
+| D97 | Sidebar user badge (Figma hardcodes "Rajendra Kumar" / "Admin · North Zone") | Shows the real signed-in user's name/initials/role; omits the zone sub-label | Users are not zone-scoped in the data model (SPEC-01 §2.9) — showing an invented zone would misrepresent a VIEWER's actual (all-zone) access |
+| D98 | The persistent Sidebar (D93) now renders every visible `DASHBOARD_ENTRY_POINTS` label on every authenticated page, including Dashboard Home's own "Choose a task" card grid of the same entries | Existing Playwright assertions that located an entry label with an unscoped `getByText`/`getByRole("listitem")` were scoped to `page.locator("main")` (the routed page content, sibling of the Sidebar in `AppShell`) — the dashboard's own grid, not the nav | A locator fix for a genuine new wrapper element (D93's Sidebar), not a behaviour change — the entry's label, path and click target are unchanged |
+| D99 | The shared Topbar (D93) puts one real `<input type="text">` search box (D87) on every authenticated page | `existing-company.spec.ts`'s AC7 ("nothing is editable" on the read-only Payroll Details step) was updated from "zero textboxes" to "exactly one textbox, named Search" | Same category as D98 — the assertion's intent (no *editable payroll data*) is preserved; only the literal DOM count changed because chrome now exists where none did before |
+| D100 | Wizard forms (Page 1/2/3, ~40 fields across `AddCompanyPage`) and the Edit Agreement form's field grids | Restyled at the container/chrome level (Topbar, glass-card wrappers, brand-coloured buttons) rather than every individual input; every field's `id`/label/behaviour is untouched | Proportionate scope call: the shared chrome change (Sidebar/Topbar/tokens) delivers most of the visual-fidelity gain app-wide, while re-theming dozens of already-correct native inputs for marginal additional polish carried outsized regression risk for this pass |
+
+### Notes on D80–D100
+
+- D98–D100 were found during implementation, not the interview — each is a
+  place where D93's new persistent Sidebar+Topbar chrome (present on every
+  page for the first time) changed what an *existing* Playwright test's
+  unscoped locator matched, even though the feature it tested did not
+  change. The fix in every case was scoping the test locator to the routed
+  page content, never changing the app's behaviour to suit the test.
+- All eighteen decisions were resolved in one grill-me interview against
+  `figma_code/` before any implementation began (SPEC-14). Nine were pure
+  codebase inspection (D91–D97 plus part of D80); the rest were genuine
+  product/scope forks that only the user could resolve, most of them found
+  by reading `figma_code/src/App.tsx` closely enough to notice where its
+  own behaviour was itself a stub (D87's dead search box, D90's missing
+  Acknowledge control) rather than assuming Figma's code was authoritative
+  by default.
+- **D84–D86 turned into the largest scope addition in this batch.** What
+  looked like a pure restyle (SPEC-14) grew a small vertical slice of real
+  backend work — two new endpoints — because the alternative (faking
+  dashboard numbers, or an unauthenticated stats endpoint) was worse than
+  either omitting the section or building it for real. Worth remembering
+  for any future "just restyle it" request: check whether the target design
+  shows *data* the current system doesn't yet expose before agreeing the
+  work is visual-only.

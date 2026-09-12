@@ -170,6 +170,34 @@ implemented one by one, in auto-mode. Every specification in
 beyond Phase 1 remain **to be confirmed by the user** before any further
 phase-level work begins.
 
+14. `SPEC-14-figma-ui-replication.md` — **implemented**. A visual-only restyle
+    of every page against a Figma Make export (`figma_code/`) — no route,
+    step order or data-entry behaviour changed (D80). Foundation: design
+    tokens and `.glass-*` utilities ported verbatim into `index.css`
+    (D94), Roboto/Roboto Mono self-hosted via `@fontsource/*` instead of a
+    Google Fonts `@import` (D82), a shared inline-SVG icon set
+    (`components/icons.tsx`, D95), and a new persistent `AppShell` layout
+    route (Sidebar + Topbar, D93) wrapping every authenticated route, driven
+    entirely by the existing `DASHBOARD_ENTRY_POINTS` list (D92) so the
+    sidebar, the dashboard cards and the route guards cannot drift apart.
+    Two new minimal read-only endpoints back the Dashboard's KPI row and
+    Recent Activity table that the design needs and nothing prior computed:
+    `GET /api/dashboard/summary` (Total Companies/Active MOU/Expiring
+    Soon/Expired, summed from SPEC-12's own per-zone aggregation, plus
+    Pending Review as a `company_draft` row count, D84/D85) and `GET
+    /api/dashboard/recent-activity?limit=` (a `company.createdAt` UNION
+    `agreement_history.editedAt` feed, D86). Every one of the thirteen
+    existing pages was restyled to the new chrome and tokens; the AI chatbot
+    (D81), Login's Remember Me/Forgot Password (D83, real version deferred to
+    `SPEC-15-deferred-ui-features.md`), and a public stats endpoint (D88)
+    were explicitly not built. Alerts gained a "Renew" shortcut to
+    `/upload-mou` alongside the existing Acknowledge action (D90). Introducing
+    the Sidebar (which repeats every entry-point label) and the Topbar (which
+    puts a real search `<input>` on every page) required scoping three
+    pre-existing Playwright locators to the routed page content rather than
+    the whole page (D98/D99) — no test's asserted behaviour changed, only
+    what an unscoped locator now also matched.
+
 ### Known gaps carried forward
 
 - `SPEC-01` §11.2 requires a forced password change on first login, but `SPEC-02`

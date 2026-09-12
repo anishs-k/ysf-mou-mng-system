@@ -28,6 +28,8 @@ them exist. `SPEC-01` is mandatory for everything; `SPEC-03` must precede
 - `./SPEC-11-agreement-history.md` : Read-only, append-only audit view of past agreement versions — version list with reason, editor and proof, full snapshot detail, and version-to-version comparison.
 - `./SPEC-12-zone-wise-dashboard.md` : Zone-grouped summary of companies, plants and MOUs by derived status, the zone × scheme matrix, filters and drill-down into the underlying records.
 - `./SPEC-13-search-and-exports.md` : Search by Company/Plant/Scheme, Excel export as a four-sheet workbook, and PDF export scoped to All Zones or a single company. All three share one filter and query layer.
+- `./SPEC-14-figma-ui-replication.md` : Visual-only restyle of every already-implemented page to match the `figma_code/` Figma export pixel-for-pixel, plus the small new read-only Dashboard KPI/Recent-Activity endpoints that restyle alone cannot honestly provide. Changes no route, data model or interaction pattern.
+- `./SPEC-15-deferred-ui-features.md` : Not implemented. Holds the "Remember Me" and "Forgot Password" login controls SPEC-14 renders but leaves inert, and the open design questions for building them for real later.
 
 ## Open Decisions Flagged Across Specs
 
