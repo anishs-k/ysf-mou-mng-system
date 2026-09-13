@@ -139,3 +139,69 @@ directly on the host, reaching the same Postgres through the port
 docker-compose publishes to the host (`5434`). Only
 `ADMIN_USERNAME`/`ADMIN_EMAIL`/`ADMIN_PASSWORD` and `WEB_ORIGIN` are shared
 between the two paths, read by docker-compose from your `.env` file.
+
+## Deploying to Railway
+
+Railway runs each service independently, so unlike docker-compose there is no
+shared network and no single nginx origin in front of both. That one difference
+drives every setting below.
+
+Create **three** services in one Railway project:
+
+1. **Postgres** - Railway's own managed Postgres plugin. Copy its
+   `DATABASE_URL`.
+2. **api** - Settings → Build → Builder: **Dockerfile**, Dockerfile Path:
+   `src/api/Dockerfile`, Root Directory: `/` (the repo root, which is the
+   build context the Dockerfile expects).
+3. **web** - same, with Dockerfile Path `src/web/Dockerfile` and Root
+   Directory `/`.
+
+Do **not** create a service for `@mou/domain`. It is a layer-0 library with no
+server and no `start` script - Railway's autodetect will offer it because it
+sees a `package.json` in the workspace, and it will fail with "No start command
+detected", which is correct.
+
+Setting the builder to Dockerfile also stops Railway's autodetect (Railpack)
+from guessing a build. Left to guess, it runs `npm run dev --workspace=@mou/web`
+for the frontend - Vite's hot-reload dev server, not a production static serve.
+
+### api service variables
+
+| Variable | Value |
+| --- | --- |
+| `DATABASE_URL` | from the Postgres service |
+| `WEB_ORIGIN` | the web service's public URL, exactly, no trailing slash |
+| `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | your chosen admin login |
+| `UPLOAD_ROOT` | `/app/uploads` |
+| `SESSION_COOKIE_SAMESITE` | `none` on `*.up.railway.app`; unset on a custom domain (see below) |
+
+Migrations and the zone/admin seed still run automatically on every start via
+`src/api/docker-entrypoint.sh` - there is no separate deploy step.
+
+**Attach a Railway Volume mounted at `/app/uploads`.** Container filesystems are
+ephemeral, so without it every uploaded MOU PDF and generated export is lost on
+each redeploy.
+
+### web service variables
+
+`VITE_API_URL` must be set as a **build-time** variable (Railway passes service
+variables as Docker build args) to the api service's public URL, e.g.
+`https://mou-api-production.up.railway.app`. Vite inlines it into the bundle at
+build time, so changing it later requires a rebuild, not just a restart.
+
+Leave `API_UPSTREAM` unset - there is no compose network here, so nginx cannot
+proxy to the api service. `NGINX_PORT` is handled automatically.
+
+### The cookie setting, and why a custom domain is better
+
+The session cookie defaults to `SameSite=Lax`, which a browser only sends back
+on same-site requests. Railway's generated `*.up.railway.app` hostnames are on
+the public suffix list, which makes two services there **cross-site** - a `lax`
+cookie is never returned, so login appears to do nothing. Hence
+`SESSION_COOKIE_SAMESITE=none` while testing on those URLs.
+
+Point your own domain at both services instead (`app.example.com` → web,
+`api.example.com` → api) and they become same-site again: **remove**
+`SESSION_COOKIE_SAMESITE` so the cookie goes back to `lax` and keeps its CSRF
+protection, and update `WEB_ORIGIN` and `VITE_API_URL` to the new hostnames
+(the latter needs a rebuild). This is the recommended end state.
