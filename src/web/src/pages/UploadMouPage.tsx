@@ -7,23 +7,16 @@
  * before the upload control is enabled (AC3/AC4).
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext.tsx";
-import type { CompanyListItem, CompanyMouOption, CompanyPlantOption, MouDocumentRow, ZoneOption } from "../api/client.ts";
-import {
-  documentDownloadUrl,
-  fetchCompanyMous,
-  fetchCompanyPlants,
-  fetchMouDocuments,
-  fetchZoneCompanies,
-  fetchZones,
-  uploadMouDocumentToMou,
-} from "../api/client.ts";
+import type { MouDocumentRow } from "../api/client.ts";
+import { documentDownloadUrl, fetchMouDocuments, uploadMouDocumentToMou } from "../api/client.ts";
 import type { AppShellContext } from "../components/layout/AppShell.tsx";
 import { Topbar } from "../components/layout/Topbar.tsx";
 import { Card } from "../components/ui.tsx";
+import { useCascadingSelectors } from "../hooks/useCascadingSelectors.ts";
 
 const AUTHORING_ROLES: readonly string[] = ["ADMIN", "DATA_ENTRY"];
 
@@ -34,61 +27,11 @@ function formatBytes(bytes: number): string {
 export function UploadMouPage() {
   const { user } = useAuth();
   const { openMobileMenu } = useOutletContext<AppShellContext>();
-  const [zones, setZones] = useState<readonly ZoneOption[]>([]);
-  const [zoneId, setZoneId] = useState("");
-  const [companies, setCompanies] = useState<readonly CompanyListItem[]>([]);
-  const [companyId, setCompanyId] = useState("");
-  const [plants, setPlants] = useState<readonly CompanyPlantOption[]>([]);
-  const [plantId, setPlantId] = useState("");
-  const [mous, setMous] = useState<readonly CompanyMouOption[]>([]);
-  const [mouId, setMouId] = useState("");
   const [documents, setDocuments] = useState<readonly MouDocumentRow[]>([]);
 
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchZones()
-      .then(setZones)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load zones"));
-  }, []);
-
-  async function handleZoneChange(nextZoneId: string) {
-    setZoneId(nextZoneId);
-    setCompanyId("");
-    setPlants([]);
-    setPlantId("");
-    setMous([]);
-    setMouId("");
-    setDocuments([]);
-    setCompanies([]);
-    if (nextZoneId === "") {
-      return;
-    }
-    try {
-      setCompanies(await fetchZoneCompanies(nextZoneId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load companies");
-    }
-  }
-
-  async function handleCompanyChange(nextCompanyId: string) {
-    setCompanyId(nextCompanyId);
-    setPlantId("");
-    setMous([]);
-    setMouId("");
-    setDocuments([]);
-    setPlants([]);
-    if (nextCompanyId === "") {
-      return;
-    }
-    try {
-      setPlants(await fetchCompanyPlants(nextCompanyId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load plants");
-    }
-  }
 
   async function loadDocuments(id: string) {
     try {
@@ -98,25 +41,43 @@ export function UploadMouPage() {
     }
   }
 
-  async function handlePlantChange(nextPlantId: string) {
-    setPlantId(nextPlantId);
-    setMous([]);
-    setMouId("");
+  const {
+    zones,
+    zoneId,
+    companies,
+    companyId,
+    plants,
+    plantId,
+    mous,
+    mouId,
+    setMouId,
+    handleZoneChange: cascadeZoneChange,
+    handleCompanyChange: cascadeCompanyChange,
+    handlePlantChange: cascadePlantChange,
+  } = useCascadingSelectors({
+    onError: (msg) => setError(msg),
+    // The cascade auto-selecting a plant's one-and-only MOU must load that
+    // MOU's documents immediately, exactly as this page's own
+    // handlePlantChange used to do inline.
+    onAutoSelectMou: (autoMouId) => void loadDocuments(autoMouId),
+  });
+
+  // Every level clears this page's own documents list, which the shared
+  // hook has no reason to know about - the same unconditional clear each of
+  // these handlers performed inline before this hook existed.
+  async function handleZoneChange(nextZoneId: string) {
     setDocuments([]);
-    if (nextPlantId === "" || companyId === "") {
-      return;
-    }
-    try {
-      const list = await fetchCompanyMous(companyId, nextPlantId);
-      setMous(list);
-      const only = list.length === 1 ? list[0] : undefined;
-      if (only !== undefined) {
-        setMouId(only.mouId);
-        await loadDocuments(only.mouId);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load schemes");
-    }
+    await cascadeZoneChange(nextZoneId);
+  }
+
+  async function handleCompanyChange(nextCompanyId: string) {
+    setDocuments([]);
+    await cascadeCompanyChange(nextCompanyId);
+  }
+
+  async function handlePlantChange(nextPlantId: string) {
+    setDocuments([]);
+    await cascadePlantChange(nextPlantId);
   }
 
   async function handleSchemeChange(nextMouId: string) {

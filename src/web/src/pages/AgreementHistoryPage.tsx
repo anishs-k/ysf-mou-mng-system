@@ -12,25 +12,9 @@ import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY, PAYROLL_FIXED_ITEM_
 import { useEffect, useState } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 
-import type {
-  CompanyListItem,
-  CompanyMouOption,
-  CompanyPlantOption,
-  DiffRow,
-  HistoryDetail,
-  HistoryRow,
-  ZoneOption,
-} from "../api/client.ts";
-import {
-  fetchAgreementHistory,
-  fetchCompanyMous,
-  fetchCompanyPlants,
-  fetchHistoryCompare,
-  fetchHistoryDetail,
-  fetchZoneCompanies,
-  fetchZones,
-  historyProofDownloadUrl,
-} from "../api/client.ts";
+import type { DiffRow, HistoryDetail, HistoryRow } from "../api/client.ts";
+import { fetchAgreementHistory, fetchHistoryCompare, fetchHistoryDetail, historyProofDownloadUrl } from "../api/client.ts";
+import { useCascadingSelectors } from "../hooks/useCascadingSelectors.ts";
 import type { AppShellContext } from "../components/layout/AppShell.tsx";
 import { Topbar } from "../components/layout/Topbar.tsx";
 import { brand } from "../components/ui.tsx";
@@ -123,18 +107,28 @@ function DetailView({ detail }: { readonly detail: HistoryDetail }) {
 export function AgreementHistoryPage() {
   const { openMobileMenu } = useOutletContext<AppShellContext>();
   const [searchParams] = useSearchParams();
-  // Read once, lazily, from the URL this page was opened with - never via an
-  // effect, since a plain synchronous setState in an effect body trips
-  // react-hooks/set-state-in-effect for no benefit over an initializer.
-  const [mouId, setMouId] = useState(() => searchParams.get("mouId") ?? "");
+  const [error, setError] = useState<string | null>(null);
 
-  const [zones, setZones] = useState<readonly ZoneOption[]>([]);
-  const [zoneId, setZoneId] = useState("");
-  const [companies, setCompanies] = useState<readonly CompanyListItem[]>([]);
-  const [companyId, setCompanyId] = useState("");
-  const [plants, setPlants] = useState<readonly CompanyPlantOption[]>([]);
-  const [plantId, setPlantId] = useState("");
-  const [mous, setMous] = useState<readonly CompanyMouOption[]>([]);
+  // mouId is seeded once from the URL this page was opened with (a deep
+  // link skips the cascading selectors entirely), the same lazy-initializer
+  // pattern this page established before this hook existed.
+  const {
+    zones,
+    zoneId,
+    companies,
+    companyId,
+    plants,
+    plantId,
+    mous,
+    mouId,
+    setMouId,
+    handleZoneChange,
+    handleCompanyChange,
+    handlePlantChange,
+  } = useCascadingSelectors({
+    onError: (message) => setError(message),
+    initialMouId: searchParams.get("mouId") ?? "",
+  });
 
   const [currentVersion, setCurrentVersion] = useState<number | null>(null);
   const [rows, setRows] = useState<readonly HistoryRow[]>([]);
@@ -145,14 +139,6 @@ export function AgreementHistoryPage() {
   const [compareTo, setCompareTo] = useState("current");
   const [compareResult, setCompareResult] = useState<{ fromLabel: string; toLabel: string; rows: readonly DiffRow[] } | null>(null);
   const [showAll, setShowAll] = useState(false);
-
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchZones()
-      .then(setZones)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Failed to load zones"));
-  }, []);
 
   useEffect(() => {
     if (mouId === "") {
@@ -177,53 +163,6 @@ export function AgreementHistoryPage() {
       cancelled = true;
     };
   }, [mouId]);
-
-  async function handleZoneChange(nextZoneId: string) {
-    setZoneId(nextZoneId);
-    setCompanyId("");
-    setPlants([]);
-    setPlantId("");
-    setMous([]);
-    setMouId("");
-    setCompanies([]);
-    if (nextZoneId === "") return;
-    try {
-      setCompanies(await fetchZoneCompanies(nextZoneId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load companies");
-    }
-  }
-
-  async function handleCompanyChange(nextCompanyId: string) {
-    setCompanyId(nextCompanyId);
-    setPlantId("");
-    setMous([]);
-    setMouId("");
-    setPlants([]);
-    if (nextCompanyId === "") return;
-    try {
-      setPlants(await fetchCompanyPlants(nextCompanyId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load plants");
-    }
-  }
-
-  async function handlePlantChange(nextPlantId: string) {
-    setPlantId(nextPlantId);
-    setMous([]);
-    setMouId("");
-    if (nextPlantId === "" || companyId === "") return;
-    try {
-      const list = await fetchCompanyMous(companyId, nextPlantId);
-      setMous(list);
-      const only = list.length === 1 ? list[0] : undefined;
-      if (only !== undefined) {
-        setMouId(only.mouId);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load schemes");
-    }
-  }
 
   async function viewDetail(historyId: string, label: string) {
     setError(null);
@@ -255,239 +194,239 @@ export function AgreementHistoryPage() {
           {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
           {mouId === "" && (
-        <div className="space-y-4 glass-card rounded-xl p-6">
-          <div>
-            <label htmlFor="historyZone" className="block text-sm font-medium text-gray-700">
-              Zone
-            </label>
-            <select id="historyZone" value={zoneId} onChange={(event) => void handleZoneChange(event.target.value)} className={INPUT_CLASS}>
-              <option value="">Select zone</option>
-              {zones.map((z) => (
-                <option key={z.id} value={z.id}>
-                  {z.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="historyCompany" className="block text-sm font-medium text-gray-700">
-              Company
-            </label>
-            <select
-              id="historyCompany"
-              value={companyId}
-              disabled={zoneId === ""}
-              onChange={(event) => void handleCompanyChange(event.target.value)}
-              className={`${INPUT_CLASS} disabled:bg-gray-100`}
-            >
-              <option value="">{zoneId === "" ? "Select a zone first" : "Select company"}</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="historyPlant" className="block text-sm font-medium text-gray-700">
-              Company Plant
-            </label>
-            <select
-              id="historyPlant"
-              value={plantId}
-              disabled={companyId === ""}
-              onChange={(event) => void handlePlantChange(event.target.value)}
-              className={`${INPUT_CLASS} disabled:bg-gray-100`}
-            >
-              <option value="">{companyId === "" ? "Select a company first" : "Select plant"}</option>
-              {plants.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.plantName}
-                </option>
-              ))}
-            </select>
-          </div>
-          {mous.length > 1 && (
-            <div>
-              <label htmlFor="historyScheme" className="block text-sm font-medium text-gray-700">
-                Scheme
-              </label>
-              <select id="historyScheme" value={mouId} onChange={(event) => setMouId(event.target.value)} className={INPUT_CLASS}>
-                <option value="">Select scheme</option>
-                {mous.map((m) => (
-                  <option key={m.mouId} value={m.mouId}>
-                    {m.scheme}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-4 glass-card rounded-xl p-6">
+              <div>
+                <label htmlFor="historyZone" className="block text-sm font-medium text-gray-700">
+                  Zone
+                </label>
+                <select id="historyZone" value={zoneId} onChange={(event) => void handleZoneChange(event.target.value)} className={INPUT_CLASS}>
+                  <option value="">Select zone</option>
+                  {zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="historyCompany" className="block text-sm font-medium text-gray-700">
+                  Company
+                </label>
+                <select
+                  id="historyCompany"
+                  value={companyId}
+                  disabled={zoneId === ""}
+                  onChange={(event) => void handleCompanyChange(event.target.value)}
+                  className={`${INPUT_CLASS} disabled:bg-gray-100`}
+                >
+                  <option value="">{zoneId === "" ? "Select a zone first" : "Select company"}</option>
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="historyPlant" className="block text-sm font-medium text-gray-700">
+                  Company Plant
+                </label>
+                <select
+                  id="historyPlant"
+                  value={plantId}
+                  disabled={companyId === ""}
+                  onChange={(event) => void handlePlantChange(event.target.value)}
+                  className={`${INPUT_CLASS} disabled:bg-gray-100`}
+                >
+                  <option value="">{companyId === "" ? "Select a company first" : "Select plant"}</option>
+                  {plants.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.plantName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {mous.length > 1 && (
+                <div>
+                  <label htmlFor="historyScheme" className="block text-sm font-medium text-gray-700">
+                    Scheme
+                  </label>
+                  <select id="historyScheme" value={mouId} onChange={(event) => setMouId(event.target.value)} className={INPUT_CLASS}>
+                    <option value="">Select scheme</option>
+                    {mous.map((m) => (
+                      <option key={m.mouId} value={m.mouId}>
+                        {m.scheme}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {mouId !== "" && currentVersion !== null && (
-        <div className="space-y-6">
-          <div className="glass-card rounded-xl p-6">
-            <h2 className="mb-3 text-lg font-semibold text-gray-900">Versions</h2>
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="text-xs uppercase text-gray-500">
-                  <th className="py-1 font-medium">Version</th>
-                  <th className="py-1 font-medium">Changed On</th>
-                  <th className="py-1 font-medium">Changed By</th>
-                  <th className="py-1 font-medium">Reason</th>
-                  <th className="py-1 font-medium">Remark</th>
-                  <th className="py-1 font-medium">Proof</th>
-                  <th className="py-1" />
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-gray-100">
-                  <td className="py-1">{currentVersion}</td>
-                  <td className="py-1">—</td>
-                  <td className="py-1">—</td>
-                  <td className="py-1">Current</td>
-                  <td className="py-1">—</td>
-                  <td className="py-1">—</td>
-                  <td className="py-1 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void viewDetail("current", "Current")}
-                      className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={7} className="py-3 text-gray-600">
-                      No amendments recorded for this agreement.
-                    </td>
-                  </tr>
-                )}
-                {rows.map((r) => (
-                  <tr key={r.historyId} className="border-b border-gray-100">
-                    <td className="py-1">{r.version}</td>
-                    <td className="py-1">{new Date(r.editedAt ?? "").toLocaleString()}</td>
-                    <td className="py-1">{r.editedByUsername}</td>
-                    <td className="py-1">{r.editReasonLabel}</td>
-                    <td className="py-1">{r.remark ?? "—"}</td>
-                    <td className="py-1">
-                      {r.hasProof ? (
-                        <a
-                          href={historyProofDownloadUrl(mouId, r.historyId)}
-                          target="_blank"
-                          rel="noreferrer"
+          {mouId !== "" && currentVersion !== null && (
+            <div className="space-y-6">
+              <div className="glass-card rounded-xl p-6">
+                <h2 className="mb-3 text-lg font-semibold text-gray-900">Versions</h2>
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase text-gray-500">
+                      <th className="py-1 font-medium">Version</th>
+                      <th className="py-1 font-medium">Changed On</th>
+                      <th className="py-1 font-medium">Changed By</th>
+                      <th className="py-1 font-medium">Reason</th>
+                      <th className="py-1 font-medium">Remark</th>
+                      <th className="py-1 font-medium">Proof</th>
+                      <th className="py-1" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b border-gray-100">
+                      <td className="py-1">{currentVersion}</td>
+                      <td className="py-1">—</td>
+                      <td className="py-1">—</td>
+                      <td className="py-1">Current</td>
+                      <td className="py-1">—</td>
+                      <td className="py-1">—</td>
+                      <td className="py-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => void viewDetail("current", "Current")}
                           className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
                         >
-                          Download
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="py-1 text-right">
-                      <button
-                        type="button"
-                        onClick={() => void viewDetail(r.historyId, `Version ${r.version}`)}
-                        className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                    {rows.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-3 text-gray-600">
+                          No amendments recorded for this agreement.
+                        </td>
+                      </tr>
+                    )}
+                    {rows.map((r) => (
+                      <tr key={r.historyId} className="border-b border-gray-100">
+                        <td className="py-1">{r.version}</td>
+                        <td className="py-1">{new Date(r.editedAt ?? "").toLocaleString()}</td>
+                        <td className="py-1">{r.editedByUsername}</td>
+                        <td className="py-1">{r.editReasonLabel}</td>
+                        <td className="py-1">{r.remark ?? "—"}</td>
+                        <td className="py-1">
+                          {r.hasProof ? (
+                            <a
+                              href={historyProofDownloadUrl(mouId, r.historyId)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
+                            >
+                              Download
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="py-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => void viewDetail(r.historyId, `Version ${r.version}`)}
+                            className="font-medium hover:underline" style={{ color: "#1B5FAE" }}
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-          {detail !== null && (
-            <div className="glass-card rounded-xl p-6">
-              <h2 className="mb-3 text-lg font-semibold text-gray-900">{detailLabel}</h2>
-              <DetailView detail={detail} />
+              {detail !== null && (
+                <div className="glass-card rounded-xl p-6">
+                  <h2 className="mb-3 text-lg font-semibold text-gray-900">{detailLabel}</h2>
+                  <DetailView detail={detail} />
+                </div>
+              )}
+
+              <div className="glass-card rounded-xl p-6">
+                <h2 className="mb-3 text-lg font-semibold text-gray-900">Compare</h2>
+                <div className="flex flex-wrap items-end gap-4">
+                  <div>
+                    <label htmlFor="compareFrom" className="block text-sm font-medium text-gray-700">
+                      From
+                    </label>
+                    <select id="compareFrom" value={compareFrom} onChange={(event) => setCompareFrom(event.target.value)} className={INPUT_CLASS}>
+                      {compareOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="compareTo" className="block text-sm font-medium text-gray-700">
+                      To
+                    </label>
+                    <select id="compareTo" value={compareTo} onChange={(event) => setCompareTo(event.target.value)} className={INPUT_CLASS}>
+                      {compareOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleCompare()}
+                    className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+                    style={{ background: brand.blue }}
+                  >
+                    Compare
+                  </button>
+                </div>
+
+                {compareResult !== null && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-600">
+                        {compareResult.fromLabel} → {compareResult.toLabel}
+                      </p>
+                      <label className="flex items-center gap-1 text-sm text-gray-700">
+                        <input type="checkbox" checked={showAll} onChange={(event) => setShowAll(event.target.checked)} />
+                        Show all fields
+                      </label>
+                    </div>
+                    {(() => {
+                      const visible = showAll ? compareResult.rows : compareResult.rows.filter((r) => r.changed);
+                      if (visible.length === 0) {
+                        return <p className="text-sm text-gray-600">No differences between these versions.</p>;
+                      }
+                      return (
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="text-xs uppercase text-gray-500">
+                              <th className="py-1 font-medium">Field</th>
+                              <th className="py-1 font-medium">Old Value</th>
+                              <th className="py-1 font-medium">New Value</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {visible.map((r) => (
+                              <tr key={r.field} className="border-b border-gray-100">
+                                <td className="py-1">{r.field}</td>
+                                <td className="py-1 text-gray-500">{r.oldValue}</td>
+                                <td className={`py-1 ${r.changed ? "font-medium" : ""}`}>{r.newValue}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
             </div>
           )}
-
-          <div className="glass-card rounded-xl p-6">
-            <h2 className="mb-3 text-lg font-semibold text-gray-900">Compare</h2>
-            <div className="flex flex-wrap items-end gap-4">
-              <div>
-                <label htmlFor="compareFrom" className="block text-sm font-medium text-gray-700">
-                  From
-                </label>
-                <select id="compareFrom" value={compareFrom} onChange={(event) => setCompareFrom(event.target.value)} className={INPUT_CLASS}>
-                  {compareOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="compareTo" className="block text-sm font-medium text-gray-700">
-                  To
-                </label>
-                <select id="compareTo" value={compareTo} onChange={(event) => setCompareTo(event.target.value)} className={INPUT_CLASS}>
-                  {compareOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleCompare()}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
-                style={{ background: brand.blue }}
-              >
-                Compare
-              </button>
-            </div>
-
-            {compareResult !== null && (
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">
-                    {compareResult.fromLabel} → {compareResult.toLabel}
-                  </p>
-                  <label className="flex items-center gap-1 text-sm text-gray-700">
-                    <input type="checkbox" checked={showAll} onChange={(event) => setShowAll(event.target.checked)} />
-                    Show all fields
-                  </label>
-                </div>
-                {(() => {
-                  const visible = showAll ? compareResult.rows : compareResult.rows.filter((r) => r.changed);
-                  if (visible.length === 0) {
-                    return <p className="text-sm text-gray-600">No differences between these versions.</p>;
-                  }
-                  return (
-                    <table className="w-full text-left text-sm">
-                      <thead>
-                        <tr className="text-xs uppercase text-gray-500">
-                          <th className="py-1 font-medium">Field</th>
-                          <th className="py-1 font-medium">Old Value</th>
-                          <th className="py-1 font-medium">New Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visible.map((r) => (
-                          <tr key={r.field} className="border-b border-gray-100">
-                            <td className="py-1">{r.field}</td>
-                            <td className="py-1 text-gray-500">{r.oldValue}</td>
-                            <td className={`py-1 ${r.changed ? "font-medium" : ""}`}>{r.newValue}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
         </div>
       </div>
     </>
