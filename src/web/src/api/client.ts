@@ -196,20 +196,46 @@ export interface ZoneOption {
   readonly name: string;
 }
 
+/**
+ * Both /api/enums and /api/zones back nine different pages' dropdowns with
+ * data that essentially never changes within a session (master reference
+ * lists, the zone master), yet every one of those pages fetched it fresh on
+ * its own mount. Caching the in-flight *promise* (not just the resolved
+ * value) means two pages mounting at nearly the same moment - e.g. the
+ * cascading-selectors hook and this page's own enum fetch - share the one
+ * request instead of issuing two. A rejection clears the cache immediately,
+ * so a transient network failure does not permanently poison every later
+ * caller for the rest of the session.
+ */
+let enumsPromise: Promise<EnumsResponse> | undefined;
+let zonesPromise: Promise<readonly ZoneOption[]> | undefined;
+
 export async function fetchEnums(): Promise<EnumsResponse> {
-  const response = await request("/api/enums");
-  if (!response.ok) {
-    throw new Error(`GET /api/enums failed with status ${response.status}`);
-  }
-  return (await response.json()) as EnumsResponse;
+  enumsPromise ??= (async () => {
+    const response = await request("/api/enums");
+    if (!response.ok) {
+      throw new Error(`GET /api/enums failed with status ${response.status}`);
+    }
+    return (await response.json()) as EnumsResponse;
+  })().catch((error: unknown) => {
+    enumsPromise = undefined;
+    throw error;
+  });
+  return enumsPromise;
 }
 
 export async function fetchZones(): Promise<readonly ZoneOption[]> {
-  const response = await request("/api/zones");
-  if (!response.ok) {
-    throw new Error(`GET /api/zones failed with status ${response.status}`);
-  }
-  return (await response.json()) as readonly ZoneOption[];
+  zonesPromise ??= (async () => {
+    const response = await request("/api/zones");
+    if (!response.ok) {
+      throw new Error(`GET /api/zones failed with status ${response.status}`);
+    }
+    return (await response.json()) as readonly ZoneOption[];
+  })().catch((error: unknown) => {
+    zonesPromise = undefined;
+    throw error;
+  });
+  return zonesPromise;
 }
 
 /**
@@ -252,19 +278,29 @@ export interface MouDocumentMeta {
  * Errors surface the server's message the same way validatePage1 does, so the
  * UI can show AC2/AC3's specific rejection reasons rather than a generic one.
  */
-export async function uploadMouDocument(draftId: string, file: File): Promise<MouDocumentMeta> {
+export async function uploadMouDocument(
+  draftId: string,
+  file: File,
+): Promise<MouDocumentMeta> {
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/api/companies/draft/${draftId}/mou-document`, {
-    method: "POST",
-    credentials: "include",
-    body,
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/companies/draft/${draftId}/mou-document`,
+    {
+      method: "POST",
+      credentials: "include",
+      body,
+    },
+  );
 
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(errorBody.error ?? `Upload failed with status ${response.status}`);
+    const errorBody = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      errorBody.error ?? `Upload failed with status ${response.status}`,
+    );
   }
 
   return (await response.json()) as MouDocumentMeta;
@@ -279,10 +315,14 @@ export interface CompanyListItem {
   readonly name: string;
 }
 
-export async function fetchZoneCompanies(zoneId: string): Promise<readonly CompanyListItem[]> {
+export async function fetchZoneCompanies(
+  zoneId: string,
+): Promise<readonly CompanyListItem[]> {
   const response = await request(`/api/zones/${zoneId}/companies`);
   if (!response.ok) {
-    throw new Error(`GET /api/zones/${zoneId}/companies failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/zones/${zoneId}/companies failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly CompanyListItem[];
 }
@@ -296,13 +336,20 @@ export interface CompanyOverview {
   readonly hrContactNumber: string;
   readonly financeHeadContactName: string;
   readonly financeHeadContactNumber: string;
-  readonly plants: readonly { readonly id: string; readonly plantName: string }[];
+  readonly plants: readonly {
+    readonly id: string;
+    readonly plantName: string;
+  }[];
 }
 
-export async function fetchCompanyOverview(companyId: string): Promise<CompanyOverview> {
+export async function fetchCompanyOverview(
+  companyId: string,
+): Promise<CompanyOverview> {
   const response = await request(`/api/companies/${companyId}/overview`);
   if (!response.ok) {
-    throw new Error(`GET /api/companies/${companyId}/overview failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/companies/${companyId}/overview failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as CompanyOverview;
 }
@@ -320,7 +367,9 @@ export async function fetchCompanyMous(
   const query = plantId !== undefined ? `?plantId=${plantId}` : "";
   const response = await request(`/api/companies/${companyId}/mous${query}`);
   if (!response.ok) {
-    throw new Error(`GET /api/companies/${companyId}/mous failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/companies/${companyId}/mous failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly CompanyMouOption[];
 }
@@ -351,13 +400,23 @@ export interface MouCommercialDetail {
   readonly stipendDate: number | null;
   readonly charges: readonly MouChargeRow[];
   readonly otherItems: readonly MouOtherItemRow[];
-  readonly document: { readonly id: string; readonly originalFilename: string; readonly uploadedAt: string } | undefined;
+  readonly document:
+    | {
+        readonly id: string;
+        readonly originalFilename: string;
+        readonly uploadedAt: string;
+      }
+    | undefined;
 }
 
-export async function fetchMouCommercial(mouId: string): Promise<MouCommercialDetail> {
+export async function fetchMouCommercial(
+  mouId: string,
+): Promise<MouCommercialDetail> {
   const response = await request(`/api/mous/${mouId}/commercial`);
   if (!response.ok) {
-    throw new Error(`GET /api/mous/${mouId}/commercial failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/mous/${mouId}/commercial failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as MouCommercialDetail;
 }
@@ -375,10 +434,14 @@ export interface MouPayrollDetail {
   readonly deductions: readonly MouPayrollItemRow[];
 }
 
-export async function fetchMouPayroll(mouId: string): Promise<MouPayrollDetail> {
+export async function fetchMouPayroll(
+  mouId: string,
+): Promise<MouPayrollDetail> {
   const response = await request(`/api/mous/${mouId}/payroll`);
   if (!response.ok) {
-    throw new Error(`GET /api/mous/${mouId}/payroll failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/mous/${mouId}/payroll failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as MouPayrollDetail;
 }
@@ -418,7 +481,9 @@ export interface AlertFilters {
 
 function toQueryString(filters: object): string {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters as Record<string, string | undefined>)) {
+  for (const [key, value] of Object.entries(
+    filters as Record<string, string | undefined>,
+  )) {
     if (value !== undefined && value !== "") {
       params.set(key, value);
     }
@@ -427,10 +492,16 @@ function toQueryString(filters: object): string {
   return query === "" ? "" : `?${query}`;
 }
 
-export async function fetchAlerts(filters: AlertFilters = {}): Promise<readonly AlertRow[]> {
-  const response = await request(`/api/alerts/expiring${toQueryString(filters)}`);
+export async function fetchAlerts(
+  filters: AlertFilters = {},
+): Promise<readonly AlertRow[]> {
+  const response = await request(
+    `/api/alerts/expiring${toQueryString(filters)}`,
+  );
   if (!response.ok) {
-    throw new Error(`GET /api/alerts/expiring failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/alerts/expiring failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly AlertRow[];
 }
@@ -438,16 +509,22 @@ export async function fetchAlerts(filters: AlertFilters = {}): Promise<readonly 
 export async function fetchAlertsCount(): Promise<number> {
   const response = await request("/api/alerts/count");
   if (!response.ok) {
-    throw new Error(`GET /api/alerts/count failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/alerts/count failed with status ${response.status}`,
+    );
   }
   const body = (await response.json()) as { count: number };
   return body.count;
 }
 
 export async function acknowledgeAlert(alertId: string): Promise<void> {
-  const response = await request(`/api/alerts/${alertId}/acknowledge`, { method: "POST" });
+  const response = await request(`/api/alerts/${alertId}/acknowledge`, {
+    method: "POST",
+  });
   if (!response.ok) {
-    throw new Error(`POST /api/alerts/${alertId}/acknowledge failed with status ${response.status}`);
+    throw new Error(
+      `POST /api/alerts/${alertId}/acknowledge failed with status ${response.status}`,
+    );
   }
 }
 
@@ -460,10 +537,14 @@ export interface CompanyPlantOption {
   readonly plantName: string;
 }
 
-export async function fetchCompanyPlants(companyId: string): Promise<readonly CompanyPlantOption[]> {
+export async function fetchCompanyPlants(
+  companyId: string,
+): Promise<readonly CompanyPlantOption[]> {
   const response = await request(`/api/companies/${companyId}/plants`);
   if (!response.ok) {
-    throw new Error(`GET /api/companies/${companyId}/plants failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/companies/${companyId}/plants failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly CompanyPlantOption[];
 }
@@ -476,10 +557,14 @@ export interface MouDocumentRow {
   readonly uploadedByUsername: string;
 }
 
-export async function fetchMouDocuments(mouId: string): Promise<readonly MouDocumentRow[]> {
+export async function fetchMouDocuments(
+  mouId: string,
+): Promise<readonly MouDocumentRow[]> {
   const response = await request(`/api/mous/${mouId}/documents`);
   if (!response.ok) {
-    throw new Error(`GET /api/mous/${mouId}/documents failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/mous/${mouId}/documents failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly MouDocumentRow[];
 }
@@ -489,7 +574,10 @@ export async function fetchMouDocuments(mouId: string): Promise<readonly MouDocu
  * own boundary-bearing content-type, same reasoning as SPEC-05's
  * uploadMouDocument().
  */
-export async function uploadMouDocumentToMou(mouId: string, file: File): Promise<void> {
+export async function uploadMouDocumentToMou(
+  mouId: string,
+  file: File,
+): Promise<void> {
   const body = new FormData();
   body.append("file", file);
 
@@ -500,8 +588,12 @@ export async function uploadMouDocumentToMou(mouId: string, file: File): Promise
   });
 
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(errorBody.error ?? `Upload failed with status ${response.status}`);
+    const errorBody = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      errorBody.error ?? `Upload failed with status ${response.status}`,
+    );
   }
 }
 
@@ -571,14 +663,21 @@ export async function requestEditToken(
     body.append("proof", proof);
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/mous/${mouId}/edit-request`, {
-    method: "POST",
-    credentials: "include",
-    body,
-  });
+  const response = await fetch(
+    `${API_BASE_URL}/api/mous/${mouId}/edit-request`,
+    {
+      method: "POST",
+      credentials: "include",
+      body,
+    },
+  );
   if (!response.ok) {
-    const errorBody = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(errorBody.error ?? `Edit request failed with status ${response.status}`);
+    const errorBody = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      errorBody.error ?? `Edit request failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as EditTokenResponse;
 }
@@ -604,11 +703,18 @@ export async function applyEdit(
     method: "PUT",
     body: JSON.stringify({ token, version, commercial, payroll }),
   });
-  const body = (await response.json().catch(() => ({}))) as { version?: number; error?: string };
+  const body = (await response.json().catch(() => ({}))) as {
+    version?: number;
+    error?: string;
+  };
   if (response.ok && body.version !== undefined) {
     return { ok: true, version: body.version };
   }
-  return { ok: false, status: response.status, message: body.error ?? "Edit failed" };
+  return {
+    ok: false,
+    status: response.status,
+    message: body.error ?? "Edit failed",
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -649,33 +755,53 @@ export interface CompareResponse {
   readonly rows: readonly DiffRow[];
 }
 
-export async function fetchAgreementHistory(mouId: string): Promise<HistoryListResponse> {
+export async function fetchAgreementHistory(
+  mouId: string,
+): Promise<HistoryListResponse> {
   const response = await request(`/api/mous/${mouId}/history`);
   if (!response.ok) {
-    throw new Error(`GET /api/mous/${mouId}/history failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/mous/${mouId}/history failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as HistoryListResponse;
 }
 
 /** `historyId` may be a real id or the literal "current" - both resolve to the same detail shape. */
-export async function fetchHistoryDetail(mouId: string, historyId: string): Promise<HistoryDetail> {
+export async function fetchHistoryDetail(
+  mouId: string,
+  historyId: string,
+): Promise<HistoryDetail> {
   const response = await request(`/api/mous/${mouId}/history/${historyId}`);
   if (!response.ok) {
-    throw new Error(`GET /api/mous/${mouId}/history/${historyId} failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/mous/${mouId}/history/${historyId} failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as HistoryDetail;
 }
 
 /** `from`/`to` are each a history id or the literal "current". */
-export async function fetchHistoryCompare(mouId: string, from: string, to: string): Promise<CompareResponse> {
-  const response = await request(`/api/mous/${mouId}/history/compare?from=${from}&to=${to}`);
+export async function fetchHistoryCompare(
+  mouId: string,
+  from: string,
+  to: string,
+): Promise<CompareResponse> {
+  const response = await request(
+    `/api/mous/${mouId}/history/compare?from=${from}&to=${to}`,
+  );
   if (!response.ok) {
-    throw new Error(`GET /api/mous/${mouId}/history/compare failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/mous/${mouId}/history/compare failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as CompareResponse;
 }
 
-export function historyProofDownloadUrl(mouId: string, historyId: string): string {
+export function historyProofDownloadUrl(
+  mouId: string,
+  historyId: string,
+): string {
   return `${API_BASE_URL}/api/mous/${mouId}/history/${historyId}/proof`;
 }
 
@@ -742,10 +868,16 @@ function zoneFilterQuery(filters: ZoneDashboardFilters): string {
   return query === "" ? "" : `?${query}`;
 }
 
-export async function fetchZoneDashboard(filters: ZoneDashboardFilters = {}): Promise<ZoneDashboardResponse> {
-  const response = await request(`/api/dashboard/zone-wise${zoneFilterQuery(filters)}`);
+export async function fetchZoneDashboard(
+  filters: ZoneDashboardFilters = {},
+): Promise<ZoneDashboardResponse> {
+  const response = await request(
+    `/api/dashboard/zone-wise${zoneFilterQuery(filters)}`,
+  );
   if (!response.ok) {
-    throw new Error(`GET /api/dashboard/zone-wise failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/dashboard/zone-wise failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as ZoneDashboardResponse;
 }
@@ -765,9 +897,13 @@ export async function fetchZoneDrillDown(
   zoneId: string,
   filters: ZoneDashboardFilters = {},
 ): Promise<readonly ZoneDrillDownRow[]> {
-  const response = await request(`/api/dashboard/zone-wise/${zoneId}/companies${zoneFilterQuery(filters)}`);
+  const response = await request(
+    `/api/dashboard/zone-wise/${zoneId}/companies${zoneFilterQuery(filters)}`,
+  );
   if (!response.ok) {
-    throw new Error(`GET /api/dashboard/zone-wise/${zoneId}/companies failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/dashboard/zone-wise/${zoneId}/companies failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly ZoneDrillDownRow[];
 }
@@ -804,7 +940,10 @@ export interface SearchResponse {
   readonly pageSize: number;
 }
 
-function searchFilterQuery(filters: SearchFilters, extra: Record<string, string | number | undefined> = {}): string {
+function searchFilterQuery(
+  filters: SearchFilters,
+  extra: Record<string, string | number | undefined> = {},
+): string {
   const params = new URLSearchParams();
   const all = { ...filters, ...extra };
   for (const [key, value] of Object.entries(all)) {
@@ -816,11 +955,20 @@ function searchFilterQuery(filters: SearchFilters, extra: Record<string, string 
   return query === "" ? "" : `?${query}`;
 }
 
-export async function fetchSearch(filters: SearchFilters, page = 1): Promise<SearchResponse> {
-  const response = await request(`/api/search${searchFilterQuery(filters, { page })}`);
+export async function fetchSearch(
+  filters: SearchFilters,
+  page = 1,
+): Promise<SearchResponse> {
+  const response = await request(
+    `/api/search${searchFilterQuery(filters, { page })}`,
+  );
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `GET /api/search failed with status ${response.status}`);
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      body.error ?? `GET /api/search failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as SearchResponse;
 }
@@ -831,10 +979,16 @@ export interface ExportJobStatus {
   readonly downloadUrl?: string;
 }
 
-export async function startExcelExport(filters: SearchFilters): Promise<ExportJobStatus> {
-  const response = await request(`/api/export/excel${searchFilterQuery(filters)}`);
+export async function startExcelExport(
+  filters: SearchFilters,
+): Promise<ExportJobStatus> {
+  const response = await request(
+    `/api/export/excel${searchFilterQuery(filters)}`,
+  );
   if (!response.ok) {
-    throw new Error(`GET /api/export/excel failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/export/excel failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as ExportJobStatus;
 }
@@ -845,12 +999,18 @@ export interface PdfExportParams {
   readonly plantId?: string;
 }
 
-export async function startPdfExport(params: PdfExportParams): Promise<ExportJobStatus> {
+export async function startPdfExport(
+  params: PdfExportParams,
+): Promise<ExportJobStatus> {
   const query = searchFilterQuery({}, { ...params });
   const response = await request(`/api/export/pdf${query}`);
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `GET /api/export/pdf failed with status ${response.status}`);
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      body.error ?? `GET /api/export/pdf failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as ExportJobStatus;
 }
@@ -858,7 +1018,9 @@ export async function startPdfExport(params: PdfExportParams): Promise<ExportJob
 export async function fetchExportJob(jobId: string): Promise<ExportJobStatus> {
   const response = await request(`/api/export/jobs/${jobId}`);
   if (!response.ok) {
-    throw new Error(`GET /api/export/jobs/${jobId} failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/export/jobs/${jobId} failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as ExportJobStatus;
 }
@@ -882,7 +1044,9 @@ export interface DashboardSummary {
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
   const response = await request("/api/dashboard/summary");
   if (!response.ok) {
-    throw new Error(`GET /api/dashboard/summary failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/dashboard/summary failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as DashboardSummary;
 }
@@ -897,10 +1061,16 @@ export interface RecentActivityRow {
   readonly occurredAt: string;
 }
 
-export async function fetchRecentActivity(limit = 10): Promise<readonly RecentActivityRow[]> {
-  const response = await request(`/api/dashboard/recent-activity?limit=${limit}`);
+export async function fetchRecentActivity(
+  limit = 10,
+): Promise<readonly RecentActivityRow[]> {
+  const response = await request(
+    `/api/dashboard/recent-activity?limit=${limit}`,
+  );
   if (!response.ok) {
-    throw new Error(`GET /api/dashboard/recent-activity failed with status ${response.status}`);
+    throw new Error(
+      `GET /api/dashboard/recent-activity failed with status ${response.status}`,
+    );
   }
   return (await response.json()) as readonly RecentActivityRow[];
 }
