@@ -204,7 +204,7 @@ export async function fetchZoneDrillDown(
       mouId: mou.id,
       companyId: company.id,
       companyName: company.companyName,
-      generatedCode: company.generatedCode,
+      generatedCode: mou.generatedCode,
       plantName: companyPlant.plantName,
       scheme: mou.scheme,
       mouStartDate: mou.mouStartDate,

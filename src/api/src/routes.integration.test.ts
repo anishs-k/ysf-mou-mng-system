@@ -89,7 +89,7 @@ test("AC15 GET /api/enums returns every section 2, 3 and 4 list", async () => {
   const commercial = body["commercialItems"] as { itemType: string | null; displayOrder: number }[];
   const payroll = body["payrollItems"] as { itemType: string | null; displayOrder: number }[];
   assert.equal(commercial.length, 17);
-  assert.equal(payroll.length, 23);
+  assert.equal(payroll.length, 24);
   assert.equal(commercial[0]?.displayOrder, 1);
   assert.equal(commercial[16]?.itemType, null);
   assert.equal(payroll[9]?.itemType, "DEDUCTION");
@@ -102,24 +102,79 @@ test("AC15 GET /api/zones returns the seeded active zones ordered by name", asyn
   assert.equal(response.status, 200);
   const zones = (await response.json()) as { code: string; name: string }[];
 
+  // SPEC-16 D102 replaced the five provisional zones with these 24. The order is
+  // the database's own `ORDER BY name` under the en_US.utf8 collation, which sorts
+  // "NCR Haryana"/"NCR Noida" ahead of "Nashik".
   assert.deepEqual(
     zones.map((zone) => zone.name),
-    ["Central", "East", "North", "South", "West"],
+    [
+      "Ahilya Nagar",
+      "Assam",
+      "Chennai",
+      "Chiplun",
+      "Coimbatore",
+      "Daman",
+      "Goa",
+      "Gujarat Sanand",
+      "Gujarat Vadodara",
+      "Haridwar",
+      "Jamshedpur",
+      "Karnataka",
+      "Kolhapur",
+      "Madhya Pradesh",
+      "Mumbai",
+      "NCR Haryana",
+      "NCR Noida",
+      "Nashik",
+      "Pune",
+      "Rajasthan",
+      "Ranjangaon",
+      "Rudrapur",
+      "Sikkim",
+      "Solapur",
+    ],
   );
   assert.deepEqual(
     zones.map((zone) => zone.code),
-    ["CENTRAL", "EAST", "NORTH", "SOUTH", "WEST"],
+    [
+      "AHILYANGR",
+      "ASSAM",
+      "CHENNAI",
+      "CHIPLUN",
+      "COIMBATORE",
+      "DAMAN",
+      "GOA",
+      "GJSANAND",
+      "GJVADODARA",
+      "HARIDWAR",
+      "JAMSHEDPUR",
+      "KARNATAKA",
+      "KOLHAPUR",
+      "MP",
+      "MUMBAI",
+      "NCRHARYANA",
+      "NCRNOIDA",
+      "NASHIK",
+      "PUNE",
+      "RAJASTHAN",
+      "RANJANGAON",
+      "RUDRAPUR",
+      "SIKKIM",
+      "SOLAPUR",
+    ],
   );
 });
 
 test("AC15 GET /api/zones omits deactivated zones", async () => {
   await seedZones(pool);
-  await pool.query(`UPDATE zone SET is_active = false WHERE code = 'WEST'`);
+  // SPEC-16 D102 replaced the five provisional zones with the 24 real zones, so
+  // the deactivated row here is one of those, not the old "WEST" placeholder.
+  await pool.query(`UPDATE zone SET is_active = false WHERE code = 'GOA'`);
 
   const zones = (await (await fetch(`${baseUrl}/api/zones`)).json()) as { code: string }[];
 
-  assert.equal(zones.length, 4);
-  assert.ok(!zones.some((zone) => zone.code === "WEST"));
+  assert.equal(zones.length, 23);
+  assert.ok(!zones.some((zone) => zone.code === "GOA"));
 });
 
 test("AC16 a deactivated company leaves the zone list but stays resolvable by id", async () => {
@@ -128,12 +183,14 @@ test("AC16 a deactivated company leaves the zone list but stays resolvable by id
   const companyId = await insertCompany(pool, zoneId, userId, { companyName: "Acme Trainees" });
   await insertPlant(pool, companyId, "Chakan Plant");
 
+  // SPEC-16 D109: a company no longer carries a generated code, so this
+  // company-scoped list reports only its id and name.
   const listed = (await (
     await fetch(`${baseUrl}/api/zones/${zoneId}/companies`)
-  ).json()) as { id: string; name: string; generatedCode: string }[];
+  ).json()) as { id: string; name: string }[];
   assert.equal(listed.length, 1);
   assert.equal(listed[0]?.name, "Acme Trainees");
-  assert.equal(typeof listed[0]?.generatedCode, "string");
+  assert.equal(Object.keys(listed[0] ?? {}).sort().join(","), "id,name");
 
   await pool.query(`UPDATE company SET is_active = false WHERE id = $1`, [companyId]);
 

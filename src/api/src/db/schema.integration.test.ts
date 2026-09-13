@@ -36,12 +36,15 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   // SPEC-02 section 2 additions to the schema.
   session: ["id", "user_id", "created_at", "last_seen_at", "expires_at"],
   login_attempt: ["username", "failed_count", "locked_until", "last_attempt_at"],
-  company_code_counter: ["zone_id", "year", "last_value"],
+  // SPEC-16 D109 re-keyed this from (zone_id, year) to (scheme, year). The
+  // migration appends `scheme` after the pre-existing columns, so the physical
+  // order is year, last_value, scheme - column order carries no meaning in Postgres.
+  company_code_counter: ["year", "last_value", "scheme"],
   company: [
     "id",
-    "generated_code",
     "company_name",
     "company_type",
+    "sector",
     "registration_type",
     "tan_number",
     "gst_number",
@@ -58,6 +61,9 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "hr_contact_number",
     "finance_head_contact_number",
     "official_email",
+    "purchase_name",
+    "purchase_number",
+    "purchase_email",
     "is_active",
     "created_at",
     "updated_at",
@@ -66,6 +72,7 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   company_plant: ["id", "company_id", "plant_name", "is_active"],
   mou: [
     "id",
+    "generated_code",
     "company_id",
     "company_plant_id",
     "scheme",
@@ -80,9 +87,25 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "created_at",
     "updated_at",
   ],
-  commercial_item: ["id", "mou_id", "item_key", "custom_label", "amount", "item_type"],
+  commercial_item: [
+    "id",
+    "mou_id",
+    "item_key",
+    "custom_label",
+    "amount",
+    "item_type",
+    "period",
+    "basis",
+  ],
   payroll_config: ["id", "mou_id"],
-  trainee_category: ["id", "payroll_config_id", "category_name"],
+  trainee_category: [
+    "id",
+    "payroll_config_id",
+    "category_name",
+    "qualification",
+    "stipend_rate",
+    "trainee_count",
+  ],
   payroll_item: [
     "id",
     "payroll_config_id",
@@ -91,6 +114,9 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "is_applicable",
     "amount",
     "item_type",
+    "insurance_type",
+    "insurance_gfs_amount",
+    "insurance_mou_amount",
   ],
   mou_document: [
     "id",
@@ -144,6 +170,7 @@ const EXPECTED_CHECK_CONSTRAINTS = [
   "company_type_chk",
   "company_registration_type_chk",
   "company_contact_type_chk",
+  "company_sector_chk",
   "mou_scheme_chk",
   "mou_tenure_unit_chk",
   "mou_tenure_value_chk",
@@ -152,12 +179,22 @@ const EXPECTED_CHECK_CONSTRAINTS = [
   "commercial_item_item_type_chk",
   "commercial_item_amount_chk",
   "commercial_item_custom_label_chk",
+  "commercial_item_period_chk",
+  "commercial_item_basis_chk",
   "payroll_item_key_chk",
   "payroll_item_item_type_chk",
   "payroll_item_amount_chk",
   "payroll_item_applicable_amount_chk",
   "payroll_item_inapplicable_amount_chk",
   "payroll_item_custom_label_chk",
+  // SPEC-16 D108 insurance sub-model.
+  "payroll_item_insurance_key_chk",
+  "payroll_item_insurance_type_chk",
+  "payroll_item_insurance_gfs_chk",
+  "payroll_item_insurance_mou_chk",
+  // SPEC-16 D107 trainee-category fields.
+  "trainee_category_stipend_rate_chk",
+  "trainee_category_trainee_count_chk",
   "agreement_history_edit_reason_chk",
   "company_draft_current_page_chk",
   "mou_alert_threshold_chk",
@@ -218,7 +255,15 @@ test("AC5 every section 5 table exists with exactly the stated columns", async (
 
   assert.deepEqual([...actual.keys()].sort(), Object.keys(EXPECTED_COLUMNS).sort());
   for (const [table, expected] of Object.entries(EXPECTED_COLUMNS)) {
-    assert.deepEqual(actual.get(table), [...expected], `columns of ${table}`);
+    // Compared as sets, not sequences. PostgreSQL appends every ADD COLUMN, so
+    // physical order reflects migration history rather than schema.ts order;
+    // SPEC-16 moved four `company` columns to the tail and nothing depends on
+    // their position. What matters is that the columns are exactly these.
+    assert.deepEqual(
+      [...(actual.get(table) ?? [])].sort(),
+      [...expected].sort(),
+      `columns of ${table}`,
+    );
   }
 });
 
@@ -288,13 +333,20 @@ test("AC6 a second company with the same gst_number is rejected", async () => {
   );
 });
 
-test("AC6 a second company with the same generated_code is rejected", async () => {
+test("AC6 a second MOU with the same generated_code is rejected", async () => {
   const zoneId = await insertZone(pool);
   const userId = await insertUser(pool);
-  await insertCompany(pool, zoneId, userId, { generatedCode: "WEST-26-0001" });
+  const companyId = await insertCompany(pool, zoneId, userId);
+  const plantId = await insertPlant(pool, companyId);
+  await insertMou(pool, companyId, plantId, { generatedCode: "MOU-WILP-2026-0001" });
 
+  // A different scheme isolates the generated_code violation from the
+  // one-live-MOU-per-scheme index that AC7 covers.
   await expectSqlState(
-    insertCompany(pool, zoneId, userId, { generatedCode: "WEST-26-0001" }),
+    insertMou(pool, companyId, plantId, {
+      scheme: "FLEXI",
+      generatedCode: "MOU-WILP-2026-0001",
+    }),
     UNIQUE_VIOLATION,
   );
 });
@@ -514,11 +566,11 @@ test("AC13 business_today() returns the Asia/Kolkata date even in a UTC session"
   }
 });
 
-test("AC14 fifty concurrent allocations for one zone-year yield fifty distinct values", async () => {
-  const zoneId = await insertZone(pool);
-
+test("AC14 fifty concurrent allocations for one scheme-year yield fifty distinct values", async () => {
+  // SPEC-16 D109 re-keyed the counter to (scheme, year), so the isolation unit is
+  // now the scheme rather than the zone.
   const allocated = await Promise.all(
-    Array.from({ length: 50 }, () => allocateCompanyCodeSequence(pool, zoneId, 2026)),
+    Array.from({ length: 50 }, () => allocateCompanyCodeSequence(pool, "WILP", 2026)),
   );
 
   assert.equal(new Set(allocated).size, 50, "every allocated sequence must be distinct");

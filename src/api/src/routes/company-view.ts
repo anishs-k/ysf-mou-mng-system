@@ -113,14 +113,16 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
     }
 
     response.setHeader("Content-Type", "application/pdf");
-    response.setHeader("Content-Disposition", `inline; filename="${overview.generatedCode}.pdf"`);
+    response.setHeader("Content-Disposition", `inline; filename="${detail.generatedCode}.pdf"`);
 
     const doc = new PDFDocument({ margin: 50 });
     doc.pipe(response);
 
     doc.fontSize(18).text(overview.companyName, { underline: true });
     doc.fontSize(11).moveDown(0.5);
-    doc.text(`Generated Code: ${overview.generatedCode}`);
+    // SPEC-16 D109: the code belongs to the MOU, not the company, so this print
+    // (which is MOU-scoped) reports the MOU's own code.
+    doc.text(`MOU Code: ${detail.generatedCode}`);
     doc.text(`GST Number: ${overview.gstNumber}`);
     doc.text(`HR Contact: ${overview.hrContactName} (${overview.hrContactNumber})`);
     doc.text(`Finance Head: ${overview.financeHeadContactName} (${overview.financeHeadContactNumber})`);

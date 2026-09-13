@@ -542,3 +542,56 @@ assumed. Full detail and page-by-page mapping in
   for any future "just restyle it" request: check whether the target design
   shows *data* the current system doesn't yet expose before agreeing the
   work is visual-only.
+
+## SPEC-16 — Figma Design Revision v2 Alignment
+
+Alignment of the application with a second Figma Make export
+(`figma_code-v2/`). Unlike SPEC-14, this is **not** a restyle — it changes the
+domain model, the master reference data and the wizard's field model. Full
+detail, evidence and the phase plan in
+`docs/specifications/SPEC-16-figma-v2-alignment.md` §0.
+
+| # | Decision | Choice | Rationale |
+|---|---|---|---|
+| D101 | Scheme enum | **Adopt all 7** — `NAPS`, `NATS`, `WILP`, `BVOC`, `DVOC`, `FLEXI`, `MSBTE`; `BOC_AND_DVOC` splits into `BVOC` + `DVOC` | v2's own guidelines give B.Voc 3 years vs D.Voc 2 years (genuinely different qualifications) and its dataset lists them separately. No data migration was needed — no seed or migration inserts `mou` rows |
+| D102 | Zone master | **Seed the 24 real zones**, replacing the five placeholders, with deterministic uppercase codes ≤10 chars | v2's names are the real operating list, and SPEC-01 §11.1 required replacing the placeholders before go-live |
+| D103 | `zone.code` | **Retained**, but no longer embedded in generated codes — becomes a stable internal/display code | Direct consequence of D109. The column is `NOT NULL UNIQUE`; dropping it buys nothing and risks the seed and reporting |
+| D104 | Payroll item placement | **Stays at MOU level** on `payroll_config`; allowances/deductions are **not** nested per trainee category | Preserves SPEC-06's domain model and the fixed-key invariant SPEC-07 and SPEC-13 read. Accepted cost: v2's per-category nesting is not reproduced |
+| D105 | Payroll catalogue | **Replace** with v2's list: 8 fixed allowances + 15 fixed deductions + **one shared `OTHER` key** = 24 entries | v2 has 25 checkbox labels, but "Other Allowance" and "Other Deduction" both map onto the single `OTHER` key — the box the user ticks preselects that row's `item_type`, which preserves the existing `(item_key = 'OTHER') = (custom_label IS NOT NULL)` CHECK |
+| D106 | Payroll input control | **Checkbox** (checked = applicable); all 23 fixed rows are still written per MOU with `is_applicable = false` when unchecked | Preserves SPEC-07 §4.3's "one row per fixed key even when unset". **Drops** SPEC-06 §4's "every item must have an explicit Yes or No" rule and its counter — a checkbox has no unanswered state |
+| D107 | New stored fields | `company.sector` (NOT NULL, CHECK, backfilled `OTHER`) plus `trainee_category.qualification`, `.stipend_rate`, `.trainee_count` | `sector` is marked required in v2; `stipend_rate` is money so `NUMERIC(12,2)` per D10; `trainee_count` is a non-negative integer |
+| D108 | Per-item sub-attributes | **Dedicated nullable columns**: `commercial_item.period` + `.basis`; `payroll_item.insurance_type` + `.insurance_gfs_amount` + `.insurance_mou_amount` | Keeps the one-row-per-key invariant, stays queryable in SQL for SPEC-13's export and SPEC-11's snapshot diff, and lets the two enumerable ones carry CHECK constraints. A JSONB blob would hide them from both |
+| D109 | Company code | **Moves to the MOU.** `mou.generated_code` (unique, immutable, NOT NULL); `company.generated_code` dropped. Format `MOU-<SCHEME>-<YYYY>-<NNNN>`; counter re-keyed to `(scheme, year)` | A company running two schemes holds two agreements and so needs two codes — a company-level code could only name one. Removes `zone.code` from the format, which shrinks Q14's blast radius from high-risk to low |
+| D110 | Purchase contact | **Add 3 nullable columns** on `company`: `purchase_name`, `purchase_number`, `purchase_email`. Confirm Purchase Email is validated but not stored | v2 does not mark these required, and the client's verified flow document has HR + Finance only. Confirmation-not-stored matches SPEC-04's existing pattern |
+| D111 | Page 1 field order | **Adopt v2's order**: Scheme → Zone → Sector → Company Name → Company Type → Plant/Location → Registration Type → GST → TAN | Treats v2 as the newer client intent; SPEC-04 §2's "in diagram order" claim is rewritten accordingly |
+| D112 | User Manual page | **Static web content** at `/user-manual`, visible to **all** roles; no backend, no table. New 11th dashboard entry point plus a new "Operation" sidebar section | It is documentation prose, not domain data — a table or endpoint adds surface for no benefit |
+| D113 | Scheme guidelines content | Lives in `@mou/domain` as a reference constant, served by `GET /api/enums` | SPEC-01 §7 makes `/api/enums` the single source for every dropdown. Guidelines are scheme reference data, so they follow the same rule. Zero schema |
+| D114 | Branding copy | **Adopt both** v2 strings: "company **AMS** registration" and footer "**Agreement Management System** v2.0" | The app already renders that name in the sidebar and login (SPEC-14), so the footer was the last inconsistent string. Two strings, no domain rename — `mou` stays `mou` everywhere |
+| D115 | Demo dataset | Seed **only the 120 fully-specified rows** — 65 companies, 120 MOUs, 19 zones, 6 schemes; skip the 113 rows with an empty plant name. Synthetic values for the `NOT NULL` columns | The 120-row subset has zero `(company, plant, scheme)` collisions so `mou_company_plant_scheme_uq` holds; the full 233 contains one duplicate. Explicitly demo data, never production, and excluded from `db:seed`, migrations and CI |
+
+### Notes on D101–D115
+
+- **D109 is the decision with the widest blast radius**, and it is also the one
+  that *reduces* an existing risk: because `zone.code` no longer feeds the
+  generated code, replacing a zone code after go-live can no longer orphan
+  historical codes. Q14's content is closed; its authority is not — the client
+  still has to sign the 24-zone list off.
+- **D106 removes a rule the client originally asked for** (SPEC-06 §4's "every
+  item must have an explicit Yes or No"). The checkbox model is v2's own
+  design and carries no unanswered state, so the rule could not survive it.
+  Flagged for confirmation during spec review.
+- **D105's twelve deductions duplicate SPEC-01 §3's commercial charges** by
+  label. Accepted as two deliberately separate lists; whether they should be
+  de-duplicated is left as post-implementation cleanup.
+- **The generated migrations had to be hand-edited before they would run
+  against a populated database.** `drizzle-kit generate` emitted
+  `ADD COLUMN … NOT NULL` for `company.sector` and `mou.generated_code`, which
+  fails the moment a row exists, and it emitted no path at all for the 15
+  payroll keys D105 retires or for the counter rows D109 invalidates. The
+  shipped migrations add the columns nullable, backfill, then tighten; fold
+  retired payroll keys into `OTHER` keeping the old name as the label rather
+  than deleting captured amounts; clear the zone-keyed counter before
+  re-keying it; and re-seed the counter from the backfilled MOUs so the next
+  allocation cannot reuse a number. Worth remembering: "migration generated
+  and hand-checked" has to include running it against a database that already
+  has data, not only against the empty database CI builds.

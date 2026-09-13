@@ -277,7 +277,6 @@ export async function uploadMouDocument(draftId: string, file: File): Promise<Mo
 export interface CompanyListItem {
   readonly id: string;
   readonly name: string;
-  readonly generatedCode: string;
 }
 
 export async function fetchZoneCompanies(zoneId: string): Promise<readonly CompanyListItem[]> {
@@ -290,7 +289,6 @@ export async function fetchZoneCompanies(zoneId: string): Promise<readonly Compa
 
 export interface CompanyOverview {
   readonly id: string;
-  readonly generatedCode: string;
   readonly companyName: string;
   readonly gstNumber: string;
   readonly zoneId: string;

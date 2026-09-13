@@ -23,7 +23,8 @@
     "clean": "turbo run clean",
     "db:generate": "npm run db:generate --workspace=@mou/api",
     "db:migrate": "npm run db:migrate --workspace=@mou/api",
-    "db:seed": "npm run db:seed --workspace=@mou/api"
+    "db:seed": "npm run db:seed --workspace=@mou/api",
+    "db:seed:demo": "npm run db:seed:demo --workspace=@mou/api"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

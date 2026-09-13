@@ -128,7 +128,8 @@ test("AC6 KPI counts sum across zones and include an open draft as pending revie
   const companyA = await insertCompany(pool, zoneA, viewer.id);
   const plantA = await insertPlant(pool, companyA);
   await insertActiveMou(pool, companyA, plantA); // active, far from expiry
-  await insertMouEndingIn(pool, companyA, plantA, 45, { scheme: "BOC_AND_DVOC" }); // expiring soon
+  // SPEC-16 D101 replaced BOC_AND_DVOC with the separate BVOC and DVOC schemes.
+  await insertMouEndingIn(pool, companyA, plantA, 45, { scheme: "BVOC" }); // expiring soon
 
   const companyB = await insertCompany(pool, zoneB, viewer.id);
   const plantB = await insertPlant(pool, companyB);

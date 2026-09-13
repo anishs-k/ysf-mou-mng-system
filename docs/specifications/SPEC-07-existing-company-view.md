@@ -41,13 +41,17 @@ flowchart TD
 | Step | Action |
 |---|---|
 | 1 | Select a **Zone** from the zone master. |
-| 2 | Select a **Company Name**. The list is filtered to that zone and is empty until a zone is chosen. |
-| 3 | The system displays the company's details below. |
+| 2 | Optionally select a **Scheme** to filter the company list — added by SPEC-16 (D101/D112); a **Clear** control resets it. |
+| 3 | Select a **Company Name**. The list is filtered to that zone (and to the scheme when one is chosen) and is empty until a zone is chosen. |
+| 4 | The system displays the company's details below. |
 
-**Displayed fields:** Plant, Company Name, GST Number, HR Name, HR Contact
-Number, Finance Head Name, Finance Head Contact Number.
+**Displayed fields:** Plant, Company Name, GST Number, Sector, HR Name, HR
+Contact Number, Finance Head Name, Finance Head Contact Number.
 
-Also shown for orientation: the generated company code.
+Also shown for orientation: the generated code — **the MOU's**
+`MOU-<SCHEME>-<YYYY>-<NNNN>`, not a company-level code, since SPEC-16 D109
+moved the code onto the agreement. A company holding several MOUs has one code
+per MOU; the one shown is that of the MOU in context.
 
 If the company has more than one plant, a plant selector appears and the
 displayed plant follows it; the selection carries to Pages 2 and 3.
@@ -144,6 +148,7 @@ groups are empty, the page shows "No payroll items configured for this scheme."
 |---|---|---|
 | GET | `/api/zones` | Zone dropdown (SPEC-01) |
 | GET | `/api/zones/{zoneId}/companies` | Company dropdown for Page 1 |
+| GET | `/api/zones/{zoneId}/companies?scheme=` | The same list filtered by scheme — added by SPEC-16 |
 | GET | `/api/companies/{id}/overview` | Page 1 display fields |
 | GET | `/api/companies/{id}/mous?plantId=` | Schemes that have an MOU, for the Page 2 dropdown |
 | GET | `/api/mous/{mouId}/commercial` | Page 2 data including derived status and end date |
@@ -157,6 +162,8 @@ All endpoints are read-only and available to every role including VIEWER.
 ## 7. Acceptance criteria
 
 1. The company dropdown is empty until a zone is selected, and lists only companies in that zone.
+1a. Selecting a scheme filters the company list to companies holding an MOU for that scheme, and Clear resets the filter. *(added by SPEC-16)*
+1b. The code shown on the overview is the MOU's `MOU-<SCHEME>-<YYYY>-<NNNN>`, not a company-level code. *(amended by SPEC-16 D109)*
 2. Selecting a company displays plant, GST, and both contact names and numbers.
 3. Zone is not re-selectable on Page 2; it is inherited from Page 1.
 4. A company with MOUs for WILP and FLEXI shows exactly those two options in the scheme dropdown, not all four.

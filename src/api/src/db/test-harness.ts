@@ -154,9 +154,9 @@ export async function insertUserWithPassword(
 let companySequence = 0;
 
 export interface CompanyFixtureOptions {
-  readonly generatedCode?: string;
   readonly companyName?: string;
   readonly gstNumber?: string;
+  readonly sector?: string;
 }
 
 export async function insertCompany(
@@ -169,18 +169,18 @@ export async function insertCompany(
   const suffix = String(companySequence).padStart(4, "0");
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO company (
-       generated_code, company_name, company_type, registration_type, tan_number, gst_number,
+       company_name, company_type, sector, registration_type, tan_number, gst_number,
        zone_id, address_line_1, city, pin_code, state, district,
        hr_contact_name, finance_head_contact_name, contact_type,
        hr_contact_number, finance_head_contact_number, official_email, created_by
      ) VALUES (
-       $1, $2, 'PRIVATE_SECTOR', 'COMPANY', 'TANP12345C', $3,
+       $1, 'PRIVATE_SECTOR', $2, 'COMPANY', 'TANP12345C', $3,
        $4, '1 Test Road', 'Pune', '411001', 'Maharashtra', 'Pune',
        'HR Name', 'Finance Head Name', 'MOBILE', '9876543210', '9876543211', $5, $6
      ) RETURNING id`,
     [
-      options.generatedCode ?? `WEST-26-${suffix}`,
       options.companyName ?? `Test Company ${suffix}`,
+      options.sector ?? "OTHER",
       options.gstNumber ?? `27AAAAA${suffix}A1Z5`,
       zoneId,
       `company${suffix}@example.com`,
@@ -204,7 +204,10 @@ export interface MouFixtureOptions {
   readonly tenureValue?: number;
   readonly tenureUnit?: string;
   readonly isActive?: boolean;
+  readonly generatedCode?: string;
 }
+
+let mouSequence = 0;
 
 export async function insertMou(
   pool: Pool,
@@ -212,15 +215,19 @@ export async function insertMou(
   companyPlantId: string | null,
   options: MouFixtureOptions = {},
 ): Promise<string> {
+  mouSequence += 1;
+  const scheme = options.scheme ?? "WILP";
+  const generatedCode = options.generatedCode ?? `MOU-${scheme}-2026-${String(mouSequence).padStart(4, "0")}`;
   const { rows } = await pool.query<{ id: string }>(
     `INSERT INTO mou (
-       company_id, company_plant_id, scheme, mou_start_date, tenure_value, tenure_unit,
+       generated_code, company_id, company_plant_id, scheme, mou_start_date, tenure_value, tenure_unit,
        attendance_cycle, stipend_date, is_active
-     ) VALUES ($1, $2, $3, $4, $5, $6, 'MONTHLY', 5, $7) RETURNING id`,
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'MONTHLY', 5, $8) RETURNING id`,
     [
+      generatedCode,
       companyId,
       companyPlantId,
-      options.scheme ?? "WILP",
+      scheme,
       options.startDate ?? "2026-01-01",
       options.tenureValue ?? 12,
       options.tenureUnit ?? "MONTHS",

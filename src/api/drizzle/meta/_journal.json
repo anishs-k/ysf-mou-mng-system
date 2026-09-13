@@ -43,6 +43,20 @@
       "when": 1789226385594,
       "tag": "0005_lumpy_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789275539965,
+      "tag": "0006_spec16_additions",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789275583255,
+      "tag": "0007_spec16_code_move",
+      "breakpoints": true
     }
   ]
 }

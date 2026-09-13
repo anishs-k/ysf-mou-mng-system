@@ -444,8 +444,9 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
       // Idempotency: draft already consumed. Try to find the company that was
       // created from it by looking for a company created by this user recently.
       const recent = await db
-        .select({ id: company.id, generatedCode: company.generatedCode })
+        .select({ id: company.id, generatedCode: mou.generatedCode })
         .from(company)
+        .innerJoin(mou, eq(mou.companyId, company.id))
         .where(eq(company.createdBy, auth.userId))
         .orderBy(company.createdAt)
         .limit(1);
@@ -485,13 +486,13 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
       return;
     }
 
-    // Look up zone code for code generation.
-    const zoneRows = await db.select({ code: zone.code }).from(zone).where(eq(zone.id, zoneId));
+    // Validate the zone exists. Its code no longer feeds the generated code -
+    // SPEC-16 D109 made the code scheme-based and moved it onto the MOU.
+    const zoneRows = await db.select({ id: zone.id }).from(zone).where(eq(zone.id, zoneId));
     if (zoneRows.length === 0) {
       response.status(422).json({ error: "Invalid zone" });
       return;
     }
-    const zoneCode = firstRow(zoneRows).code;
 
     // SPEC-04 section 4: Page 1 must be complete and valid before a single row
     // is written. gst_number is UNIQUE, so defaulting a missing GST to "" let
@@ -602,17 +603,22 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
 
     try {
       const result = await db.transaction(async (tx) => {
-        // Allocate company code outside the long transaction (D7), then use it.
+        // Allocate the MOU code outside the long transaction (D7), then use it.
+        // SPEC-16 D109: the sequence is per scheme per year, not per zone per year,
+        // because the code identifies the MOU rather than the company.
         const year = new Date().getFullYear();
-        const generatedCode = await allocateCompanyCode(pool, zoneCode, zoneId, year);
+        const generatedCode = await allocateCompanyCode(pool, scheme, year);
 
-        // 1. Insert company.
+        // 1. Insert company. It no longer carries a generated code (D109); it does
+        // carry the sector (D107) and the optional purchase contact (D110).
         const companyRow = await tx
           .insert(company)
           .values({
-            generatedCode,
             companyName,
             companyType: page1Text("companyType"),
+            // Phase B adds the SPEC-16 required-field rule for sector; until then a
+            // draft without one falls back to OTHER, matching the migration's backfill.
+            sector: page1Text("sector") === "" ? "OTHER" : page1Text("sector"),
             registrationType: page1Text("registrationType"),
             tanNumber: page1Text("tanNumber"),
             gstNumber: page1Text("gstNumber"),
@@ -629,9 +635,12 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
             hrContactNumber: page1Text("hrContactNumber"),
             financeHeadContactNumber: page1Text("financeHeadContactNumber"),
             officialEmail: page1Text("officialEmail"),
+            purchaseName: page1Optional("purchaseName"),
+            purchaseNumber: page1Optional("purchaseNumber"),
+            purchaseEmail: page1Optional("purchaseEmail"),
             createdBy: auth.userId,
           })
-          .returning({ id: company.id, generatedCode: company.generatedCode });
+          .returning({ id: company.id });
 
         const companyId = firstRow(companyRow).id;
 
@@ -648,6 +657,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         const mouRow = await tx
           .insert(mou)
           .values({
+            generatedCode,
             companyId,
             companyPlantId: plantId,
             scheme,

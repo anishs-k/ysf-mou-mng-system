@@ -61,12 +61,14 @@ Once unlocked, the user may edit:
 attendance cycle, stipend date, all 16 charge amounts, and the "Other" rows.
 
 **Payroll configuration** (SPEC-06) — trainee categories, and each item's
-Yes/No answer and amount, including "Other" rows.
+applicable/amount state *(was "Yes/No answer" — SPEC-16 D106 replaced the
+control with a checkbox)*, including "Other" rows.
 
 **Not editable here:**
 - Company identity — name, type, registration type, TAN, GST, zone, address,
   contacts (SPEC-04 fields).
-- `generated_code` — permanently immutable.
+- `mou.generated_code` — permanently immutable. *(amended by SPEC-16 D109 —
+  the code moved from `company` to `mou`.)*
 - Scheme — an MOU's scheme defines its identity. A different scheme means a
   different MOU, created through the wizard.
 

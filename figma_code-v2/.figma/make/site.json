@@ -1,0 +1,13 @@
+{
+  "description": "This user-friendly web application streamlines complex workflows into intuitive wireframe prototypes, making it accessible for students and professionals alike.",
+  "robots": {
+    "index": false
+  },
+  "icons": {
+    "icon": "/.figma/make/favicon.png"
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

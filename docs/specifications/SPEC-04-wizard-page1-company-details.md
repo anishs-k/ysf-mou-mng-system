@@ -14,6 +14,20 @@ Finance contact block, including the Mobile-or-LAN conditional branch.
 
 ## 2. Fields (in diagram order)
 
+> **Reordered and extended by SPEC-16 (D107, D110, D111).** The order below is
+> superseded by the v2 order: **Scheme → Zone → Sector → Company Name →
+> Company Type → Plant/Location → Registration Type → GST → TAN**, followed by
+> the address and contact block. Two fields join it:
+>
+> - **Sector** (dropdown, **required**, SPEC-01 §2.10) — see SPEC-16 §5.1.
+> - **Scheme** (dropdown, required) — moved to the top, and selecting one
+>   reveals its guidelines panel (SPEC-16 §2.3, D113).
+> - **Purchase Name / Purchase Number / Purchase Email** — a **optional**
+>   block (D110). Leaving all four inputs empty still allows Next; a filled
+>   Purchase Email that disagrees with Confirm Purchase Email blocks it.
+>
+> Everything else keeps the type and required-ness stated in the table below.
+
 | # | Field | Type | Required | Notes |
 |---|---|---|---|---|
 | 1 | Company Type | dropdown | yes | SPEC-01 §2.1 |
@@ -80,6 +94,8 @@ Rules:
 | Official Email | valid email format |
 | Confirm Email | must equal Official Email, compared case-insensitively after trimming |
 | Duplicate company | reject if a company with the same `company_name` + plant already exists in the same zone |
+| Sector | **required**, must be a known §2.10 enum value — added by SPEC-16 (D107) |
+| Purchase Email | optional; when present must be a valid email and must equal Confirm Purchase Email, compared case-insensitively after trimming — added by SPEC-16 (D110) |
 
 Every rule is enforced on the server as well as in the UI. GST uniqueness and
 the duplicate-company check require a server round trip and run on Next.

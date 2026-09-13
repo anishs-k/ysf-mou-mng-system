@@ -2,6 +2,7 @@ node_modules/
 dist/
 build/
 figma_code/
+figma_code_v2/
 .turbo/
 *.tsbuildinfo
 

@@ -68,12 +68,17 @@ Display labels: Central Govt, Central PSU, Co-operative, Private Sector, State G
 Display labels: Mobile No, LAN No.
 
 ### 2.4 Scheme
-`WILP` | `BOC_AND_DVOC` | `MSBTE` | `FLEXI`
+`NAPS` | `NATS` | `WILP` | `BVOC` | `DVOC` | `FLEXI` | `MSBTE`
 
-Display labels: WILP, BOC and DVOC, MSBTE, FLEXI.
+Display labels: NAPS, NATS, WILP, B.Voc, D.Voc, FLEXI, MSBTE.
 
 This is the enum most likely to grow — a new training scheme is ordinary
 business evolution. D11 keeps that a one-migration change.
+
+> **Amended by SPEC-16 (D101).** This list was `WILP | BOC_AND_DVOC | MSBTE |
+> FLEXI`. `BOC_AND_DVOC` split into `BVOC` and `DVOC` — they are genuinely
+> different qualifications (B.Voc is a three-year UG degree, D.Voc a two-year
+> diploma) — and `NAPS` and `NATS` were added. See SPEC-16 §2.2.
 
 ### 2.5 MOU Status
 `ACTIVE` | `EXPIRED` | `NEW` — derived, never stored, never a column (§6.2).
@@ -89,6 +94,37 @@ business evolution. D11 keeps that a one-migration change.
 
 ### 2.9 User Role
 `ADMIN` | `DATA_ENTRY` | `VIEWER`
+
+### 2.10 Sector
+`AUTOMOBILE` | `BANKING_AND_FINANCE` | `CHEMICAL` | `CONSTRUCTION` | `DEFENCE` |
+`EDUCATION` | `ELECTRONICS_AND_IT` | `ENGINEERING` | `FMCG` | `HEALTHCARE` |
+`LOGISTICS` | `MANUFACTURING` | `PHARMACEUTICAL` | `POWER_AND_ENERGY` | `RETAIL` |
+`TEXTILE` | `OTHER`
+
+Display labels: Automobile, Banking & Finance, Chemical, Construction, Defence,
+Education, Electronics / IT, Engineering, FMCG, Healthcare, Logistics,
+Manufacturing, Pharmaceutical, Power & Energy, Retail, Textile, Other.
+
+Added by SPEC-16 (D107). Stored on `company.sector` (§5.2), NOT NULL.
+
+### 2.11 Commercial Period
+`MONTHLY` | `QUARTERLY` | `ONE_TIME` | `ANNUAL`
+
+### 2.12 Commercial Basis
+`FLAT` | `PER_TRAINEE_PER_MONTH` | `PRO_RATA` | `ON_PAYABLE_STIPEND` | `OTHER`
+
+Display labels: Flat, Per trainee per month, Pro-rata, On payable stipend, Other.
+
+### 2.13 Insurance Type
+`TOPUP` | `RECOVERY` | `BOTH`
+
+Display labels: Top Up (GFS), Recovery (MOU), Both.
+
+§2.11–2.13 added by SPEC-16 (D108). They are sub-attributes of individual
+charge and payroll rows, not master records: §2.11 and §2.12 are the optional
+`commercial_item.period` and `.basis` (§5.5), and §2.13 is carried only by the
+`INSURANCE` payroll item (§5.8). `TOPUP` and `BOTH` require the GFS amount;
+`RECOVERY` and `BOTH` require the MOU amount.
 
 > **DECISION-PENDING (Q7)** — roles are not specified in the source. Default
 > above: ADMIN does everything including agreement edits; DATA_ENTRY can add
@@ -130,7 +166,19 @@ hardcodes ordering.
 
 ## 4. Payroll allowance items (Page 3 fixed list)
 
-The catalogue of `item_key` values valid in `payroll_item` (§5.9).
+The catalogue of `item_key` values valid in `payroll_item` (§5.8).
+
+> **Replaced by SPEC-16 (D105).** The list below is the *superseded* 23-key
+> catalogue, kept so the history stays auditable. The live catalogue is
+> SPEC-16 §2.6: 8 fixed allowances + 15 fixed deductions + one shared `OTHER`
+> key = 24 entries. `ATTENDANCE_BONUS`, `ACCOMMODATION_ALLOWANCE`,
+> `CONVEYANCE`, `BONUS`, `DOCUMENT_FEE`, `EDUCATION_ALLOWANCE` and
+> `NIGHT_SHIFT_ALLOWANCE` survive; the other 15 keys do not. Migration
+> `0006_spec16_additions.sql` folds existing rows carrying a retired key into
+> `OTHER`, keeping the old key's name as the row's custom label rather than
+> deleting a captured amount. `DOCUMENT_FEE` and `REGISTRATION_FEE` become
+> DEDUCTIONs in the new catalogue along with thirteen more; see SPEC-16 §2.6
+> for the authoritative table.
 
 | # | Key | Label | Item Type |
 |---|-----|-------|-----------|
@@ -158,12 +206,11 @@ The catalogue of `item_key` values valid in `payroll_item` (§5.9).
 | 22 | `WASHING_ALLOWANCE` | Washing Allowance | ALLOWANCE |
 | 23 | `OTHER` | Other (custom label + amount) | user-selected |
 
-> **DECISION-PENDING (Q4)** — the source captures all 23 as one flat list on
-> data entry but splits them into Allowances / Deductions on the view screen
-> (SPEC-07). The `Item Type` column above is the default mapping: everything is
-> an ALLOWANCE except `DOCUMENT_FEE` and `REGISTRATION_FEE`, which are amounts
-> recovered from the trainee. `OTHER` rows carry the user's own choice. To
-> change the split, edit this table only — SPEC-06 and SPEC-07 read it.
+> **DECISION-PENDING (Q4)** — resolved for the superseded list by the default
+> mapping above (everything an ALLOWANCE except `DOCUMENT_FEE` and
+> `REGISTRATION_FEE`, which are amounts recovered from the trainee), and
+> superseded outright by SPEC-16 §2.6, which fixes an item type for every key
+> except `OTHER`.
 
 ---
 
@@ -195,19 +242,24 @@ erDiagram
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
-| code | varchar(10) | unique, uppercase, feeds the generated company code (§6.3) |
+| code | varchar(10) | unique, uppercase. **No longer** feeds the generated code — SPEC-16 D109 moved the code to `mou` and made it scheme-based, so this is now a stable internal/display code (D103) |
 | name | varchar(100) | unique |
 | is_active | boolean | NOT NULL default true |
 
 `CHECK (code = upper(code))`. See Q14 — the real zone list and codes are a client blocker.
 
 ### 5.2 `company`
+> **Amended by SPEC-16 (D107, D109, D110).** `generated_code` is **gone** — it
+> moved to `mou` (§5.4), because a company running two schemes holds two
+> agreements and so needs two codes. `sector` was added (NOT NULL, CHECK §2.10)
+> and the three `purchase_*` columns are optional additions.
+
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
-| generated_code | varchar(30) | unique, immutable, §6.3 |
 | company_name | varchar(150) | NOT NULL |
 | company_type | varchar(20) | CHECK, §2.1 |
+| sector | varchar(30) | NOT NULL, CHECK §2.10 — added by SPEC-16 (D107), backfilled `OTHER` |
 | registration_type | varchar(20) | CHECK, §2.2 |
 | tan_number | varchar(10) | NOT NULL |
 | gst_number | varchar(15) | **unique**, NOT NULL |
@@ -224,6 +276,9 @@ erDiagram
 | hr_contact_number | varchar(20) | NOT NULL |
 | finance_head_contact_number | varchar(20) | NOT NULL |
 | official_email | varchar(255) | NOT NULL |
+| purchase_name | varchar(150) | nullable — added by SPEC-16 (D110) |
+| purchase_number | varchar(20) | nullable — added by SPEC-16 (D110) |
+| purchase_email | varchar(255) | nullable — added by SPEC-16 (D110) |
 | is_active | boolean | NOT NULL default true (**D12**) |
 | created_at, updated_at | timestamptz | NOT NULL default now() |
 | created_by | UUID FK → user | RESTRICT |
@@ -243,9 +298,14 @@ erDiagram
 > holds many plants; the wizard creates the first one.
 
 ### 5.4 `mou`
+> **Amended by SPEC-16 (D109).** `generated_code` moved here from `company`.
+> The code identifies an **agreement**, not a company: a company with WILP and
+> FLEXI agreements holds two codes.
+
 | Column | Type | Notes |
 |---|---|---|
 | id | UUID PK | |
+| generated_code | varchar(30) | **unique**, immutable, NOT NULL — §6.3 |
 | company_id | UUID FK → company | RESTRICT |
 | company_plant_id | UUID FK → company_plant | nullable, RESTRICT |
 | scheme | varchar(20) | CHECK, §2.4 |
@@ -282,6 +342,8 @@ tables, unified into rows per **D8**. Shaped deliberately like `payroll_item`.
 | custom_label | varchar(100) | required only when `item_key = 'OTHER'`, else NULL |
 | amount | NUMERIC(12,2) | nullable; `CHECK (amount >= 0)` |
 | item_type | varchar(10) | CHECK, §2.8; from §3 mapping, user-chosen for OTHER |
+| period | varchar(20) | nullable; CHECK, §2.11 — added by SPEC-16 (D108) |
+| basis | varchar(30) | nullable; CHECK, §2.12 — added by SPEC-16 (D108) |
 
 Constraints:
 ```sql
@@ -289,7 +351,13 @@ CREATE UNIQUE INDEX commercial_item_fixed_uq
   ON commercial_item (mou_id, item_key) WHERE item_key <> 'OTHER';
 
 CHECK ((item_key = 'OTHER') = (custom_label IS NOT NULL))
+CHECK (period IN (... §2.11 ...))
+CHECK (basis  IN (... §2.12 ...))
 ```
+
+Both new columns are optional: a charge may be recorded with an amount and no
+period or basis at all. A NULL passes an `IN` test as unknown rather than
+false, so the CHECKs constrain them only when a value is present.
 
 `attendance_cycle` and `stipend_date` are **not** here — they live on `mou`
 (§5.4) because they describe the agreement, not a charge.
@@ -308,6 +376,9 @@ Scheme is not duplicated here; read it from `mou.scheme`.
 | id | UUID PK | |
 | payroll_config_id | UUID FK | RESTRICT |
 | category_name | varchar(100) | |
+| qualification | varchar(150) | nullable — added by SPEC-16 (D107) |
+| stipend_rate | NUMERIC(12,2) | nullable, `CHECK (stipend_rate >= 0)` — added by SPEC-16 (D107) |
+| trainee_count | integer | nullable, `CHECK (trainee_count >= 0)` — added by SPEC-16 (D107) |
 
 `UNIQUE (payroll_config_id, lower(category_name))`. At least one row per config —
 enforced in application code (SPEC-06 §4), not by the schema.
@@ -317,11 +388,14 @@ enforced in application code (SPEC-06 §4), not by the schema.
 |---|---|---|
 | id | UUID PK | |
 | payroll_config_id | UUID FK | RESTRICT |
-| item_key | varchar(40) | CHECK against §4 keys |
+| item_key | varchar(40) | CHECK against SPEC-16 §2.6 keys |
 | custom_label | varchar(100) | required only when `item_key = 'OTHER'` |
-| is_applicable | boolean | NOT NULL — the Yes/No answer |
+| is_applicable | boolean | NOT NULL — SPEC-16 (D106) replaced the Yes/No radio with a checkbox; unchecked still writes the row, with `false` |
 | amount | NUMERIC(12,2) | NULL when `is_applicable = false` |
-| item_type | varchar(10) | CHECK, §2.8; from §4 mapping, user-chosen for OTHER |
+| item_type | varchar(10) | CHECK, §2.8; from SPEC-16 §2.6, user-chosen for OTHER |
+| insurance_type | varchar(10) | nullable; CHECK, §2.13 — added by SPEC-16 (D108) |
+| insurance_gfs_amount | NUMERIC(12,2) | nullable, `CHECK (>= 0)` — added by SPEC-16 (D108) |
+| insurance_mou_amount | NUMERIC(12,2) | nullable, `CHECK (>= 0)` — added by SPEC-16 (D108) |
 
 Constraints:
 ```sql
@@ -331,9 +405,16 @@ CREATE UNIQUE INDEX payroll_item_fixed_uq
 CHECK (NOT is_applicable OR amount IS NOT NULL)
 CHECK (is_applicable OR amount IS NULL)
 CHECK ((item_key = 'OTHER') = (custom_label IS NOT NULL))
+-- SPEC-16 D108: the insurance sub-model belongs to the INSURANCE key alone.
+CHECK ((item_key = 'INSURANCE') OR (insurance_type            IS NULL
+                                AND insurance_gfs_amount      IS NULL
+                                AND insurance_mou_amount      IS NULL))
+CHECK (insurance_type IN (... §2.13 ...))
 ```
 
-Exactly one row per fixed key (1–22) per config, plus zero or more `OTHER` rows.
+Exactly one row per fixed key per config — 23 fixed keys under SPEC-16 §2.6,
+formerly 22 — plus zero or more `OTHER` rows. A non-`INSURANCE` row carrying
+any insurance column is rejected outright.
 
 ### 5.9 `mou_document`
 | Column | Type | Notes |
@@ -389,13 +470,17 @@ SPEC-03; never read by any reporting or view flow.
 ### 5.13 `company_code_counter`
 Supports §6.3. Not a business table.
 
+> **Re-keyed by SPEC-16 (D109).** Was `(zone_id, year)`; the code is now
+> scheme-based, so the sequence restarts per **scheme** per year and the zone
+> reference is gone.
+
 | Column | Type | Notes |
 |---|---|---|
-| zone_id | UUID FK → zone | RESTRICT |
+| scheme | varchar(20) | CHECK, §2.4 |
 | year | smallint | 4-digit business year (IST) |
 | last_value | integer | NOT NULL default 0 |
 
-`PRIMARY KEY (zone_id, year)`.
+`PRIMARY KEY (scheme, year)`.
 
 ### 5.14 Indexes required by later specs
 | Index | Needed by |
@@ -485,24 +570,34 @@ an explicit parameter, so tests pin it rather than depending on when they run.
 
 ### 6.3 Generated company code
 
-Format: `<ZONE_CODE>-<YY>-<NNNN>` — example `WEST-26-0042`
+> **Rewritten by SPEC-16 (D109).** The code moved from `company` to `mou` and
+> its format changed. The superseded format was `<ZONE_CODE>-<YY>-<NNNN>`
+> (e.g. `WEST-26-0042`); it is retained below only until you reach the new
+> rules. Because `zone.code` no longer feeds the code, replacing a zone code
+> after go-live can no longer orphan historical codes — which is why Q14's
+> blast radius dropped from high to low.
 
-- `ZONE_CODE` — `zone.code` of the company's zone, uppercase.
-- `YY` — last two digits of the **IST** year at creation (`business_today()`).
-- `NNNN` — sequence, zero-padded to 4 digits, restarting per zone per year.
+Format: `MOU-<SCHEME>-<YYYY>-<NNNN>` — example `MOU-WILP-2026-0042`
+
+- `MOU` — literal prefix. The code identifies an **MOU**, not a company.
+- `SCHEME` — the scheme of the MOU being created, uppercase (§2.4).
+- `YYYY` — the four-digit **IST** year (`business_today()`).
+- `NNNN` — sequence, zero-padded to 4 digits, restarting per scheme per year.
   Values above 9999 render at their natural width (`10000`) rather than failing.
 
 Rules: server-generated only, at final save (SPEC-06); unique; never editable;
-never regenerated even if the company's zone later changes.
+never regenerated. A company running two schemes holds two MOUs and therefore
+two codes — every screen that used to show "the company's code" now shows the
+code of the MOU in context.
 
-**Allocation.** A counter row per (zone, year), incremented atomically. The
-`INSERT … ON CONFLICT DO UPDATE` form also handles the first company of a
-zone-year:
+**Allocation.** A counter row per (scheme, year), incremented atomically. The
+`INSERT … ON CONFLICT DO UPDATE` form also handles the first MOU of a
+scheme-year:
 
 ```sql
-INSERT INTO company_code_counter (zone_id, year, last_value)
+INSERT INTO company_code_counter (scheme, year, last_value)
 VALUES ($1, $2, 1)
-ON CONFLICT (zone_id, year)
+ON CONFLICT (scheme, year)
 DO UPDATE SET last_value = company_code_counter.last_value + 1
 RETURNING last_value;
 ```
@@ -510,8 +605,8 @@ RETURNING last_value;
 Per **D7**, this statement runs in **its own short transaction, before** the
 SPEC-03 §4 save transaction opens. Consequences:
 
-- Concurrent saves in the same zone never block each other, and the counter row
-  is not held while the MOU PDF is written to disk.
+- Concurrent saves for the same scheme never block each other, and the counter
+  row is not held while the MOU PDF is written to disk.
 - A save that then fails or is abandoned **burns its number** — the series may
   contain gaps (0041, 0042, 0045).
 
@@ -590,7 +685,7 @@ Zone master rows are seeded (§11), not created through the UI in this phase.
 ### 8.2 Integration — `@mou/api` against docker-compose Postgres, **uncached**
 
 5. All §5 tables exist with the stated columns, CHECK constraints, unique indexes and `ON DELETE RESTRICT` foreign keys.
-6. A second `company` with an existing `gst_number` is rejected; likewise `generated_code`.
+6. A second `company` with an existing `gst_number` is rejected; likewise a second `mou` with an existing `generated_code` *(amended by SPEC-16 D109 — the code moved to `mou`)*.
 7. A second **active** `mou` for the same `(company_id, company_plant_id, scheme)` is rejected; one with `is_active = false` is permitted.
 8. `end_date` cannot be written directly — an INSERT supplying it fails; it recomputes automatically when `tenure_value` is updated.
 9. A `payroll_item` with `is_applicable = false` and a non-null `amount` is rejected, and vice versa.
@@ -598,7 +693,7 @@ Zone master rows are seeded (§11), not created through the UI in this phase.
 11. Two `commercial_item` rows with the same non-OTHER `item_key` for one MOU are rejected; two `OTHER` rows are permitted.
 12. Deleting a `zone` that has companies is rejected by RESTRICT rather than cascading.
 13. `business_today()` returns the IST date when the session timezone is set to UTC.
-14. Concurrent allocation: 50 parallel calls to the §6.3 statement for one zone-year yield 50 distinct values with no duplicates.
+14. Concurrent allocation: 50 parallel calls to the §6.3 statement for one scheme-year yield 50 distinct values with no duplicates. *(amended by SPEC-16 D109 — was zone-year)*
 15. `GET /api/enums` returns every list in §2, §3 and §4; `GET /api/zones` returns only active zones and the §11 seed rows are present.
 16. A deactivated company is absent from `GET /api/zones/{id}/companies` but still resolvable by id.
 
@@ -686,6 +781,16 @@ Applied as data migrations, separate from schema migrations so they can be
 replaced without touching the schema.
 
 ### 11.1 Zones — **PROVISIONAL**
+
+> **Replaced by SPEC-16 (D102).** The five placeholder rows below are obsolete.
+> The live seed is the 24 real zones in SPEC-16 §2.1
+> (`AHILYANGR`, `ASSAM`, `CHENNAI`, `CHIPLUN`, `COIMBATORE`, `DAMAN`, `GOA`,
+> `GJSANAND`, `GJVADODARA`, `HARIDWAR`, `JAMSHEDPUR`, `KARNATAKA`, `KOLHAPUR`,
+> `MP`, `MUMBAI`, `NASHIK`, `NCRHARYANA`, `NCRNOIDA`, `PUNE`, `RAJASTHAN`,
+> `RANJANGAON`, `RUDRAPUR`, `SIKKIM`, `SOLAPUR`), sourced from the v2 design
+> rather than derived from mock data. See SPEC-16 §2.1 for the full table and
+> the note on the zones v1 derived but v2 omits.
+
 | code | name |
 |---|---|
 | NORTH | North |
@@ -694,9 +799,11 @@ replaced without touching the schema.
 | WEST | West |
 | CENTRAL | Central |
 
-> These are placeholders. `zone.code` appears inside every generated company
-> code, so replacing this list **after** companies exist would make historical
-> codes inconsistent with the master data. Replace before go-live. See Q14.
+> These are placeholders. `zone.code` appeared inside every generated company
+> code, so replacing this list **after** companies existed would have made
+> historical codes inconsistent with the master data. SPEC-16 D109 removed
+> `zone.code` from the code format, so that constraint no longer applies —
+> but the list still needs client sign-off before go-live. See Q14.
 
 ### 11.2 Admin user
 One row: `role = ADMIN`, `is_active = true`. The initial password is supplied
@@ -711,7 +818,7 @@ force a change on first login.
 | # | Item | Blocks | Impact if answered late |
 |---|---|---|---|
 | Q13 | Must company codes be gap-free? | §6.3 | Low — one line moves the counter statement into the save transaction |
-| Q14 | Real zone names and short codes | §11.1 | **High** — `zone.code` is embedded in every generated company code; changing it after go-live orphans historical codes |
+| Q14 | Real zone names and short codes | §11.1, SPEC-16 §2.1 | **Low** (was High) — SPEC-16 D102 supplies the 24 real zones and D109 removed `zone.code` from the generated code format, so changing a zone code no longer orphans historical codes. The list still needs client sign-off before go-live |
 
 ### Carried from `project_information.md` §12
 Q2 (code format), Q3 (tenure unit), Q4 (allowance/deduction split), Q5 (zone as

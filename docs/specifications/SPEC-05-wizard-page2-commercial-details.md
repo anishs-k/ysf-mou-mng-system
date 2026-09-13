@@ -39,6 +39,12 @@ Left Deduction, Skill Diploma Fees, Transportation Deduction.
 Each is an optional amount box. Leaving one blank means "not applicable" and
 persists as `NULL` — distinct from an entered `0.00` (SPEC-01 §6.4).
 
+> **Extended by SPEC-16 (D108).** Each charge row is now a **five-column** row
+> rather than a single amount box: **amount, period, basis** in addition to the
+> label and type. `period` and `basis` are the new optional `commercial_item`
+> columns (SPEC-01 §2.11 and §2.12); both accept NULL, so a charge may still be
+> saved with an amount and no period or basis at all. See SPEC-16 §5.2.
+
 ### 2.3 "Other" rows
 A repeatable block. Each row captures:
 - **Label** — free text, what the charge is called.
@@ -84,9 +90,12 @@ save transaction.
 
 None during the page. Values map at final save to:
 - `mou.mou_start_date`, `tenure_value`, `tenure_unit`, `end_date`, `attendance_cycle`, `stipend_date`
-- `commercial_detail` — one column per charge item
-- `commercial_other_item` — one row per "Other" entry
+- `commercial_item` — one row per charge item, carrying `amount`, `item_type`
+  and (SPEC-16 D108) `period` + `basis`
 - `mou_document` — the uploaded PDF
+
+*(`commercial_detail` and `commercial_other_item` were already superseded by
+`commercial_item` under D8; corrected here alongside the SPEC-16 amendment.)*
 
 ---
 
@@ -102,3 +111,4 @@ None during the page. Values map at final save to:
 8. Two "Other" rows with the same label are rejected.
 9. Next with no PDF uploaded is blocked.
 10. Replacing the PDF and then cancelling the wizard leaves no temporary file behind.
+11. A charge saved with a period and no basis persists `period` set and `basis` NULL; both accept an empty selection. *(added by SPEC-16 D108)*

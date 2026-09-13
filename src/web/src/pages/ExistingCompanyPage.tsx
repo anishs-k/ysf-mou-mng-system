@@ -212,7 +212,7 @@ export function ExistingCompanyPage() {
                   <option value="">{zoneId === "" ? "Select a zone first" : "Select company"}</option>
                   {companies.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.generatedCode})
+                      {c.name}
                     </option>
                   ))}
                 </select>
@@ -222,9 +222,6 @@ export function ExistingCompanyPage() {
                 <div className="space-y-2 rounded-lg bg-muted/40 p-4 text-sm mb-4">
                   <p>
                     <span className="font-medium">Company Name:</span> {overview.companyName}
-                  </p>
-                  <p>
-                    <span className="font-medium">Generated Code:</span> {overview.generatedCode}
                   </p>
                   <p>
                     <span className="font-medium">GST Number:</span> {overview.gstNumber}

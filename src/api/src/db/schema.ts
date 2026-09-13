@@ -12,6 +12,13 @@
  * SPEC-02 adds the two authentication tables - `session` and `login_attempt` - to
  * this same file, so the schema stays the single place the database shape is
  * declared.
+ *
+ * SPEC-16 revises the model: `generated_code` moves from `company` to `mou` (D109)
+ * because the code identifies an agreement rather than a company, `company` gains
+ * `sector` and the three purchase columns (D107, D110), `trainee_category` gains
+ * qualification, stipend rate and trainee count (D107), `commercial_item` gains a
+ * period and basis (D108), `payroll_item` gains the insurance sub-model (D108), and
+ * `company_code_counter` is re-keyed to (scheme, year).
  */
 
 import { sql, type SQL } from "drizzle-orm";
@@ -35,14 +42,19 @@ import {
 } from "drizzle-orm/pg-core";
 
 import {
+  COMMERCIAL_BASES,
   COMMERCIAL_ITEM_KEYS,
+  COMMERCIAL_PERIODS,
   COMPANY_TYPES,
   CONTACT_TYPES,
   EDIT_AGREEMENT_REASONS,
+  INSURANCE_ITEM_KEY,
+  INSURANCE_TYPES,
   ITEM_TYPES,
   PAYROLL_ITEM_KEYS,
   REGISTRATION_TYPES,
   SCHEMES,
+  SECTORS,
   TENURE_UNITS,
   USER_ROLES,
 } from "@mou/domain";
@@ -130,27 +142,33 @@ export const zone = pgTable(
   () => [check("zone_code_upper_chk", sql.raw("code = upper(code)"))],
 );
 
-/** Section 5.13 - supports the generated company code in section 6.3. Not a business table. */
+/**
+ * Section 5.13 - supports the generated code in SPEC-16 section 3.3. Not a business
+ * table. Re-keyed by D109 from (zone_id, year) to (scheme, year): the code now
+ * identifies an MOU rather than a company, so the sequence restarts per scheme per
+ * year and the zone reference is gone.
+ */
 export const companyCodeCounter = pgTable(
   "company_code_counter",
   {
-    zoneId: uuid("zone_id")
-      .notNull()
-      .references(() => zone.id, { onDelete: "restrict" }),
+    scheme: varchar("scheme", { length: 20 }).notNull(),
     year: smallint("year").notNull(),
     lastValue: integer("last_value").notNull().default(0),
   },
-  (t) => [primaryKey({ columns: [t.zoneId, t.year] })],
+  (t) => [primaryKey({ columns: [t.scheme, t.year] })],
 );
 
-/** Section 5.2. */
+/**
+ * Section 5.2. SPEC-16 dropped `generated_code` from here - it now lives on `mou`
+ * (D109) - and added `sector` (D107) plus the optional purchase contact (D110).
+ */
 export const company = pgTable(
   "company",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    generatedCode: varchar("generated_code", { length: 30 }).notNull().unique(),
     companyName: varchar("company_name", { length: 150 }).notNull(),
     companyType: varchar("company_type", { length: 20 }).notNull(),
+    sector: varchar("sector", { length: 30 }).notNull(),
     registrationType: varchar("registration_type", { length: 20 }).notNull(),
     tanNumber: varchar("tan_number", { length: 10 }).notNull(),
     gstNumber: varchar("gst_number", { length: 15 }).notNull().unique(),
@@ -169,6 +187,9 @@ export const company = pgTable(
     hrContactNumber: varchar("hr_contact_number", { length: 20 }).notNull(),
     financeHeadContactNumber: varchar("finance_head_contact_number", { length: 20 }).notNull(),
     officialEmail: varchar("official_email", { length: 255 }).notNull(),
+    purchaseName: varchar("purchase_name", { length: 150 }),
+    purchaseNumber: varchar("purchase_number", { length: 20 }),
+    purchaseEmail: varchar("purchase_email", { length: 255 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -178,6 +199,7 @@ export const company = pgTable(
   },
   () => [
     check("company_type_chk", enumCheck("company_type_chk", "company_type", COMPANY_TYPES)),
+    check("company_sector_chk", enumCheck("company_sector_chk", "sector", SECTORS)),
     check(
       "company_registration_type_chk",
       enumCheck("company_registration_type_chk", "registration_type", REGISTRATION_TYPES),
@@ -207,11 +229,16 @@ export const companyPlant = pgTable(
   ],
 );
 
-/** Section 5.4. One row per agreement, mutated in place; superseded states live in agreement_history (D4). */
+/**
+ * Section 5.4. One row per agreement, mutated in place; superseded states live in
+ * agreement_history (D4). SPEC-16 D109 moved the generated code onto this table,
+ * since a company running two schemes holds two agreements and so two codes.
+ */
 export const mou = pgTable(
   "mou",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    generatedCode: varchar("generated_code", { length: 30 }).notNull().unique(),
     companyId: uuid("company_id")
       .notNull()
       .references(() => company.id, { onDelete: "restrict" }),
@@ -255,6 +282,8 @@ export const commercialItem = pgTable(
     customLabel: varchar("custom_label", { length: 100 }),
     amount: numeric("amount", { precision: 12, scale: 2 }),
     itemType: varchar("item_type", { length: 10 }).notNull(),
+    period: varchar("period", { length: 20 }),
+    basis: varchar("basis", { length: 30 }),
   },
   (t) => [
     uniqueIndex("commercial_item_fixed_uq")
@@ -271,6 +300,10 @@ export const commercialItem = pgTable(
       "commercial_item_custom_label_chk",
       sql.raw(`(item_key = '${OTHER_ITEM_KEY}') = (custom_label IS NOT NULL)`),
     ),
+    // SPEC-16 D108. Both are optional; the CHECKs only constrain them when present,
+    // since a NULL passes an `IN` test as unknown rather than false.
+    check("commercial_item_period_chk", enumCheck("commercial_item_period_chk", "period", COMMERCIAL_PERIODS)),
+    check("commercial_item_basis_chk", enumCheck("commercial_item_basis_chk", "basis", COMMERCIAL_BASES)),
   ],
 );
 
@@ -283,7 +316,12 @@ export const payrollConfig = pgTable("payroll_config", {
     .references(() => mou.id, { onDelete: "restrict" }),
 });
 
-/** Section 5.7. At least one row per config is enforced in application code (SPEC-06). */
+/**
+ * Section 5.7. At least one row per config is enforced in application code (SPEC-06).
+ * SPEC-16 D107 adds the three descriptive fields the v2 design shows on each category
+ * card. All three are optional, so a category row captured before this change stays
+ * valid.
+ */
 export const traineeCategory = pgTable(
   "trainee_category",
   {
@@ -292,12 +330,17 @@ export const traineeCategory = pgTable(
       .notNull()
       .references(() => payrollConfig.id, { onDelete: "restrict" }),
     categoryName: varchar("category_name", { length: 100 }).notNull(),
+    qualification: varchar("qualification", { length: 150 }),
+    stipendRate: numeric("stipend_rate", { precision: 12, scale: 2 }),
+    traineeCount: integer("trainee_count"),
   },
   (t) => [
     uniqueIndex("trainee_category_config_name_uq").on(
       t.payrollConfigId,
       sql.raw("lower(category_name)"),
     ),
+    check("trainee_category_stipend_rate_chk", sql.raw("stipend_rate >= 0")),
+    check("trainee_category_trainee_count_chk", sql.raw("trainee_count >= 0")),
   ],
 );
 
@@ -314,6 +357,9 @@ export const payrollItem = pgTable(
     isApplicable: boolean("is_applicable").notNull(),
     amount: numeric("amount", { precision: 12, scale: 2 }),
     itemType: varchar("item_type", { length: 10 }).notNull(),
+    insuranceType: varchar("insurance_type", { length: 10 }),
+    insuranceGfsAmount: numeric("insurance_gfs_amount", { precision: 12, scale: 2 }),
+    insuranceMouAmount: numeric("insurance_mou_amount", { precision: 12, scale: 2 }),
   },
   (t) => [
     uniqueIndex("payroll_item_fixed_uq")
@@ -329,6 +375,21 @@ export const payrollItem = pgTable(
       "payroll_item_custom_label_chk",
       sql.raw(`(item_key = '${OTHER_ITEM_KEY}') = (custom_label IS NOT NULL)`),
     ),
+    // SPEC-16 D108. The insurance sub-model belongs to the INSURANCE key alone, so a
+    // half-written or misplaced one is rejected outright rather than left to the
+    // application to police.
+    check(
+      "payroll_item_insurance_key_chk",
+      sql.raw(
+        `(item_key = '${INSURANCE_ITEM_KEY}') OR (insurance_type IS NULL AND insurance_gfs_amount IS NULL AND insurance_mou_amount IS NULL)`,
+      ),
+    ),
+    check(
+      "payroll_item_insurance_type_chk",
+      enumCheck("payroll_item_insurance_type_chk", "insurance_type", INSURANCE_TYPES),
+    ),
+    check("payroll_item_insurance_gfs_chk", sql.raw("insurance_gfs_amount >= 0")),
+    check("payroll_item_insurance_mou_chk", sql.raw("insurance_mou_amount >= 0")),
   ],
 );
 

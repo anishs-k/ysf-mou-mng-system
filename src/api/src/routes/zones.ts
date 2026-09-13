@@ -35,11 +35,13 @@ export function createZonesRouter(db: Database): Router {
       return;
     }
 
+    // SPEC-16 D109: a company no longer holds a generated code - the code belongs
+    // to each MOU - so this company-scoped list returns only what it can honestly
+    // report. Consumers render the plain company name.
     const companies = await db
       .select({
         id: company.id,
         name: company.companyName,
-        generatedCode: company.generatedCode,
       })
       .from(company)
       .where(and(eq(company.zoneId, zoneId), eq(company.isActive, true)))

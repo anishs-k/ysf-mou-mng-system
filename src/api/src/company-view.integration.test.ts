@@ -174,13 +174,13 @@ test("AC10 an item answered No does not appear in the payroll view", async () =>
   const configId = await insertPayrollConfig(pool, mouId);
   await insertTraineeCategory(pool, configId, "Category A");
   await insertPayrollItem(pool, configId, "BONUS", { isApplicable: true, amount: "500", itemType: "ALLOWANCE" });
-  await insertPayrollItem(pool, configId, "ARREARS", { isApplicable: false, itemType: "ALLOWANCE" });
+  await insertPayrollItem(pool, configId, "HRA", { isApplicable: false, itemType: "ALLOWANCE" });
 
   const response = await fetch(`${baseUrl}/api/mous/${mouId}/payroll`, { headers: { Cookie: cookie } });
   const body = (await response.json()) as { allowances: Array<{ itemKey: string }>; deductions: unknown[] };
   const keys = body.allowances.map((row) => row.itemKey);
   assert.ok(keys.includes("BONUS"));
-  assert.ok(!keys.includes("ARREARS"));
+  assert.ok(!keys.includes("HRA"));
 });
 
 test("AC11 a scheme with only deduction items has an empty allowances array", async () => {

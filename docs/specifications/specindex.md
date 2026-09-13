@@ -30,6 +30,7 @@ them exist. `SPEC-01` is mandatory for everything; `SPEC-03` must precede
 - `./SPEC-13-search-and-exports.md` : Search by Company/Plant/Scheme, Excel export as a four-sheet workbook, and PDF export scoped to All Zones or a single company. All three share one filter and query layer.
 - `./SPEC-14-figma-ui-replication.md` : Visual-only restyle of every already-implemented page to match the `figma_code/` Figma export pixel-for-pixel, plus the small new read-only Dashboard KPI/Recent-Activity endpoints that restyle alone cannot honestly provide. Changes no route, data model or interaction pattern.
 - `./SPEC-15-deferred-ui-features.md` : Not implemented. Holds the "Remember Me" and "Forgot Password" login controls SPEC-14 renders but leaves inert, and the open design questions for building them for real later.
+- `./SPEC-16-figma-v2-alignment.md` : **Implemented** (Phases A–E). Aligns the application with the second Figma export (`figma_code-v2/`). Unlike SPEC-14 this is **not** a restyle — it changes the domain: the scheme enum goes 4 → 7 (BOC_AND_DVOC splits into BVOC + DVOC, NAPS + NATS added), the zone master is replaced with 24 real zones, the company code moves from `company` to `mou` and becomes `MOU-<SCHEME>-<YYYY>-<NNNN>`, the payroll catalogue becomes 23 fixed keys + `OTHER`, and four new fields (Sector, Qualification, Stipend Rate, Trainee Count) plus six sub-attribute columns are added. Also adds the User Manual page and a demo seed of 65 companies / 120 MOUs. Decisions D101–D115 in its §0; §7 lists the amendments it forces on SPEC-01–SPEC-13.
 
 ## Open Decisions Flagged Across Specs
 
@@ -51,7 +52,7 @@ is not blocked. Question numbers refer to `docs/project_information.md` §12.
 | 11 | Company uniqueness | GST unique globally; name + plant unique within zone | SPEC-04 §4 |
 | 12 | "Other" rows | Repeatable, in both commercial and payroll | SPEC-01 §5.5, §5.8 |
 | 13 | Gap-free company codes? | Gaps allowed for now — **client to confirm** | SPEC-01 §6.3 |
-| 14 | Real zone names + short codes | Provisional seed (North/South/East/West/Central) — **client to confirm before go-live** | SPEC-01 §11.1 |
+| 14 | Real zone names + short codes | Provisional seed (North/South/East/West/Central) — **client to confirm before go-live**. SPEC-16 D102 replaces this with 24 real zones and derived codes, and D109 removes `zone.code` from generated company codes, so a later change is now low-risk rather than high-risk | SPEC-01 §11.1, SPEC-16 §2.1 |
 
 ## Resolved Technical Decisions
 

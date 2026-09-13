@@ -25,7 +25,7 @@ A **Search By** selector plus a query box.
 
 | Search By | Matches against |
 |---|---|
-| Company | `company.company_name` and `company.generated_code` |
+| Company | `company.company_name` and **`mou.generated_code`** *(was `company.generated_code` — amended by SPEC-16 D109)* |
 | Plant | `company_plant.plant_name` |
 | Scheme | `mou.scheme` — a picker, not free text |
 
@@ -59,10 +59,13 @@ active, it exports everything the user may see.
 ### 3.2 Workbook layout
 | Sheet | Contents |
 |---|---|
-| Companies | one row per company: code, name, type, registration type, TAN, GST, zone, plant(s), address block, HR and Finance contact names, numbers, email |
-| MOUs | one row per current MOU: company code, plant, scheme, start date, tenure value, tenure unit, end date, derived status, attendance cycle, stipend date |
-| Commercial | one row per MOU, one column per charge item in SPEC-01 §3 order, followed by "Other" items as label/amount/type triples |
-| Payroll | one row per `payroll_item` where `is_applicable = true`: company code, scheme, trainee categories, item label, item type, amount |
+| Companies | one row per company: ~~code,~~ name, type, sector, registration type, TAN, GST, zone, plant(s), address block, HR and Finance contact names, numbers, email, purchase contact |
+| MOUs | one row per current MOU: **MOU code** (`MOU-<SCHEME>-<YYYY>-<NNNN>`), company name, plant, scheme, start date, tenure value, tenure unit, end date, derived status, attendance cycle, stipend date |
+| Commercial | one row per MOU, one column per charge item in SPEC-01 §3 order, followed by "Other" items as label/amount/type triples. **Each charge also carries its `period` and `basis`** — added by SPEC-16 D108 |
+| Payroll | one row per `payroll_item` where `is_applicable = true`: MOU code, scheme, trainee categories, item label, item type, amount. **Where the item is `INSURANCE`, also `insurance_type`, `insurance_gfs_amount` and `insurance_mou_amount`** — added by SPEC-16 D108 |
+
+*(The code column moved from Companies to MOUs because SPEC-16 D109 moved
+`generated_code` from `company` to `mou` — one code per agreement.)*
 
 Rules:
 - Amounts are written as numbers, not text, so the sheet is usable for arithmetic.
@@ -138,7 +141,7 @@ Read-only, available to every authenticated role.
 ## 7. Acceptance criteria
 
 1. Searching by Company for "tat" returns companies whose name contains "tat", case-insensitively.
-2. Searching by the generated code returns the matching company.
+2. Searching by the generated code returns the matching **MOU** — the code is `mou.generated_code` in `MOU-<SCHEME>-<YYYY>-<NNNN>` form, not a company-level code. *(amended by SPEC-16 D109)*
 3. A single-character query is rejected with a minimum-length message.
 4. Search by Scheme offers a dropdown, not a text box, and returns exact matches only.
 5. A company with WILP and FLEXI MOUs produces two result rows.
@@ -150,3 +153,4 @@ Read-only, available to every authenticated role.
 11. The company-scope PDF includes payroll allowances and deductions, which the SPEC-07 Print does not.
 12. Exporting with a search filter active yields exactly the filtered rows, no more.
 13. A generated export file is unreachable without a session and is gone after 24 hours.
+14. The Commercial sheet carries each charge's period and basis, and the Payroll sheet carries the insurance type and both insurance amounts on the INSURANCE row. *(added by SPEC-16 D108)*

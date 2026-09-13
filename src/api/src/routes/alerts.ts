@@ -75,7 +75,7 @@ export function createAlertsRouter(pool: Pool): Router {
 
     const { rows } = await pool.query(
       `SELECT a.id, a.threshold_days, a.triggered_on, a.acknowledged_at, a.acknowledged_by,
-              c.id AS company_id, c.company_name, c.generated_code, z.name AS zone_name, z.id AS zone_id,
+              c.id AS company_id, c.company_name, m.generated_code, z.name AS zone_name, z.id AS zone_id,
               p.plant_name, m.scheme, m.mou_start_date::text AS mou_start_date, m.end_date::text AS end_date,
               (m.end_date - business_today()) AS days_remaining
          FROM mou_alert a

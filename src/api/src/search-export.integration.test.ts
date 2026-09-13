@@ -98,14 +98,17 @@ test("AC1 searching by Company for a partial, case-insensitive fragment returns 
 test("AC2 searching by the generated code returns the matching company", async () => {
   const zoneId = await insertZone(pool);
   const creator = await insertUserWithPassword(pool, { username: "creator2", password: "pass" });
-  const companyId = await insertCompany(pool, zoneId, creator.id, { generatedCode: "WEST-26-0099" });
+  // SPEC-16 D109: the generated code lives on the MOU, so search matches there.
+  const companyId = await insertCompany(pool, zoneId, creator.id);
   const plantId = await insertPlant(pool, companyId);
-  await insertMou(pool, companyId, plantId);
+  await insertMou(pool, companyId, plantId, { generatedCode: "MOU-WILP-2026-0099" });
   const cookie = await viewerCookie();
 
-  const response = await fetch(`${baseUrl}/api/search?by=company&q=WEST-26-0099`, { headers: { Cookie: cookie } });
+  const response = await fetch(`${baseUrl}/api/search?by=company&q=MOU-WILP-2026-0099`, {
+    headers: { Cookie: cookie },
+  });
   const body = (await response.json()) as { rows: Array<{ generatedCode: string }> };
-  assert.ok(body.rows.some((row) => row.generatedCode === "WEST-26-0099"));
+  assert.ok(body.rows.some((row) => row.generatedCode === "MOU-WILP-2026-0099"));
 });
 
 test("AC3 a single-character query is rejected with a minimum-length message", async () => {

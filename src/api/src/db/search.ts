@@ -83,7 +83,7 @@ export async function searchMous(
        m.id AS mou_id,
        c.id AS company_id,
        c.company_name,
-       c.generated_code,
+       m.generated_code,
        c.zone_id,
        z.name AS zone_name,
        cp.plant_name,
@@ -106,7 +106,7 @@ export async function searchMous(
        AND ($2::text IS NULL OR ${STATUS_CASE} = $2)
        AND (
          $3::text IS NULL
-         OR ($3 = 'company' AND (c.company_name ILIKE '%' || $4 || '%' OR c.generated_code ILIKE '%' || $4 || '%'))
+         OR ($3 = 'company' AND (c.company_name ILIKE '%' || $4 || '%' OR m.generated_code ILIKE '%' || $4 || '%'))
          OR ($3 = 'plant' AND cp.plant_name ILIKE '%' || $4 || '%')
          OR ($3 = 'scheme' AND m.scheme = $4)
        )

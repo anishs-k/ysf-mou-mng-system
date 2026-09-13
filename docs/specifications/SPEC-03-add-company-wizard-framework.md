@@ -80,7 +80,7 @@ transaction — either every row is written or none is:
    trusted. Any failure aborts with a field-level error report and the draft is
    left untouched.
 2. Insert `company`.
-3. Generate the company code per SPEC-01 §6.3 and set `company.generated_code`.
+3. Generate the code per SPEC-01 §6.3 and set **`mou.generated_code`** — `MOU-<SCHEME>-<YYYY>-<NNNN>`. *(amended by SPEC-16 D109: the code belongs to the MOU, not the company, and is written in step 5 with the `mou` row.)*
 4. Insert the `company_plant` row captured on Page 1.
 5. Insert `mou` (scheme from Page 3, dates and cycle from Page 2), computing
    `end_date` per SPEC-01 §6.1, `version = 1`, `is_current = true`.

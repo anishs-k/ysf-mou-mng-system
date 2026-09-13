@@ -198,6 +198,42 @@ phase-level work begins.
     the whole page (D98/D99) — no test's asserted behaviour changed, only
     what an unscoped locator now also matched.
 
+15. `SPEC-16-figma-v2-alignment.md` — **implemented** (Phases A–E). Alignment
+    with a second Figma export, `figma_code-v2/`. Unlike SPEC-14 this is not a
+    restyle: it changes the domain. Decisions D101–D115, now also recorded in
+    `docs/design/ADR.md`.
+
+    Phase A — the scheme enum goes 4 → 7 (`BOC_AND_DVOC` splits into `BVOC`
+    and `DVOC`; `NAPS` and `NATS` added, D101); the zone seed is replaced by
+    24 real zones (D102); the payroll catalogue becomes 23 fixed keys plus one
+    shared `OTHER` (D105); `formatCompanyCode` becomes
+    `MOU-<SCHEME>-<YYYY>-<NNNN>` (D109). Phase B — the five read paths that
+    showed a company-level code were re-pointed at `mou.generated_code`
+    (D109), and the three validation modules gained Sector, the purchase block
+    and the insurance sub-model (D107, D108, D110). Phase C — wizard Page 1
+    reordered with Scheme first and a guidelines panel (D111, D113), Page 2's
+    charge row gained period and basis, Page 3 moved from Yes/No radios to
+    checkboxes (D106). Phase D — Existing Company gained a scheme filter, the
+    sidebar gained an "Operation" section, and a static User Manual became the
+    eleventh entry point (D112). Phase E — `npm run db:seed:demo` inserts 65
+    companies and 120 MOUs (D115); it is separate from `db:seed` and is
+    referenced by no migration and no CI job.
+
+    Two things worth carrying forward. First, the generated migrations had to
+    be hand-edited before they would run against a populated database:
+    `drizzle-kit generate` emitted `ADD COLUMN … NOT NULL` for
+    `company.sector` and `mou.generated_code`, which fails as soon as a row
+    exists, and emitted no path for the 15 payroll keys D105 retires or the
+    counter rows D109 invalidates. The shipped migrations add nullable,
+    backfill, then tighten; fold retired keys into `OTHER` keeping the old
+    name as the label; and re-seed the counter from the backfilled MOUs.
+    151/151 integration tests passed throughout — but only because the test
+    database is always built empty, so the failure was invisible until the
+    migration was run against the development database. Second, the schema
+    test's column assertion had to become set-based rather than
+    order-based: Postgres appends every `ADD COLUMN`, so physical column
+    order tracks migration history, not `schema.ts`.
+
 ### Known gaps carried forward
 
 - `SPEC-01` §11.2 requires a forced password change on first login, but `SPEC-02`

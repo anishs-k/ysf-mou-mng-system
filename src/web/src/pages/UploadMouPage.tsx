@@ -206,7 +206,7 @@ export function UploadMouPage() {
                 <option value="">{zoneId === "" ? "Select a zone first" : "Select company"}</option>
                 {companies.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.generatedCode})
+                    {c.name}
                   </option>
                 ))}
               </select>

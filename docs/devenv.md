@@ -39,3 +39,34 @@ immediately with `DATABASE_URL must be set`, while Vite still starts - a half-up
 stack that looks like it is working.
 
 Docker Desktop must be running: Postgres lives in a container on host port 5434.
+
+## Database
+
+Three commands, in this order, on a fresh checkout:
+
+```bash
+source ./environment.sh
+npm run db:up       # docker-compose, only if the container is not already running
+npm run db:migrate  # applies everything in src/api/drizzle
+npm run db:seed     # zone master (24 rows) + the ADMIN user
+```
+
+`db:seed` is idempotent and holds only the reference data the application cannot
+run without.
+
+### Demo data
+
+```bash
+npm run db:seed:demo
+```
+
+Inserts 65 companies and 120 MOUs across 19 zones and 6 schemes (SPEC-16 section
+6, Phase E) so the dashboards, search, exports and expiry alerts have something
+realistic to render. It is **not** part of `db:seed`, is referenced by no
+migration and no CI job, and is idempotent - a second run inserts nothing.
+
+Every value is synthetic by design: TAN and GST numbers carry a `DEMO` prefix and
+the emails use the reserved `.invalid` top-level domain, so no seeded row can be
+mistaken for a real company or receive mail. Do not restore this data anywhere
+that matters. It requires `db:migrate` and `db:seed` to have run first, because it
+references the zone master and the ADMIN user.

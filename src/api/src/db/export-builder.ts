@@ -35,7 +35,6 @@ function dateCell(sheet: ExcelJS.Worksheet, row: ExcelJS.Row, key: string, value
 
 interface CompanyExportRow {
   readonly id: string;
-  readonly generatedCode: string;
   readonly companyName: string;
   readonly companyType: string;
   readonly registrationType: string;
@@ -75,7 +74,6 @@ async function fetchCompaniesWithPlants(db: Database, companyIds: readonly strin
 
   return companies.map((c) => ({
     id: c.id,
-    generatedCode: c.generatedCode,
     companyName: c.companyName,
     companyType: c.companyType,
     registrationType: c.registrationType,
@@ -107,7 +105,6 @@ export async function buildExportWorkbook(db: Database, pool: Pool, filters: Sea
 
   const companiesSheet = workbook.addWorksheet("Companies");
   companiesSheet.columns = [
-    { header: "Generated Code", key: "generatedCode", width: 16 },
     { header: "Company Name", key: "companyName", width: 30 },
     { header: "Company Type", key: "companyType", width: 16 },
     { header: "Registration Type", key: "registrationType", width: 16 },
@@ -133,7 +130,7 @@ export async function buildExportWorkbook(db: Database, pool: Pool, filters: Sea
 
   const mousSheet = workbook.addWorksheet("MOUs");
   mousSheet.columns = [
-    { header: "Company Code", key: "generatedCode", width: 16 },
+    { header: "MOU Code", key: "generatedCode", width: 16 },
     { header: "Plant", key: "plantName", width: 18 },
     { header: "Scheme", key: "scheme", width: 14 },
     { header: "MOU Start Date", key: "mouStartDate", width: 14 },
@@ -168,7 +165,7 @@ export async function buildExportWorkbook(db: Database, pool: Pool, filters: Sea
 
   const commercialSheet = workbook.addWorksheet("Commercial");
   const commercialColumns: Partial<ExcelJS.Column>[] = [
-    { header: "Company Code", key: "generatedCode", width: 16 },
+    { header: "MOU Code", key: "generatedCode", width: 16 },
     { header: "Plant", key: "plantName", width: 18 },
     { header: "Scheme", key: "scheme", width: 14 },
     ...COMMERCIAL_FIXED_ITEM_KEYS.map((key) => ({ header: COMMERCIAL_ITEM_BY_KEY[key].label, key, width: 18 })),
@@ -201,7 +198,7 @@ export async function buildExportWorkbook(db: Database, pool: Pool, filters: Sea
 
   const payrollSheet = workbook.addWorksheet("Payroll");
   payrollSheet.columns = [
-    { header: "Company Code", key: "generatedCode", width: 16 },
+    { header: "MOU Code", key: "generatedCode", width: 16 },
     { header: "Scheme", key: "scheme", width: 14 },
     { header: "Trainee Categories", key: "traineeCategories", width: 30 },
     { header: "Item Label", key: "itemLabel", width: 24 },
@@ -326,7 +323,8 @@ export async function buildCompanyPdfBuffer(
     doc.fontSize(10).text(`Generated ${new Date().toISOString()} by ${generatedByUsername}`);
     doc.moveDown(0.5);
     doc.fontSize(11);
-    doc.text(`Generated Code: ${overview.generatedCode}`);
+    // SPEC-16 D109: the generated code belongs to the MOU, so it is printed per
+    // scheme below rather than once for the company.
     doc.text(`GST Number: ${overview.gstNumber}`);
     doc.text(`HR Contact: ${overview.hrContactName} (${overview.hrContactNumber})`);
     doc.text(`Finance Head: ${overview.financeHeadContactName} (${overview.financeHeadContactNumber})`);

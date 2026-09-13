@@ -15,7 +15,7 @@ import type { Server } from "node:http";
 
 import type { Pool } from "pg";
 
-import { PAYROLL_FIXED_ITEM_KEYS } from "@mou/domain";
+import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "@mou/domain";
 
 import { createApp } from "./index.ts";
 import {
@@ -314,7 +314,8 @@ test("AC4 + AC6: final save creates company and is idempotent", async () => {
   assert.equal(submitResponse.status, 201);
   const submitBody = (await submitResponse.json()) as { companyId: string; generatedCode: string };
   assert.ok(submitBody.companyId.length > 0);
-  assert.ok(submitBody.generatedCode.includes("WEST"));
+  // SPEC-16 D109: the code is MOU-<SCHEME>-<YYYY>-<NNNN>, no longer zone-based.
+  assert.match(submitBody.generatedCode, /^MOU-[A-Z]+-\d{4}-\d{4}$/);
 
   // Verify company now exists
   const { rows: after } = await pool.query(`SELECT count(*)::int AS c FROM company`);
@@ -945,7 +946,7 @@ test("SPEC-06 AC8 two saves in the same zone and year produce consecutive genera
   assert.equal(secondSequence, firstSequence + 1);
 });
 
-test("SPEC-06 AC9 DOCUMENT_FEE and REGISTRATION_FEE persist as DEDUCTION, the rest as ALLOWANCE", async () => {
+test("SPEC-16 every saved payroll item carries its catalogue item type", async () => {
   const zoneId = await insertZone(pool);
   const cookie = await authorCookie();
 
@@ -960,9 +961,17 @@ test("SPEC-06 AC9 DOCUMENT_FEE and REGISTRATION_FEE persist as DEDUCTION, the re
     `SELECT item_key, item_type FROM payroll_item WHERE payroll_config_id = $1 AND item_key <> 'OTHER'`,
     [configId],
   );
+  // SPEC-16 D105 replaced SPEC-01 section 4's 22-item catalogue with 23 fixed keys
+  // (8 allowances, 15 deductions), so the saved rows are checked against the
+  // catalogue itself rather than a hardcoded split.
+  assert.equal(rows.length, PAYROLL_FIXED_ITEM_KEYS.length);
   for (const row of rows) {
-    const expected = row.item_key === "DOCUMENT_FEE" || row.item_key === "REGISTRATION_FEE" ? "DEDUCTION" : "ALLOWANCE";
-    assert.equal(row.item_type, expected, `expected ${row.item_key} to be ${expected}`);
+    const definition = PAYROLL_ITEM_BY_KEY[row.item_key as keyof typeof PAYROLL_ITEM_BY_KEY];
+    assert.equal(
+      row.item_type,
+      definition.itemType,
+      `expected ${row.item_key} to be ${String(definition.itemType)}`,
+    );
   }
 });
 

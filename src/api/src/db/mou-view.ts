@@ -46,7 +46,6 @@ export async function businessToday(pool: Pool): Promise<string> {
 
 export interface CompanyOverview {
   readonly id: string;
-  readonly generatedCode: string;
   readonly companyName: string;
   readonly gstNumber: string;
   readonly zoneId: string;
@@ -65,7 +64,6 @@ export async function fetchCompanyOverview(
   const rows = await db
     .select({
       id: company.id,
-      generatedCode: company.generatedCode,
       companyName: company.companyName,
       gstNumber: company.gstNumber,
       zoneId: company.zoneId,
@@ -135,6 +133,8 @@ export interface MouDocumentSummary {
 
 export interface MouCommercialDetail {
   readonly mouId: string;
+  /** SPEC-16 D109: the generated code belongs to the MOU, so it is reported here. */
+  readonly generatedCode: string;
   readonly companyId: string;
   readonly companyPlantId: string | null;
   readonly scheme: string;
@@ -160,6 +160,7 @@ export async function fetchMouCommercialDetail(
   const mouRows = await db
     .select({
       id: mou.id,
+      generatedCode: mou.generatedCode,
       companyId: mou.companyId,
       companyPlantId: mou.companyPlantId,
       scheme: mou.scheme,
@@ -214,6 +215,7 @@ export async function fetchMouCommercialDetail(
 
   return {
     mouId: mouRow.id,
+    generatedCode: mouRow.generatedCode,
     companyId: mouRow.companyId,
     companyPlantId: mouRow.companyPlantId,
     scheme: mouRow.scheme,

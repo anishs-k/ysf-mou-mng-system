@@ -87,6 +87,11 @@ flowchart TD
 | Export Excel | Excel download | SPEC-13 |
 | Export PDF | Scope-gated PDF download | SPEC-13 |
 | Search | Company / Plant / Scheme search | SPEC-13 |
+| User Manual | Static manual page | SPEC-16 §5.5 |
+
+> **Amended by SPEC-16 (D112).** The list above had ten entry points. The User
+> Manual is the eleventh. It is static web content with no backend and no
+> table, so it has no destination spec of its own — SPEC-16 §5.5 defines it.
 
 Until a destination spec is implemented, its entry point may be disabled with a
 "coming soon" state — but it must be present in the layout so the dashboard is
@@ -107,6 +112,10 @@ implemented, the badge is hidden.
 | Expiry Alerts, Zone Dashboard, Search, Exports, History | yes | yes | yes |
 | Upload MOU PDF | yes | yes | no |
 | Edit Agreement | yes | no | no |
+| User Manual | yes | yes | yes |
+
+*(User Manual added by SPEC-16 D112 — it is documentation prose, so it is
+visible to every role including VIEWER.)*
 
 Hidden in the UI **and** enforced on the server. UI hiding alone is not
 sufficient — every endpoint checks the role independently.
@@ -123,7 +132,7 @@ sufficient — every endpoint checks the role independently.
 3. A 6th failed attempt within the lockout window is rejected even with the correct password.
 4. Visiting any dashboard URL without a session redirects to login.
 5. `/api/auth/me` returns the logged-in user's role.
-6. Dashboard Home renders all ten entry points from §3.1.
+6. Dashboard Home renders all eleven entry points from §3.1 *(amended by SPEC-16 D112 — was ten)*.
 7. A VIEWER sees no "Add New Company", "Upload MOU PDF" or "Edit Agreement"
    entry point, and a direct POST to those endpoints as a VIEWER returns 403.
 8. Logging out invalidates the session; the back button does not restore an authenticated screen.
