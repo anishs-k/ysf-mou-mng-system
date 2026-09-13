@@ -17,8 +17,9 @@
 - `package.json` : npm workspace root. Declares the workspace globs (`src/*`, `tests/e2e`), the pinned package manager and the `db:*` / `test:*` delegating scripts. Holds no build logic of its own.
 - `turbo.json` : Turborepo task pipeline. Defines build/check-types/test/test:integration/test:ui/lint/dev/clean, their dependency order, cache outputs and the environment variables tasks may read — `globalEnv` is required, because turbo 2 strips undeclared variables from child processes.
 - `tsconfig.base.json` : Shared strict TypeScript compiler options. Every package tsconfig extends this; listed in turbo `globalDependencies` so a change busts the cache.
-- `docker-compose.yml` : Local PostgreSQL 15 for development and for the integration and UI tests. Published on host port 5434 because 5432 and 5433 are already in use on the development machine.
-- `.env.example` : Documents `DATABASE_URL`, `TEST_DATABASE_URL`, the `ADMIN_*` seed inputs, `WEB_ORIGIN` and (SPEC-05) `UPLOAD_ROOT`. `.env` itself is gitignored.
+- `docker-compose.yml` : `postgres` (local PostgreSQL 15 for development and for the integration and UI tests, published on host port 5434 because 5432 and 5433 are already in use on the development machine), plus `api` and `web` — the full application, buildable and runnable with `docker compose up -d --build` alone on a machine with nothing but Docker installed (see `docs/devenv.md`, "Run everything via Docker"). The `api` service's `DATABASE_URL` is set here directly (`...@postgres:5432/...`, the compose network hostname) and deliberately differs from `.env.example`'s own value (`...@localhost:5434/...`, for a developer running `@mou/api` on the host).
+- `.dockerignore` : Keeps the build context for `src/api/Dockerfile` and `src/web/Dockerfile` (both use the repo root as their context, since this is an npm-workspaces monorepo) small — excludes `node_modules`, `dist`, `.git`, test artefacts and the Figma reference exports.
+- `.env.example` : Documents `DATABASE_URL`, `TEST_DATABASE_URL`, the `ADMIN_*` seed inputs, `WEB_ORIGIN`, (SPEC-05) `UPLOAD_ROOT`, and (Docker) `MOU_API_PORT`/`MOU_WEB_PORT`. `.env` itself is gitignored.
 - `environment.sh` : Gitignored local environment bootstrap for bash / Git Bash. Prepends the Node 24 toolchain to `PATH` (the root manifest requires Node >= 24) and exports the database, seed, CORS and (SPEC-05) `UPLOAD_ROOT` variables. Must be **sourced** (`source ./environment.sh`), not executed.
 - `environment.ps1` : The PowerShell twin of `environment.sh` for Windows terminals. Sets the same variables via `$env:` and must be **dot-sourced** (`. .\environment.ps1`). Defaults are only applied when a variable is not already set, so an override survives.
 
@@ -46,9 +47,14 @@
 - `src/domain/src/payroll-details-validation.test.ts` : Unit tests for SPEC-06's acceptance criteria.
 - `src/domain/src/money.test.ts` : Unit tests for `validateAmountString`.
 
+- `src/api/Dockerfile` : Multi-stage build for the `api` container — `npm ci` across the whole workspace (needed because `@mou/api` depends on `@mou/domain`'s compiled output), `turbo run build --filter=@mou/api`, then a slim runtime image carrying only the two packages' `dist/` plus the generated SQL migrations. Keeps the workspace-aware root `node_modules` in the runtime stage rather than pruning to one package's dependencies, because npm workspaces symlinks every in-repo package into root `node_modules` regardless of which `package.json` declares the dependency.
+- `src/api/docker-entrypoint.sh` : Runs on every `api` container start, before the server: applies migrations (`dist/db/migrate.js`) then the idempotent zone/admin seed (`dist/db/seed/index.js`), so `docker compose up` alone leaves a brand-new machine with a working login. Set `SKIP_DB_BOOTSTRAP=1` to opt out.
+- `src/web/Dockerfile` : The same build-then-slim pattern as `src/api/Dockerfile`, but the final stage is `nginx:alpine` serving the static Vite build. `VITE_API_URL` is a build `ARG`, not a runtime env var — Vite inlines `import.meta.env.*` at build time — and defaults to empty, since `client.ts` already prefixes every call with `/api/...` and `nginx.conf` proxies that same-origin path to the `api` container.
+- `src/web/nginx.conf` : Serves the built SPA and reverse-proxies `/api/` to the `api` container by its compose service name, so the browser only ever talks to one origin (no second CORS hop) — the same "shares the origin behind nginx" arrangement `ARCHITECTURE.md` names as the deployment target. `try_files ... /index.html` so a hard refresh on a client-side route (e.g. `/companies/new`) does not 404.
+
 ### `@mou/api` — layer 1, backend service
 
-- `src/api/package.json` : Package manifest and per-package task scripts. Also declares the single subpath export `@mou/api/auth/password`, so test fixtures can produce real hashes without widening the service's main entry point.
+- `src/api/package.json` : Package manifest and per-package task scripts. Also declares the single subpath export `@mou/api/auth/password`, so test fixtures can produce real hashes without widening the service's main entry point. A code-review/Docker fix added `@mou/domain` to `dependencies` — the code already imported from it, but npm workspaces' automatic symlinking of every in-repo package into root `node_modules` had silently hidden the missing declaration; a prunable Docker image needs it declared honestly.
 - `src/api/tsconfig.json` : Backend compiler config; extends the shared base, emits to `dist`, excludes tests and the test harness.
 - `src/api/tsconfig.test.json` : Type-check-only config that additionally includes the test files.
 - `src/api/drizzle.config.ts` : drizzle-kit configuration. Points at the TypeScript schema, the `drizzle` migration output folder and snake_case casing.
@@ -218,7 +224,7 @@
 
 - `src/web/package.json` : Manifest and task scripts for the frontend workspace.
 - `src/web/vite.config.ts` : Vite build and dev-server configuration, with the React and Tailwind plugins.
-- `src/web/tsconfig.json`, `src/web/tsconfig.app.json`, `src/web/tsconfig.node.json` : Solution-style compiler configs for the browser code and for the Vite config file.
+- `src/web/tsconfig.json`, `src/web/tsconfig.app.json`, `src/web/tsconfig.node.json` : Solution-style compiler configs for the browser code and for the Vite config file. `tsconfig.app.json` cannot `extend` the shared `tsconfig.base.json` (its `module`/`moduleResolution` conflict with Vite's own bundler mode), so it had silently never turned `strict` on at all — a Docker-build-time discovery (a discriminated union's `else` branch failed to narrow without `strictNullChecks`, in `AuthContext.tsx`/`EditAgreementPage.tsx`, both otherwise-correct code) fixed by adding `strict`, `noUncheckedIndexedAccess`, `noImplicitOverride` and `forceConsistentCasingInFileNames` explicitly, matching the base config's intent.
 - `src/web/index.html` : Vite HTML entry point.
 - `src/web/src/main.tsx` : React bootstrap. Mounts the app inside a `BrowserRouter`.
 - `src/web/src/App.tsx` : The route table. `/login` sits outside `AppShell`; every other route is a child of `<RequireAuth><AppShell/></RequireAuth>` (SPEC-14 D93) so the persistent Sidebar/Topbar wraps every destination behind one guard.

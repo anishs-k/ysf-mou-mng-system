@@ -21,8 +21,52 @@ services:
       retries: 10
       start_period: 5s
 
-  # The api and web services are added once their Dockerfiles exist. Until then
-  # they cannot build, and `docker-compose up` must not fail on them.
+  # @mou/api. DATABASE_URL here deliberately differs from environment.sh /
+  # .env.example's own value: those are for a developer running the api
+  # directly on the host (postgres reached via localhost:5434, the published
+  # port above); this container reaches postgres over the compose network by
+  # its service name and postgres's own in-container port 5432. Runs
+  # migrations and the idempotent zone/admin seed on every start
+  # (docker-entrypoint.sh) before serving, so `docker compose up` alone is
+  # enough on a brand-new machine.
+  api:
+    build:
+      context: .
+      dockerfile: src/api/Dockerfile
+    container_name: mou_mng_system_api
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mou_mng_system
+      PORT: "3001"
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in .env - see .env.example}
+      UPLOAD_ROOT: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "${MOU_API_PORT:-3001}:3001"
+
+  # @mou/web, built into a static bundle and served by nginx, which also
+  # reverse-proxies /api to the api service above (src/web/nginx.conf) so the
+  # browser only ever talks to one origin.
+  web:
+    build:
+      context: .
+      dockerfile: src/web/Dockerfile
+      args:
+        VITE_API_URL: ""
+    container_name: mou_mng_system_web
+    restart: always
+    depends_on:
+      - api
+    ports:
+      - "${MOU_WEB_PORT:-8080}:80"
 
 volumes:
   postgres_data:
+  uploads_data:

@@ -1,0 +1,37 @@
+# Purpose: Keeps the Docker build context small and reproducible for both
+# src/api/Dockerfile and src/web/Dockerfile, whose build contexts are the repo
+# root (needed so a multi-stage build can `npm ci` across the whole workspace
+# graph before compiling just the one package it targets). Mirrors .gitignore
+# plus build/test artefacts and IDE-only files that must never reach an image.
+
+node_modules
+**/node_modules
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+
+# Local-only, never meaningful inside a container
+.git
+.env
+.env.*
+!.env.example
+environment.sh
+environment.bat
+environment.ps1
+.data
+logs
+*.log
+
+# Test artefacts and the Figma reference exports - large, never needed to build
+tests/e2e/test-results
+tests/e2e/playwright-report
+tests/e2e/blob-report
+figma_code
+figma_code-v2
+
+# Editor/agent-only content
+.vscode
+.claude
+.agents
+.workbuddy-ai
+docs
