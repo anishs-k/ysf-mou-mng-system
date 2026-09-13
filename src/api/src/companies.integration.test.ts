@@ -82,11 +82,18 @@ async function login(username: string, password: string): Promise<string> {
   });
   assert.equal(response.status, 200);
   const setCookie = response.headers.get("set-cookie");
-  assert.ok(setCookie !== null && setCookie !== "", "expected a session cookie");
+  assert.ok(
+    setCookie !== null && setCookie !== "",
+    "expected a session cookie",
+  );
   return setCookie;
 }
 
-async function postDraft(cookie: string, payload: unknown, currentPage: number): Promise<Response> {
+async function postDraft(
+  cookie: string,
+  payload: unknown,
+  currentPage: number,
+): Promise<Response> {
   return fetch(`${baseUrl}/api/companies/draft`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie },
@@ -107,7 +114,10 @@ async function deleteDraft(cookie: string, draftId: string): Promise<Response> {
   });
 }
 
-async function submitCompany(cookie: string, draftId: string): Promise<Response> {
+async function submitCompany(
+  cookie: string,
+  draftId: string,
+): Promise<Response> {
   return fetch(`${baseUrl}/api/companies`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie },
@@ -145,7 +155,10 @@ async function uploadValidDocument(
 ): Promise<{ originalFilename: string; fileSizeBytes: number }> {
   const response = await uploadDocument(cookie, draftId);
   assert.equal(response.status, 200);
-  return (await response.json()) as { originalFilename: string; fileSizeBytes: number };
+  return (await response.json()) as {
+    originalFilename: string;
+    fileSizeBytes: number;
+  };
 }
 
 /**
@@ -158,9 +171,9 @@ async function uploadValidDocument(
 async function createDraftAtStep3(
   cookie: string,
   zoneId: string,
-  transform: (payload: ReturnType<typeof completePayload>) => ReturnType<typeof completePayload> = (
-    payload,
-  ) => payload,
+  transform: (
+    payload: ReturnType<typeof completePayload>,
+  ) => ReturnType<typeof completePayload> = (payload) => payload,
 ): Promise<{ draftId: string; payload: ReturnType<typeof completePayload> }> {
   const initial = await postDraft(cookie, { page1: { zoneId } }, 1);
   const { id: draftId } = (await initial.json()) as { id: string };
@@ -170,7 +183,10 @@ async function createDraftAtStep3(
   return { draftId, payload };
 }
 
-function completePayload(zoneId: string, mouDocument?: { originalFilename: string; fileSizeBytes: number }) {
+function completePayload(
+  zoneId: string,
+  mouDocument?: { originalFilename: string; fileSizeBytes: number },
+) {
   return {
     page1: {
       zoneId,
@@ -202,20 +218,31 @@ function completePayload(zoneId: string, mouDocument?: { originalFilename: strin
       attendanceCycle: "MONTHLY",
       stipendDate: "5",
       charges: {} as Record<string, string>,
-      otherItems: [] as Array<{ label: string; amount: string; itemType: string }>,
+      otherItems: [] as Array<{
+        label: string;
+        amount: string;
+        itemType: string;
+      }>,
       ...(mouDocument !== undefined ? { mouDocument } : {}),
     },
     page3: {
       scheme: "WILP",
       traineeCategories: ["Category A"] as string[],
       items: allPayrollItemsAnsweredNo(),
-      otherItems: [] as Array<{ label: string; amount: string; itemType: string }>,
+      otherItems: [] as Array<{
+        label: string;
+        amount: string;
+        itemType: string;
+      }>,
     },
   };
 }
 
 /** All 22 fixed payroll items answered No - the simplest fully-valid baseline. */
-function allPayrollItemsAnsweredNo(): Record<string, { isApplicable: boolean; amount: string }> {
+function allPayrollItemsAnsweredNo(): Record<
+  string,
+  { isApplicable: boolean; amount: string }
+> {
   const items: Record<string, { isApplicable: boolean; amount: string }> = {};
   for (const key of PAYROLL_FIXED_ITEM_KEYS) {
     items[key] = { isApplicable: false, amount: "" };
@@ -228,7 +255,11 @@ function allPayrollItemsAnsweredNo(): Record<string, { isApplicable: boolean; am
 // ---------------------------------------------------------------------------
 
 test("AC8: a VIEWER calling POST /api/companies receives 403", async () => {
-  const viewer = await insertUserWithPassword(pool, { username: "viewer", password: "pass", role: "VIEWER" });
+  const viewer = await insertUserWithPassword(pool, {
+    username: "viewer",
+    password: "pass",
+    role: "VIEWER",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(viewer.username, viewer.password);
 
@@ -237,7 +268,11 @@ test("AC8: a VIEWER calling POST /api/companies receives 403", async () => {
 });
 
 test("AC1: invalid upsert body returns 400 and does not create a draft", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
 
   const response = await postDraft(cookie, { page1: {} }, 0); // currentPage 0 is invalid
@@ -248,30 +283,51 @@ test("AC1: invalid upsert body returns 400 and does not create a draft", async (
 });
 
 test("draft create → get → update flow", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
   // Create draft on page 1
-  const createResponse = await postDraft(cookie, { page1: { zoneId, companyName: "Acme" } }, 1);
+  const createResponse = await postDraft(
+    cookie,
+    { page1: { zoneId, companyName: "Acme" } },
+    1,
+  );
   assert.equal(createResponse.status, 201);
-  const createBody = (await createResponse.json()) as { id: string; created: boolean };
+  const createBody = (await createResponse.json()) as {
+    id: string;
+    created: boolean;
+  };
   assert.equal(createBody.created, true);
 
   // Get draft
   const getResponse = await getDraft(cookie);
   assert.equal(getResponse.status, 200);
-  const getBody = (await getResponse.json()) as { id: string; payload: unknown; currentPage: number };
+  const getBody = (await getResponse.json()) as {
+    id: string;
+    payload: unknown;
+    currentPage: number;
+  };
   assert.equal(getBody.currentPage, 1);
 
   // Update to page 2
   const updateResponse = await postDraft(
     cookie,
-    { page1: { zoneId, companyName: "Acme Updated" }, page2: { mouStartDate: "2026-01-01" } },
+    {
+      page1: { zoneId, companyName: "Acme Updated" },
+      page2: { mouStartDate: "2026-01-01" },
+    },
     2,
   );
   assert.equal(updateResponse.status, 200);
-  const updateBody = (await updateResponse.json()) as { id: string; created: boolean };
+  const updateBody = (await updateResponse.json()) as {
+    id: string;
+    created: boolean;
+  };
   assert.equal(updateBody.created, false);
   assert.equal(updateBody.id, createBody.id);
 
@@ -283,7 +339,11 @@ test("draft create → get → update flow", async () => {
 });
 
 test("AC7: cancel deletes the draft", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
@@ -298,7 +358,11 @@ test("AC7: cancel deletes the draft", async () => {
 });
 
 test("AC4 + AC6: final save creates company and is idempotent", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
@@ -306,19 +370,26 @@ test("AC4 + AC6: final save creates company and is idempotent", async () => {
   const { draftId } = await createDraftAtStep3(cookie, zoneId);
 
   // Verify no company exists yet
-  const { rows: before } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  const { rows: before } = await pool.query(
+    `SELECT count(*)::int AS c FROM company`,
+  );
   assert.equal(before[0].c, 0);
 
   // Submit
   const submitResponse = await submitCompany(cookie, draftId);
   assert.equal(submitResponse.status, 201);
-  const submitBody = (await submitResponse.json()) as { companyId: string; generatedCode: string };
+  const submitBody = (await submitResponse.json()) as {
+    companyId: string;
+    generatedCode: string;
+  };
   assert.ok(submitBody.companyId.length > 0);
   // SPEC-16 D109: the code is MOU-<SCHEME>-<YYYY>-<NNNN>, no longer zone-based.
   assert.match(submitBody.generatedCode, /^MOU-[A-Z]+-\d{4}-\d{4}$/);
 
   // Verify company now exists
-  const { rows: after } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  const { rows: after } = await pool.query(
+    `SELECT count(*)::int AS c FROM company`,
+  );
   assert.equal(after[0].c, 1);
 
   // Verify draft is gone
@@ -328,17 +399,26 @@ test("AC4 + AC6: final save creates company and is idempotent", async () => {
   // Idempotency: second submit with same draftId returns the same company
   const submit2 = await submitCompany(cookie, draftId);
   assert.equal(submit2.status, 200);
-  const submit2Body = (await submit2.json()) as { companyId: string; generatedCode: string };
+  const submit2Body = (await submit2.json()) as {
+    companyId: string;
+    generatedCode: string;
+  };
   assert.equal(submit2Body.companyId, submitBody.companyId);
   assert.equal(submit2Body.generatedCode, submitBody.generatedCode);
 
   // Still only one company
-  const { rows: final } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  const { rows: final } = await pool.query(
+    `SELECT count(*)::int AS c FROM company`,
+  );
   assert.equal(final[0].c, 1);
 });
 
 test("AC5: a save that fails inside the transaction leaves zero rows", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
@@ -353,7 +433,9 @@ test("AC5: a save that fails inside the transaction leaves zero rows", async () 
     ...payload,
     page3: {
       ...payload.page3,
-      otherItems: [{ label: "Bad Row", amount: "100", itemType: "NOT_A_REAL_TYPE" }],
+      otherItems: [
+        { label: "Bad Row", amount: "100", itemType: "NOT_A_REAL_TYPE" },
+      ],
     },
   }));
 
@@ -373,7 +455,9 @@ test("AC5: a save that fails inside the transaction leaves zero rows", async () 
     "payroll_item",
   ];
   for (const table of tables) {
-    const { rows } = await pool.query(`SELECT count(*)::int AS c FROM ${table}`);
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS c FROM ${table}`,
+    );
     assert.equal(rows[0].c, 0, `expected 0 rows in ${table}`);
   }
 
@@ -383,8 +467,16 @@ test("AC5: a save that fails inside the transaction leaves zero rows", async () 
 });
 
 test("a user cannot delete another user's draft", async () => {
-  const user1 = await insertUserWithPassword(pool, { username: "admin1", password: "pass", role: "ADMIN" });
-  const user2 = await insertUserWithPassword(pool, { username: "admin2", password: "pass", role: "ADMIN" });
+  const user1 = await insertUserWithPassword(pool, {
+    username: "admin1",
+    password: "pass",
+    role: "ADMIN",
+  });
+  const user2 = await insertUserWithPassword(pool, {
+    username: "admin2",
+    password: "pass",
+    role: "ADMIN",
+  });
   const zoneId = await insertZone(pool);
 
   const cookie1 = await login(user1.username, user1.password);
@@ -398,7 +490,11 @@ test("a user cannot delete another user's draft", async () => {
 });
 
 test("a DATA_ENTRY user can create and submit a draft", async () => {
-  const user = await insertUserWithPassword(pool, { username: "data", password: "pass", role: "DATA_ENTRY" });
+  const user = await insertUserWithPassword(pool, {
+    username: "data",
+    password: "pass",
+    role: "DATA_ENTRY",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
@@ -415,7 +511,11 @@ test("a DATA_ENTRY user can create and submit a draft", async () => {
 async function validatePage1(
   cookie: string,
   details: Record<string, unknown>,
-): Promise<{ status: number; errors: Record<string, string>; warnings: Record<string, string> }> {
+): Promise<{
+  status: number;
+  errors: Record<string, string>;
+  warnings: Record<string, string>;
+}> {
   const response = await fetch(`${baseUrl}/api/companies/validate-page1`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Cookie: cookie },
@@ -425,7 +525,11 @@ async function validatePage1(
     errors?: Record<string, string>;
     warnings?: Record<string, string>;
   };
-  return { status: response.status, errors: body.errors ?? {}, warnings: body.warnings ?? {} };
+  return {
+    status: response.status,
+    errors: body.errors ?? {},
+    warnings: body.warnings ?? {},
+  };
 }
 
 /** A valid Page 1 for an authoring user, ready to be spoiled one field at a time. */
@@ -477,10 +581,16 @@ test("SPEC-04 AC2 a valid TAN passes and a 9-character TAN is rejected", async (
   const zoneId = await insertZone(pool);
   const cookie = await authorCookie();
 
-  const good = await validatePage1(cookie, { ...validPage1(zoneId), tanNumber: "ABCD12345E" });
+  const good = await validatePage1(cookie, {
+    ...validPage1(zoneId),
+    tanNumber: "ABCD12345E",
+  });
   assert.equal(good.errors["tanNumber"], undefined);
 
-  const bad = await validatePage1(cookie, { ...validPage1(zoneId), tanNumber: "ABCD1234E" });
+  const bad = await validatePage1(cookie, {
+    ...validPage1(zoneId),
+    tanNumber: "ABCD1234E",
+  });
   assert.ok(bad.errors["tanNumber"], "expected a TAN error");
 });
 
@@ -493,7 +603,10 @@ test("SPEC-04 AC3 a duplicate GST number is rejected on the server", async () =>
   assert.equal((await submitCompany(cookie, draftId)).status, 201);
 
   const takenGst = payload.page1.gstNumber;
-  const clash = await validatePage1(cookie, { ...validPage1(zoneId), gstNumber: takenGst });
+  const clash = await validatePage1(cookie, {
+    ...validPage1(zoneId),
+    gstNumber: takenGst,
+  });
   assert.ok(clash.errors["gstNumber"], "expected a duplicate GST error");
   assert.match(clash.errors["gstNumber"] as string, /already registered/i);
 
@@ -519,10 +632,21 @@ test("SPEC-04 AC9 every required field left empty is reported", async () => {
 
   const result = await validatePage1(cookie, {});
   assert.equal(result.status, 200);
-  for (const field of ["companyType", "companyName", "tanNumber", "gstNumber", "zoneId", "plantName"]) {
+  for (const field of [
+    "companyType",
+    "companyName",
+    "tanNumber",
+    "gstNumber",
+    "zoneId",
+    "plantName",
+  ]) {
     assert.ok(result.errors[field], `expected an error on ${field}`);
   }
-  assert.equal(result.errors["addressLine2"], undefined, "address line 2 is optional");
+  assert.equal(
+    result.errors["addressLine2"],
+    undefined,
+    "address line 2 is optional",
+  );
 });
 
 test("SPEC-04 AC10 the same name and plant in the same zone is a duplicate, a different zone is not", async () => {
@@ -533,12 +657,19 @@ test("SPEC-04 AC10 the same name and plant in the same zone is a duplicate, a di
   // Create "Acme Industries / Pune Plant" in zone A for real.
   const { draftId } = await createDraftAtStep3(cookie, zoneA, (payload) => ({
     ...payload,
-    page1: { ...payload.page1, companyName: "Acme Industries", plantName: "Pune Plant" },
+    page1: {
+      ...payload.page1,
+      companyName: "Acme Industries",
+      plantName: "Pune Plant",
+    },
   }));
   assert.equal((await submitCompany(cookie, draftId)).status, 201);
 
   const duplicate = await validatePage1(cookie, validPage1(zoneA));
-  assert.ok(duplicate.errors["companyName"], "expected a duplicate company error");
+  assert.ok(
+    duplicate.errors["companyName"],
+    "expected a duplicate company error",
+  );
 
   const elsewhere = await validatePage1(cookie, validPage1(zoneB));
   assert.equal(elsewhere.errors["companyName"], undefined);
@@ -570,28 +701,46 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 test("SPEC-05 a valid PDF is accepted and recorded on the draft", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
   const draftResponse = await postDraft(cookie, { page1: { zoneId } }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
 
-  const uploadResponse = await uploadDocument(cookie, draftId, { filename: "signed-mou.pdf" });
+  const uploadResponse = await uploadDocument(cookie, draftId, {
+    filename: "signed-mou.pdf",
+  });
   assert.equal(uploadResponse.status, 200);
-  const meta = (await uploadResponse.json()) as { originalFilename: string; fileSizeBytes: number };
+  const meta = (await uploadResponse.json()) as {
+    originalFilename: string;
+    fileSizeBytes: number;
+  };
   assert.equal(meta.originalFilename, "signed-mou.pdf");
   assert.equal(meta.fileSizeBytes, VALID_PDF_BYTES.byteLength);
 
   const getResponse = await getDraft(cookie);
-  const draft = (await getResponse.json()) as { payload: { page2?: { mouDocument?: unknown } } };
+  const draft = (await getResponse.json()) as {
+    payload: { page2?: { mouDocument?: unknown } };
+  };
   assert.deepEqual(draft.payload.page2?.mouDocument, meta);
 
-  assert.ok(await fileExists(tempDocumentFilePath(draftId)), "expected the temp file to exist on disk");
+  assert.ok(
+    await fileExists(tempDocumentFilePath(draftId)),
+    "expected the temp file to exist on disk",
+  );
 });
 
 test("SPEC-05 AC2 a file whose bytes are not a real PDF is rejected", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
   const draftResponse = await postDraft(cookie, { page1: {} }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
@@ -608,7 +757,11 @@ test("SPEC-05 AC2 a file whose bytes are not a real PDF is rejected", async () =
 });
 
 test("SPEC-05 AC2 a non-PDF mimetype is rejected even with a .pdf filename", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
   const draftResponse = await postDraft(cookie, { page1: {} }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
@@ -621,12 +774,19 @@ test("SPEC-05 AC2 a non-PDF mimetype is rejected even with a .pdf filename", asy
 });
 
 test("SPEC-05 AC3 an 11 MB file is rejected with a size error", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
   const draftResponse = await postDraft(cookie, { page1: {} }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
 
-  const oversized = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(11 * 1024 * 1024)]);
+  const oversized = Buffer.concat([
+    Buffer.from("%PDF-1.4\n"),
+    Buffer.alloc(11 * 1024 * 1024),
+  ]);
   const response = await uploadDocument(cookie, draftId, { bytes: oversized });
   assert.equal(response.status, 422);
   const body = (await response.json()) as { error?: string };
@@ -634,8 +794,16 @@ test("SPEC-05 AC3 an 11 MB file is rejected with a size error", async () => {
 });
 
 test("SPEC-05 a VIEWER cannot upload a document", async () => {
-  const viewer = await insertUserWithPassword(pool, { username: "viewer3", password: "pass", role: "VIEWER" });
-  const admin = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const viewer = await insertUserWithPassword(pool, {
+    username: "viewer3",
+    password: "pass",
+    role: "VIEWER",
+  });
+  const admin = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const adminCookie = await login(admin.username, admin.password);
   const draftResponse = await postDraft(adminCookie, { page1: {} }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
@@ -646,8 +814,16 @@ test("SPEC-05 a VIEWER cannot upload a document", async () => {
 });
 
 test("SPEC-05 a user cannot upload to another user's draft", async () => {
-  const user1 = await insertUserWithPassword(pool, { username: "owner", password: "pass", role: "ADMIN" });
-  const user2 = await insertUserWithPassword(pool, { username: "intruder", password: "pass", role: "ADMIN" });
+  const user1 = await insertUserWithPassword(pool, {
+    username: "owner",
+    password: "pass",
+    role: "ADMIN",
+  });
+  const user2 = await insertUserWithPassword(pool, {
+    username: "intruder",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie1 = await login(user1.username, user1.password);
   const cookie2 = await login(user2.username, user2.password);
 
@@ -659,18 +835,29 @@ test("SPEC-05 a user cannot upload to another user's draft", async () => {
 });
 
 test("SPEC-05 replacing the file overwrites the draft's recorded metadata", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
   const draftResponse = await postDraft(cookie, { page1: {} }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
 
   await uploadDocument(cookie, draftId, { filename: "first.pdf" });
-  const second = await uploadDocument(cookie, draftId, { filename: "second.pdf" });
+  const second = await uploadDocument(cookie, draftId, {
+    filename: "second.pdf",
+  });
   assert.equal(second.status, 200);
 
   const getResponse = await getDraft(cookie);
-  const draft = (await getResponse.json()) as { payload: { page2?: { mouDocument?: { originalFilename: string } } } };
-  assert.equal(draft.payload.page2?.mouDocument?.originalFilename, "second.pdf");
+  const draft = (await getResponse.json()) as {
+    payload: { page2?: { mouDocument?: { originalFilename: string } } };
+  };
+  assert.equal(
+    draft.payload.page2?.mouDocument?.originalFilename,
+    "second.pdf",
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -678,7 +865,10 @@ test("SPEC-05 replacing the file overwrites the draft's recorded metadata", asyn
 // ---------------------------------------------------------------------------
 
 async function mouIdForCompany(companyId: string): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(`SELECT id FROM mou WHERE company_id = $1`, [companyId]);
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM mou WHERE company_id = $1`,
+    [companyId],
+  );
   return firstRow(rows).id;
 }
 
@@ -699,7 +889,11 @@ test("SPEC-05 AC6 a blank charge and an entered 0 are distinguishable after save
     `SELECT item_key, amount FROM commercial_item WHERE mou_id = $1 AND item_key IN ('ADMIN_CHARGES', 'INSURANCE')`,
     [mouId],
   );
-  assert.equal(rows.length, 1, "expected only the entered charge to have a row");
+  assert.equal(
+    rows.length,
+    1,
+    "expected only the entered charge to have a row",
+  );
   assert.equal(rows[0]?.item_key, "ADMIN_CHARGES");
   assert.equal(rows[0]?.amount, "0.00");
 });
@@ -712,7 +906,9 @@ test("SPEC-05 an Other row persists with item_key OTHER, its label and chosen ty
     ...payload,
     page2: {
       ...payload.page2,
-      otherItems: [{ label: "Festival Bonus", amount: "500", itemType: "ALLOWANCE" }],
+      otherItems: [
+        { label: "Festival Bonus", amount: "500", itemType: "ALLOWANCE" },
+      ],
     },
   }));
   const submitResponse = await submitCompany(cookie, draftId);
@@ -720,7 +916,11 @@ test("SPEC-05 an Other row persists with item_key OTHER, its label and chosen ty
   const { companyId } = (await submitResponse.json()) as { companyId: string };
   const mouId = await mouIdForCompany(companyId);
 
-  const { rows } = await pool.query<{ custom_label: string; amount: string; item_type: string }>(
+  const { rows } = await pool.query<{
+    custom_label: string;
+    amount: string;
+    item_type: string;
+  }>(
     `SELECT custom_label, amount, item_type FROM commercial_item WHERE mou_id = $1 AND item_key = 'OTHER'`,
     [mouId],
   );
@@ -756,13 +956,19 @@ test("SPEC-05 final save is blocked when Page 2 fails validation", async () => {
 
   const submitResponse = await submitCompany(cookie, draftId);
   assert.equal(submitResponse.status, 422);
-  const body = (await submitResponse.json()) as { errors?: { tenureValue?: string } };
+  const body = (await submitResponse.json()) as {
+    errors?: { tenureValue?: string };
+  };
   assert.ok(body.errors?.tenureValue);
 });
 
 test("SPEC-05 the mou_document row records the uploaded file's metadata", async () => {
   const zoneId = await insertZone(pool);
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
 
   const initial = await postDraft(cookie, { page1: { zoneId } }, 1);
@@ -779,7 +985,10 @@ test("SPEC-05 the mou_document row records the uploaded file's metadata", async 
     original_filename: string;
     file_size_bytes: string;
     uploaded_by: string;
-  }>(`SELECT original_filename, file_size_bytes, uploaded_by FROM mou_document WHERE mou_id = $1`, [mouId]);
+  }>(
+    `SELECT original_filename, file_size_bytes, uploaded_by FROM mou_document WHERE mou_id = $1`,
+    [mouId],
+  );
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.original_filename, meta.originalFilename);
   assert.equal(Number(rows[0]?.file_size_bytes), meta.fileSizeBytes);
@@ -787,14 +996,21 @@ test("SPEC-05 the mou_document row records the uploaded file's metadata", async 
 });
 
 test("SPEC-05 AC10 cancelling a draft leaves no temp file behind, even after replacing it", async () => {
-  const user = await insertUserWithPassword(pool, { username: "admin", password: "pass", role: "ADMIN" });
+  const user = await insertUserWithPassword(pool, {
+    username: "admin",
+    password: "pass",
+    role: "ADMIN",
+  });
   const cookie = await login(user.username, user.password);
   const draftResponse = await postDraft(cookie, { page1: {} }, 1);
   const { id: draftId } = (await draftResponse.json()) as { id: string };
 
   await uploadDocument(cookie, draftId, { filename: "first.pdf" });
   await uploadDocument(cookie, draftId, { filename: "second.pdf" });
-  assert.ok(await fileExists(tempDocumentFilePath(draftId)), "expected a temp file to exist before cancelling");
+  assert.ok(
+    await fileExists(tempDocumentFilePath(draftId)),
+    "expected a temp file to exist before cancelling",
+  );
 
   const deleteResponse = await deleteDraft(cookie, draftId);
   assert.equal(deleteResponse.status, 204);
@@ -807,7 +1023,10 @@ test("SPEC-05 a completed save moves the temp file out and leaves nothing behind
   const cookie = await authorCookie();
 
   const { draftId } = await createDraftAtStep3(cookie, zoneId);
-  assert.ok(await fileExists(tempDocumentFilePath(draftId)), "expected a temp file to exist before save");
+  assert.ok(
+    await fileExists(tempDocumentFilePath(draftId)),
+    "expected a temp file to exist before save",
+  );
 
   const submitResponse = await submitCompany(cookie, draftId);
   assert.equal(submitResponse.status, 201);
@@ -820,7 +1039,10 @@ test("SPEC-05 a completed save moves the temp file out and leaves nothing behind
 // ---------------------------------------------------------------------------
 
 async function payrollConfigIdForMou(mouId: string): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(`SELECT id FROM payroll_config WHERE mou_id = $1`, [mouId]);
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM payroll_config WHERE mou_id = $1`,
+    [mouId],
+  );
   return firstRow(rows).id;
 }
 
@@ -846,7 +1068,10 @@ test("SPEC-06 AC4 switching Yes with an amount to No persists is_applicable=fals
   const mouId = await mouIdForCompany(companyId);
   const configId = await payrollConfigIdForMou(mouId);
 
-  const { rows } = await pool.query<{ is_applicable: boolean; amount: string | null }>(
+  const { rows } = await pool.query<{
+    is_applicable: boolean;
+    amount: string | null;
+  }>(
     `SELECT is_applicable, amount FROM payroll_item WHERE payroll_config_id = $1 AND item_key = 'BONUS'`,
     [configId],
   );
@@ -866,7 +1091,9 @@ test("SPEC-06 AC5 saving with zero trainee categories is rejected", async () => 
 
   const submitResponse = await submitCompany(cookie, draftId);
   assert.equal(submitResponse.status, 422);
-  const body = (await submitResponse.json()) as { errors?: { traineeCategories?: string } };
+  const body = (await submitResponse.json()) as {
+    errors?: { traineeCategories?: string };
+  };
   assert.ok(body.errors?.traineeCategories);
 
   const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
@@ -902,7 +1129,9 @@ test("SPEC-06 AC7 exactly 22 payroll_item rows exist for the fixed keys, plus on
     ...payload,
     page3: {
       ...payload.page3,
-      otherItems: [{ label: "Special Bonus", amount: "250", itemType: "ALLOWANCE" }],
+      otherItems: [
+        { label: "Special Bonus", amount: "250", itemType: "ALLOWANCE" },
+      ],
     },
   }));
   const submitResponse = await submitCompany(cookie, draftId);
@@ -935,7 +1164,11 @@ test("SPEC-06 AC8 two saves in the same zone and year produce consecutive genera
 
   const second = await createDraftAtStep3(cookie, zoneId, (payload) => ({
     ...payload,
-    page1: { ...payload.page1, companyName: "Second Company", gstNumber: "27AAAAA0002A1Z5" },
+    page1: {
+      ...payload.page1,
+      companyName: "Second Company",
+      gstNumber: "27AAAAA0002A1Z5",
+    },
   }));
   const secondSubmit = await submitCompany(cookie, second.draftId);
   assert.equal(secondSubmit.status, 201);
@@ -966,7 +1199,8 @@ test("SPEC-16 every saved payroll item carries its catalogue item type", async (
   // catalogue itself rather than a hardcoded split.
   assert.equal(rows.length, PAYROLL_FIXED_ITEM_KEYS.length);
   for (const row of rows) {
-    const definition = PAYROLL_ITEM_BY_KEY[row.item_key as keyof typeof PAYROLL_ITEM_BY_KEY];
+    const definition =
+      PAYROLL_ITEM_BY_KEY[row.item_key as keyof typeof PAYROLL_ITEM_BY_KEY];
     assert.equal(
       row.item_type,
       definition.itemType,
@@ -986,7 +1220,9 @@ test("SPEC-06 AC11 a save that fails Page 3 validation writes nothing and leaves
 
   const submitResponse = await submitCompany(cookie, draftId);
   assert.equal(submitResponse.status, 422);
-  const body = (await submitResponse.json()) as { errors?: { scheme?: string } };
+  const body = (await submitResponse.json()) as {
+    errors?: { scheme?: string };
+  };
   assert.ok(body.errors?.scheme);
 
   const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
@@ -994,4 +1230,33 @@ test("SPEC-06 AC11 a save that fails Page 3 validation writes nothing and leaves
 
   const getResponse = await getDraft(cookie);
   assert.equal(getResponse.status, 200);
+});
+
+test("SPEC-04 a final save that loses a GST race answers 409, not a generic 500", async () => {
+  const zoneId = await insertZone(pool);
+
+  // Two different users, because company_draft is one-per-user: the same
+  // cookie would reuse one draft and the second submit would take the
+  // idempotency path rather than reach the database constraint at all.
+  const cookieA = await authorCookie("admin");
+  const cookieB = await authorCookie("admin2");
+  const first = await createDraftAtStep3(cookieA, zoneId);
+  const second = await createDraftAtStep3(cookieB, zoneId);
+
+  // Both drafts carry the same GST (the shared completePayload baseline) and
+  // both have passed Page 1 validation, so neither could have been stopped on
+  // Next - this is exactly the race D29/D30 anticipate. Whichever save lands
+  // second hits company.gst_number's UNIQUE constraint, and must be told so
+  // plainly rather than receiving an opaque "Save failed".
+  const firstResponse = await submitCompany(cookieA, first.draftId);
+  assert.equal(firstResponse.status, 201);
+
+  const secondResponse = await submitCompany(cookieB, second.draftId);
+  assert.equal(secondResponse.status, 409);
+  const body = (await secondResponse.json()) as { error: string };
+  assert.match(body.error, /already exists/i);
+
+  // The losing save wrote nothing: still exactly one company.
+  const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  assert.equal(rows[0].c, 1);
 });
