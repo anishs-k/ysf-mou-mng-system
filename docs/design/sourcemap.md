@@ -68,8 +68,12 @@
 - `src/api/src/db/schema.integration.test.ts` : Integration tests for SPEC-01 AC5 to AC14.
 - `src/api/src/routes/enums.ts` : `GET /api/enums` — every SPEC-01 section 2, 3 and 4 list the UI builds its dropdowns from.
 - `src/api/src/routes/zones.ts` : `GET /api/zones` and `GET /api/zones/{zoneId}/companies`.
-- `src/api/src/routes/companies.ts` : Company wizard endpoints — `POST /api/companies/draft` (create/update draft), `GET /api/companies/draft` (resume), `DELETE /api/companies/draft/:draftId` (cancel, also discards any temp MOU PDF), `POST /api/companies/validate-page1` (SPEC-04 GST uniqueness + duplicate-company check), `POST /api/companies/draft/:draftId/mou-document` (SPEC-05 MOU PDF upload — multer, `%PDF` byte check, size cap, virus-scan hook), `POST /api/companies` (final save transaction). Final save re-validates Pages 1, 2 and 3 via `@mou/domain`, derives `commercial_item` rows (one per entered charge) and `payroll_item` rows (always one per fixed key, plus one per Other row) from the catalogues rather than trusting the client, and promotes the temp PDF to permanent storage plus a `mou_document` row as the last steps of the transaction. Uses per-route `requireSession`, `db.transaction()` across 7+ tables, idempotent submit, and `firstRow()` for `noUncheckedIndexedAccess` safety. Also retains `GET /api/companies/{id}/plants` (public, no auth).
+- `src/api/src/routes/companies.ts` : Company wizard endpoints — `POST /api/companies/draft` (create/update draft), `GET /api/companies/draft` (resume), `DELETE /api/companies/draft/:draftId` (cancel, also discards any temp MOU PDF), `POST /api/companies/validate-page1` (SPEC-04 GST uniqueness + duplicate-company check), `POST /api/companies/draft/:draftId/mou-document` (SPEC-05 MOU PDF upload — multer, `%PDF` byte check, size cap, virus-scan hook), `POST /api/companies` (final save transaction). Final save re-validates Pages 1, 2 and 3 via `@mou/domain`, derives `commercial_item` rows (one per entered charge) and `payroll_item` rows (always one per fixed key, plus one per Other row) from the catalogues rather than trusting the client, and promotes the temp PDF to permanent storage plus a `mou_document` row as the last steps of the transaction. Uses per-route `requireSession`, `db.transaction()` across 7+ tables, idempotent submit, and `firstRow()` for `noUncheckedIndexedAccess` safety. Also retains `GET /api/companies/{id}/plants` (public, no auth). A code-review fix added `describeUniqueConflict()`: a unique-constraint violation reaching the final-save transaction (two requests racing past Page 1 validation, which only proves "no conflict at that moment") now answers 409 with a message naming the conflicting constraint, instead of the same generic 500 as a genuine fault.
 - `src/api/src/upload/mou-document-storage.ts` : SPEC-05 section 4 — deterministic temp/permanent file paths built only from `draftId`/`mouId` (never a user-supplied filename), `validatePdfBuffer` (mimetype + `%PDF` header), the `scanForViruses` hook (a no-op unless `VIRUS_SCAN_COMMAND` is set), and the write/promote/discard helpers. Deliberately small and reusable — SPEC-09 reuses this same validation.
+- `src/api/src/upload/file-errors.ts` : Distinguishes "file genuinely missing" (ENOENT) from any other filesystem fault for every download route (MOU document, agreement-history proof, export job, the wizard's temp-document check) — a code-review fix. The four routes previously caught every read error and reported 404 "missing", which disguised a permission or disk fault as a message telling the user to re-upload a file that was still present. `isFileNotFoundError()` / `readFileOrThrowMissing()` are the shared, narrow check; anything that is not ENOENT is rethrown and surfaces as a 500.
+- `src/api/src/upload/file-errors.unit.test.ts` : Unit tests for `isFileNotFoundError`/`readFileOrThrowMissing` — ENOENT vs. EACCES/EISDIR/EPERM/EIO, and a real missing-vs-present file on disk.
+- `src/api/src/routes/request-parse.ts` : The request-parsing primitives (`UUID_PATTERN`, `isUuid`, `asRecord`, `asArray`, `readJsonField`) that ten route files had each declared independently — a code-review fix consolidating identical duplicated code. Deliberately excludes `firstRow()`, which exists in two genuinely different contracts (throwing vs. `T | undefined`) across the codebase and would change a caller's postcondition if unified.
+- `src/api/src/routes/request-parse.unit.test.ts` : Unit tests for every helper in `request-parse.ts`.
 - `src/api/src/db/search.ts` : `searchMous` (SPEC-13) — the one query Search
   and both Exports share (D73), status derived once via a shared
   `STATUS_CASE` SQL fragment so pagination filters correctly on a derived
@@ -85,7 +89,7 @@
   `index.ts` on the same hourly heartbeat as SPEC-08's expiry job (D79).
 - `src/api/src/routes/search-export.ts` : `GET /search`, `GET /export/excel`,
   `GET /export/pdf`, `GET /export/jobs/:jobId`, `GET
-  /export/jobs/:jobId/download` — the only route that ever serves a file's
+/export/jobs/:jobId/download` — the only route that ever serves a file's
   bytes (D75); every other export route only ever returns `{jobId, status}`.
 - `src/api/src/search-export.integration.test.ts` : Integration tests for
   SPEC-13 (AC1-AC13); reads a downloaded workbook back with `exceljs` itself
@@ -133,8 +137,8 @@
   `GET /mous/:mouId/history/current` (the live agreement in the same detail
   shape as a history row, D64), `GET /mous/:mouId/history/compare?from=&to=`
   (registered before the `:historyId` route, D66), `GET
-  /mous/:mouId/history/:historyId`, and `GET
-  /mous/:mouId/history/:historyId/proof`. Every route is open to any
+/mous/:mouId/history/:historyId`, and `GET
+/mous/:mouId/history/:historyId/proof`. Every route is open to any
   authenticated role; nothing here writes.
 - `src/api/src/agreement-history.integration.test.ts` : Integration tests
   for SPEC-11 (AC1-AC10); history rows are produced by driving SPEC-10's
@@ -176,7 +180,7 @@
   `user` for the uploader's username), `POST /mous/:mouId/document`
   (ADMIN/DATA_ENTRY, multer memory storage, reuses `validatePdfBuffer`/
   `scanForViruses` from `upload/mou-document-storage.ts`), `GET
-  /documents/:documentId` (any authenticated role, streams the file).
+/documents/:documentId` (any authenticated role, streams the file).
 - `src/api/src/mou-documents.integration.test.ts` : Integration tests for
   SPEC-09 AC5-AC10 (AC1-AC4's cascading-selector rules are UI-only, covered
   by `upload-mou.spec.ts`).
@@ -224,7 +228,7 @@
 - `src/web/src/components/layout/AppShell.tsx` (SPEC-14, D93) : The layout route — owns the Sidebar's collapsed/mobile-drawer state and renders `<Sidebar/>` beside a `<main><Outlet/></main>`, exposing `openMobileMenu` to routed pages via `AppShellContext`/`useOutletContext()`.
 - `src/web/src/components/layout/Sidebar.tsx` (SPEC-14) : The persistent nav — entries from `visibleEntryPoints(user.role)` (D92, one source of truth shared with the dashboard cards and route guards), the signed-in user's initials/username/role (D97), and sign-out. Logout's accessible name stays "Log out" (not Figma's "Sign out") since `dashboard.spec.ts` already asserts that name.
 - `src/web/src/components/layout/Topbar.tsx` (SPEC-14) : Per-page header — `title`/`subtitle` props (replacing each page's old ad-hoc `<h1>`), a hamburger wired to `AppShell`'s mobile drawer, a real search box (Enter → `/search?q=`, D87) and a bell (→ `/alerts`, D87).
-- `src/web/src/api/client.ts` : The one place the web app calls `@mou/api`. Sends credentials, treats a 401 as "not signed in" rather than an error, and normalises the login failure message. Also the wizard draft endpoints, `validatePage1`, and (SPEC-05) `uploadMouDocument` — a raw `fetch` with a `FormData` body, since `request()`'s JSON content-type can't be reused for a multipart upload. `EnumsResponse` (SPEC-04/05/06) carries every dropdown and catalogue the wizard renders from, including `schemes` and `payrollItems` (SPEC-06). Also the SPEC-07 read-only functions (`fetchZoneCompanies`, `fetchCompanyOverview`, `fetchCompanyMous`, `fetchMouCommercial`, `fetchMouPayroll`, `mouPrintUrl`), and (SPEC-14) `fetchDashboardSummary`/`fetchRecentActivity` for the Dashboard KPI row and Recent Activity table.
+- `src/web/src/api/client.ts` : The one place the web app calls `@mou/api`. Sends credentials, treats a 401 as "not signed in" rather than an error, and normalises the login failure message. Also the wizard draft endpoints, `validatePage1`, and (SPEC-05) `uploadMouDocument` — a raw `fetch` with a `FormData` body, since `request()`'s JSON content-type can't be reused for a multipart upload. `EnumsResponse` (SPEC-04/05/06) carries every dropdown and catalogue the wizard renders from, including `schemes` and `payrollItems` (SPEC-06). Also the SPEC-07 read-only functions (`fetchZoneCompanies`, `fetchCompanyOverview`, `fetchCompanyMous`, `fetchMouCommercial`, `fetchMouPayroll`, `mouPrintUrl`), and (SPEC-14) `fetchDashboardSummary`/`fetchRecentActivity` for the Dashboard KPI row and Recent Activity table. A code-review fix made `fetchEnums()`/`fetchZones()` cache the in-flight _promise_ in a module-level variable (cleared on rejection) rather than re-fetching on every one of the nine pages that read this rarely-changing reference data.
 - `src/web/src/auth/AuthContext.tsx` : Holds the signed-in user. Checks `/api/auth/me` on boot, and signs out through the API before clearing local state, which is what makes AC8 hold.
 - `src/web/src/auth/RequireAuth.tsx` : Guards a route, waits for the initial session check, and redirects to login with `replace` so the protected URL is not left in history.
 - `src/web/src/dashboard/entry-points.ts` : The ten Dashboard Home entry points and the SPEC-02 section 3.3 role matrix, declared once as data. The dashboard, the routes and the UI tests all read this list.
@@ -245,6 +249,7 @@
 - `src/web/src/components/wizard/Page1.tsx` : SPEC-04 Page 1 — the full 20-field Company Details form, the Mobile/LAN conditional branch, and paste-blocked Confirm Email. Rules come from `@mou/domain`; this component only renders the errors/warnings it is handed.
 - `src/web/src/components/wizard/Page2.tsx` : SPEC-05 Page 2 — MOU dates/tenure with a derived end-date preview, the MOU PDF upload input, attendance cycle/stipend date, the 16 fixed charges (rendered from the `commercialItems` catalogue, never hardcoded), and repeatable "Other" rows.
 - `src/web/src/components/wizard/Page3.tsx` : SPEC-06 Page 3 — scheme selection, repeatable trainee categories, the 22 fixed payroll items (rendered from the `payrollItems` catalogue, never hardcoded) each as a Yes/No pair with a conditional amount box that clears on switching to No, a live "N of 22 answered" count, and repeatable "Other" rows.
+- `src/web/src/hooks/useCascadingSelectors.ts` : A code-review fix — the Zone→Company→Plant→Scheme(MOU) cascade that `UploadMouPage`, `EditAgreementPage`, `AgreementHistoryPage` and `ExportPdfPage` had each hand-rolled independently (ADR D53 flagged revisiting this "if needed a third time"; it was needed a sixth). Deliberately state-only — returns values and change handlers, never JSX — so every page keeps its own `<select>`/`<label>` markup, ids and `htmlFor` pairing, which the Playwright suite locates by label text. `ExistingCompanyPage` is not wired to it: its cascade genuinely diverges (plants arrive embedded in the company-overview response; the MOU list loads on an explicit "Next" click, not automatically).
 
 ### `@mou/e2e` — cross-package tests
 
