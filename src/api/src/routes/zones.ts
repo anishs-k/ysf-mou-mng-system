@@ -12,8 +12,7 @@ import { Router } from "express";
 
 import type { Database } from "../db/client.ts";
 import { company, zone } from "../db/schema.ts";
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_PATTERN } from "./request-parse.ts";
 
 export function createZonesRouter(db: Database): Router {
   const router = Router();

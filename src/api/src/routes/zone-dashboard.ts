@@ -13,24 +13,33 @@ import type { Pool } from "pg";
 import { requireSession } from "../auth/middleware.ts";
 import type { Database } from "../db/client.ts";
 import { businessToday } from "../db/mou-view.ts";
-import { fetchSchemeMatrix, fetchZoneDrillDown, fetchZoneSummary } from "../db/zone-dashboard.ts";
+import {
+  fetchSchemeMatrix,
+  fetchZoneDrillDown,
+  fetchZoneSummary,
+} from "../db/zone-dashboard.ts";
+import { isUuid } from "./request-parse.ts";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
-}
-
-function readFilters(request: Request): { scheme?: string; status?: string } | undefined {
+function readFilters(
+  request: Request,
+): { scheme?: string; status?: string } | undefined {
   const schemeRaw = request.query["scheme"];
   const statusRaw = request.query["status"];
-  const scheme = typeof schemeRaw === "string" && schemeRaw !== "" ? schemeRaw : undefined;
-  const status = typeof statusRaw === "string" && statusRaw !== "" ? statusRaw : undefined;
+  const scheme =
+    typeof schemeRaw === "string" && schemeRaw !== "" ? schemeRaw : undefined;
+  const status =
+    typeof statusRaw === "string" && statusRaw !== "" ? statusRaw : undefined;
 
-  if (scheme !== undefined && !(SCHEMES as readonly string[]).includes(scheme)) {
+  if (
+    scheme !== undefined &&
+    !(SCHEMES as readonly string[]).includes(scheme)
+  ) {
     return undefined;
   }
-  if (status !== undefined && !(MOU_STATUSES as readonly string[]).includes(status)) {
+  if (
+    status !== undefined &&
+    !(MOU_STATUSES as readonly string[]).includes(status)
+  ) {
     return undefined;
   }
   return { scheme, status };
@@ -41,30 +50,47 @@ export function createZoneDashboardRouter(db: Database, pool: Pool): Router {
   const requireAuthSession = requireSession(pool);
 
   /** GET /api/dashboard/zone-wise?scheme=&status= — SPEC-12 sections 2.1/2.2. */
-  router.get("/dashboard/zone-wise", requireAuthSession, async (request: Request, response: Response) => {
-    const filters = readFilters(request);
-    if (filters === undefined) {
-      response.status(400).json({ error: "scheme/status must be a recognised value" });
-      return;
-    }
+  router.get(
+    "/dashboard/zone-wise",
+    requireAuthSession,
+    async (request: Request, response: Response) => {
+      const filters = readFilters(request);
+      if (filters === undefined) {
+        response
+          .status(400)
+          .json({ error: "scheme/status must be a recognised value" });
+        return;
+      }
 
-    const [summary, matrix] = await Promise.all([fetchZoneSummary(pool, filters), fetchSchemeMatrix(pool, filters)]);
+      const [summary, matrix] = await Promise.all([
+        fetchZoneSummary(pool, filters),
+        fetchSchemeMatrix(pool, filters),
+      ]);
 
-    const totals = summary.reduce(
-      (acc, row) => ({
-        companies: acc.companies + row.companies,
-        plants: acc.plants + row.plants,
-        mous: acc.mous + row.mous,
-        active: acc.active + row.active,
-        expired: acc.expired + row.expired,
-        new: acc.new + row.new,
-        expiringSoon: acc.expiringSoon + row.expiringSoon,
-      }),
-      { companies: 0, plants: 0, mous: 0, active: 0, expired: 0, new: 0, expiringSoon: 0 },
-    );
+      const totals = summary.reduce(
+        (acc, row) => ({
+          companies: acc.companies + row.companies,
+          plants: acc.plants + row.plants,
+          mous: acc.mous + row.mous,
+          active: acc.active + row.active,
+          expired: acc.expired + row.expired,
+          new: acc.new + row.new,
+          expiringSoon: acc.expiringSoon + row.expiringSoon,
+        }),
+        {
+          companies: 0,
+          plants: 0,
+          mous: 0,
+          active: 0,
+          expired: 0,
+          new: 0,
+          expiringSoon: 0,
+        },
+      );
 
-    response.json({ zones: summary, totals, matrix });
-  });
+      response.json({ zones: summary, totals, matrix });
+    },
+  );
 
   /** GET /api/dashboard/zone-wise/:zoneId/companies?scheme=&status= — SPEC-12 section 2.4. */
   router.get(
@@ -78,7 +104,9 @@ export function createZoneDashboardRouter(db: Database, pool: Pool): Router {
       }
       const filters = readFilters(request);
       if (filters === undefined) {
-        response.status(400).json({ error: "scheme/status must be a recognised value" });
+        response
+          .status(400)
+          .json({ error: "scheme/status must be a recognised value" });
         return;
       }
 
