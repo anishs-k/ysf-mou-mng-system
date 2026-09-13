@@ -1,0 +1,17 @@
+# Purpose: Resolves the one port nginx must listen on, before nginx:alpine's
+# own 20-envsubst-on-templates.sh renders nginx.conf.template with it.
+#
+# A `.envsh` file, not a `.sh` file: the stock docker-entrypoint.sh *sources*
+# `*.envsh` scripts ( . "$f" ) but *executes* `*.sh` ones as a subprocess. A
+# subprocess's exported variables die with it - only a sourced script's
+# exports survive into the entrypoint's own shell, which is what later runs
+# 20-envsubst-on-templates.sh. Without this file being sourced, envsubst would
+# never see the value computed below.
+#
+# Railway assigns a random $PORT per deployment and always routes a domain's
+# traffic to it - not to whatever a Dockerfile's EXPOSE says - so a container
+# that keeps listening on a fixed port here answers nothing and the domain
+# shows 502 Bad Gateway. docker-compose never sets $PORT, so NGINX_PORT (set
+# in docker-compose.yml, defaulting to 80 in the Dockerfile) is still the
+# right fallback there.
+export NGINX_PORT="${PORT:-${NGINX_PORT:-80}}"

@@ -28,6 +28,7 @@ import { createDashboardSummaryRouter } from "./routes/dashboard-summary.ts";
 import { createEditAgreementRouter } from "./routes/edit-agreement.ts";
 import { createEnumsRouter } from "./routes/enums.ts";
 import { createMouDocumentsRouter } from "./routes/mou-documents.ts";
+import { createPublicStatsRouter } from "./routes/public-stats.ts";
 import { createSearchExportRouter } from "./routes/search-export.ts";
 import { createZoneDashboardRouter } from "./routes/zone-dashboard.ts";
 import { createZonesRouter } from "./routes/zones.ts";
@@ -55,6 +56,7 @@ export function createApp(pool: Pool): Express {
   app.use(
     "/api",
     createAuthRouter(pool, db),
+    createPublicStatsRouter(pool),
     createEnumsRouter(),
     createZonesRouter(db),
     createCompaniesRouter(db, pool),

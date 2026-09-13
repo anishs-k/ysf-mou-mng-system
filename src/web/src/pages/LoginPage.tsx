@@ -1,28 +1,52 @@
 /**
  * Purpose: The login screen of SPEC-02 section 2, restyled per SPEC-14 to match
- * `figma_code/src/App.tsx`'s `LoginPage` (glass card, gradient orbs, static stat
+ * `figma_code/src/App.tsx`'s `LoginPage` (glass card, gradient orbs, stat
  * tiles). It still submits to /api/auth/login and shows exactly what the API
  * returned - one generic message for a bad username, a bad password or an
- * inactive account (D80, unchanged). The four stat tiles are static marketing
- * copy, not live counts (D88 - no public/unauthenticated stats endpoint).
- * "Remember me" and "Forgot password?" render but do nothing (D83, deferred).
+ * inactive account (D80, unchanged). "Remember me" and "Forgot password?"
+ * render but do nothing (D83, deferred).
+ *
+ * The four stat tiles show a real, live figure fetched from the new
+ * unauthenticated `GET /api/public/stats` (`db/public-stats.ts`), reversing
+ * ADR D88 at explicit user request. That route deliberately returns only
+ * coarse, whole-portal counts - no per-zone or per-company detail - which is
+ * what keeps this an intentional, narrow exception rather than a blanket
+ * reversal of "every endpoint requires a session" (SPEC-02). A fetch failure
+ * falls back to the tile's label alone (no number), the same fallback shape
+ * the pre-D88-reversal static version always rendered - this screen must
+ * never show a broken/placeholder number to a visitor who has not signed in.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 
+import { fetchPublicStats } from "../api/client.ts";
+import type { PublicStats } from "../api/client.ts";
 import logoYSF from "../assets/logo-ysf.png";
 import { useAuth } from "../auth/AuthContext.tsx";
 import { Icon } from "../components/icons.tsx";
 import { brand } from "../components/ui.tsx";
 
-const STAT_TILES = [
-  { label: "Active MOUs", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.user },
-  { label: "Companies", color: brand.orange, iconBg: "#FFF0E8", icon: Icon.building },
-  { label: "Expiring Soon", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.clock },
-  { label: "Active Zones", color: brand.orange, iconBg: "#FFF0E8", icon: Icon.map },
+interface StatTile {
+  readonly key: keyof PublicStats;
+  readonly label: string;
+  readonly color: string;
+  readonly iconBg: string;
+  readonly icon: React.ReactNode;
+}
+
+const STAT_TILES: readonly StatTile[] = [
+  { key: "activeMou", label: "Active MOUs", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.user },
+  { key: "totalCompanies", label: "Companies", color: brand.orange, iconBg: "#FFF0E8", icon: Icon.building },
+  { key: "expiringSoon", label: "Expiring Soon", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.clock },
+  { key: "activeZones", label: "Active Zones", color: brand.orange, iconBg: "#FFF0E8", icon: Icon.map },
 ];
+
+/** Numbers into the wide-format the design's stat tiles use, e.g. 1,240 -> "1.2K". */
+function formatStatValue(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}K` : String(value);
+}
 
 export function LoginPage() {
   const { user, loading, signIn } = useAuth();
@@ -32,6 +56,24 @@ export function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // undefined while loading/on failure: the tile then renders its label with
+  // no number, rather than a stale zero or a placeholder that looks live.
+  const [stats, setStats] = useState<PublicStats | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPublicStats()
+      .then((value) => {
+        if (!cancelled) setStats(value);
+      })
+      .catch(() => {
+        // Silent: an unauthenticated visitor seeing four label-only tiles is
+        // a fine degraded state; a thrown error dialog is not.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Already signed in: the login screen has nothing to offer.
   if (!loading && user !== null) {
@@ -123,19 +165,30 @@ export function LoginPage() {
           </p>
 
           <div className="grid grid-cols-2 gap-3 lg:gap-4 max-w-xs lg:max-w-sm">
-            {STAT_TILES.map((stat) => (
-              <div key={stat.label} className="glass-stat rounded-xl p-3 lg:p-4 flex flex-col gap-1.5 lg:gap-2">
-                <div
-                  className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg flex items-center justify-center"
-                  style={{ background: stat.iconBg, color: stat.color }}
-                >
-                  {stat.icon}
+            {STAT_TILES.map((stat) => {
+              const rawValue = stats?.[stat.key];
+              return (
+                <div key={stat.label} className="glass-stat rounded-xl p-3 lg:p-4 flex flex-col gap-1.5 lg:gap-2">
+                  <div
+                    className="w-8 h-8 lg:w-9 lg:h-9 rounded-lg flex items-center justify-center"
+                    style={{ background: stat.iconBg, color: stat.color }}
+                  >
+                    {stat.icon}
+                  </div>
+                  {rawValue !== undefined && (
+                    <p
+                      className="font-bold mono"
+                      style={{ fontSize: "clamp(18px, 2vw, 26px)", color: stat.color, lineHeight: 1 }}
+                    >
+                      {formatStatValue(rawValue)}
+                    </p>
+                  )}
+                  <p className="text-xs font-medium" style={{ color: "#8A9BB5" }}>
+                    {stat.label}
+                  </p>
                 </div>
-                <p className="text-xs font-medium" style={{ color: "#8A9BB5" }}>
-                  {stat.label}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

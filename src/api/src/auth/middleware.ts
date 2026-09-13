@@ -49,7 +49,10 @@ function sessionCookieSameSite(): "lax" | "none" {
 
 /** `sameSite: "none"` is void without it, and browsers drop such a cookie. */
 function sessionCookieSecure(): boolean {
-  return sessionCookieSameSite() === "none" || process.env["NODE_ENV"] === "production";
+  return (
+    sessionCookieSameSite() === "none" ||
+    process.env["NODE_ENV"] === "production"
+  );
 }
 
 /**
@@ -72,7 +75,11 @@ export function readSessionCookie(request: Request): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
-export function setSessionCookie(response: Response, sessionId: string, expiresAt: Date): void {
+export function setSessionCookie(
+  response: Response,
+  sessionId: string,
+  expiresAt: Date,
+): void {
   response.cookie(SESSION_COOKIE_NAME, sessionId, {
     ...cookieOptions(),
     expires: expiresAt,
@@ -84,7 +91,11 @@ export function clearSessionCookie(response: Response): void {
 }
 
 export function requireSession(pool: Pool): RequestHandler {
-  return async (request: Request, response: Response, next: NextFunction): Promise<void> => {
+  return async (
+    request: Request,
+    response: Response,
+    next: NextFunction,
+  ): Promise<void> => {
     const sessionId = readSessionCookie(request);
     if (sessionId === null) {
       response.status(401).json({ error: "Authentication required" });
@@ -122,7 +133,9 @@ export function requireRole(...allowed: readonly UserRole[]): RequestHandler {
 export function requireAuth(request: Request): AuthenticatedUser {
   const auth = request.auth;
   if (auth === undefined) {
-    throw new Error("requireAuth() was called on a route without requireSession()");
+    throw new Error(
+      "requireAuth() was called on a route without requireSession()",
+    );
   }
   return auth;
 }

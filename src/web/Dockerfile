@@ -43,6 +43,13 @@ COPY --from=build /app/src/web/dist /usr/share/nginx/html
 # docker-compose keeps 80 and maps its own host port to it).
 COPY src/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 
+# Resolves NGINX_PORT from Railway's own $PORT (falling back to NGINX_PORT,
+# then 80) BEFORE nginx's own entrypoint renders the template above - a
+# .envsh file, not .sh, because only a *sourced* script's exports survive
+# into the later envsubst step; see the file's own header for why.
+COPY src/web/05-set-port.envsh /docker-entrypoint.d/05-set-port.envsh
+RUN chmod +x /docker-entrypoint.d/05-set-port.envsh
+
 # The /api/ proxy block, generated at start-up only when API_UPSTREAM is set.
 # The empty default guarantees the template's `include` always resolves, even
 # on the very first start before the script has run.
@@ -50,6 +57,8 @@ COPY src/web/20-api-proxy.sh /docker-entrypoint.d/20-api-proxy.sh
 RUN chmod +x /docker-entrypoint.d/20-api-proxy.sh && touch /etc/nginx/api-proxy.conf
 
 # Only envsubst'd variables need defaults here; API_UPSTREAM is deliberately
-# unset (Railway's shape). docker-compose.yml sets it explicitly.
+# unset (Railway's shape). docker-compose.yml sets it explicitly. Railway
+# ignores EXPOSE and routes to its own assigned $PORT regardless (resolved by
+# 05-set-port.envsh above), so this is accurate for docker-compose only.
 ENV NGINX_PORT=80
 EXPOSE 80

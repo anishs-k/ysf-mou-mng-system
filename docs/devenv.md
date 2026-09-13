@@ -167,13 +167,13 @@ for the frontend - Vite's hot-reload dev server, not a production static serve.
 
 ### api service variables
 
-| Variable | Value |
-| --- | --- |
-| `DATABASE_URL` | from the Postgres service |
-| `WEB_ORIGIN` | the web service's public URL, exactly, no trailing slash |
-| `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | your chosen admin login |
-| `UPLOAD_ROOT` | `/app/uploads` |
-| `SESSION_COOKIE_SAMESITE` | `none` on `*.up.railway.app`; unset on a custom domain (see below) |
+| Variable                                          | Value                                                              |
+| ------------------------------------------------- | ------------------------------------------------------------------ |
+| `DATABASE_URL`                                    | from the Postgres service                                          |
+| `WEB_ORIGIN`                                      | the web service's public URL, exactly, no trailing slash           |
+| `ADMIN_USERNAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` | your chosen admin login                                            |
+| `UPLOAD_ROOT`                                     | `/app/uploads`                                                     |
+| `SESSION_COOKIE_SAMESITE`                         | `none` on `*.up.railway.app`; unset on a custom domain (see below) |
 
 Migrations and the zone/admin seed still run automatically on every start via
 `src/api/docker-entrypoint.sh` - there is no separate deploy step.

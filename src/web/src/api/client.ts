@@ -1074,3 +1074,32 @@ export async function fetchRecentActivity(
   }
   return (await response.json()) as readonly RecentActivityRow[];
 }
+
+// ---------------------------------------------------------------------------
+// Public login-page stats (reverses ADR D88 at explicit user request)
+// ---------------------------------------------------------------------------
+
+/**
+ * The one response in this file that goes out unauthenticated - `request()`
+ * still sends credentials for consistency, but `/api/public/stats` never
+ * requires them. Kept as its own type/function rather than reusing
+ * `DashboardSummary`, since the two responses are genuinely different shapes
+ * from different trust boundaries (this one omits `pendingReview` and
+ * `expired`, and adds `activeZones`) - see `db/public-stats.ts`'s own note.
+ */
+export interface PublicStats {
+  readonly totalCompanies: number;
+  readonly activeMou: number;
+  readonly expiringSoon: number;
+  readonly activeZones: number;
+}
+
+export async function fetchPublicStats(): Promise<PublicStats> {
+  const response = await request("/api/public/stats");
+  if (!response.ok) {
+    throw new Error(
+      `GET /api/public/stats failed with status ${response.status}`,
+    );
+  }
+  return (await response.json()) as PublicStats;
+}

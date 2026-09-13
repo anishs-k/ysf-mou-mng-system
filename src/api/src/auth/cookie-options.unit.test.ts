@@ -22,7 +22,10 @@ interface CapturedCookie {
 
 /** Minimal Express Response stand-in: only cookie()/clearCookie() are used. */
 function captureCookies(): {
-  response: { cookie: (n: string, v: string, o: Record<string, unknown>) => void; clearCookie: (n: string, o: Record<string, unknown>) => void };
+  response: {
+    cookie: (n: string, v: string, o: Record<string, unknown>) => void;
+    clearCookie: (n: string, o: Record<string, unknown>) => void;
+  };
   set: CapturedCookie[];
   cleared: CapturedCookie[];
 } {
@@ -33,13 +36,17 @@ function captureCookies(): {
     cleared,
     response: {
       cookie: (name, value, options) => set.push({ name, value, options }),
-      clearCookie: (name, options) => cleared.push({ name, value: "", options }),
+      clearCookie: (name, options) =>
+        cleared.push({ name, value: "", options }),
     },
   };
 }
 
 /** Restores whatever the surrounding environment had, so tests don't leak. */
-function withEnv(vars: Record<string, string | undefined>, run: () => void): void {
+function withEnv(
+  vars: Record<string, string | undefined>,
+  run: () => void,
+): void {
   const previous = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries(vars)) {
     previous.set(key, process.env[key]);
@@ -65,14 +72,17 @@ function withEnv(vars: Record<string, string | undefined>, run: () => void): voi
 const EXPIRES = new Date("2026-01-01T00:00:00Z");
 
 test("defaults to sameSite=lax, the CSRF-safe same-origin/same-site case", () => {
-  withEnv({ SESSION_COOKIE_SAMESITE: undefined, NODE_ENV: "development" }, () => {
-    const { response, set } = captureCookies();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal Response stand-in
-    setSessionCookie(response as any, "session-id", EXPIRES);
+  withEnv(
+    { SESSION_COOKIE_SAMESITE: undefined, NODE_ENV: "development" },
+    () => {
+      const { response, set } = captureCookies();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal Response stand-in
+      setSessionCookie(response as any, "session-id", EXPIRES);
 
-    assert.equal(set[0]?.options["sameSite"], "lax");
-    assert.equal(set[0]?.options["httpOnly"], true);
-  });
+      assert.equal(set[0]?.options["sameSite"], "lax");
+      assert.equal(set[0]?.options["httpOnly"], true);
+    },
+  );
 });
 
 test("SESSION_COOKIE_SAMESITE=none switches to none for a cross-site deployment", () => {
@@ -97,24 +107,30 @@ test("sameSite=none forces secure, because browsers reject the pair without it",
 });
 
 test("production sets secure even when sameSite stays lax", () => {
-  withEnv({ SESSION_COOKIE_SAMESITE: undefined, NODE_ENV: "production" }, () => {
-    const { response, set } = captureCookies();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal Response stand-in
-    setSessionCookie(response as any, "session-id", EXPIRES);
+  withEnv(
+    { SESSION_COOKIE_SAMESITE: undefined, NODE_ENV: "production" },
+    () => {
+      const { response, set } = captureCookies();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal Response stand-in
+      setSessionCookie(response as any, "session-id", EXPIRES);
 
-    assert.equal(set[0]?.options["sameSite"], "lax");
-    assert.equal(set[0]?.options["secure"], true);
-  });
+      assert.equal(set[0]?.options["sameSite"], "lax");
+      assert.equal(set[0]?.options["secure"], true);
+    },
+  );
 });
 
 test("an unrecognised SESSION_COOKIE_SAMESITE falls back to lax rather than failing open", () => {
-  withEnv({ SESSION_COOKIE_SAMESITE: "strict-ish nonsense", NODE_ENV: "development" }, () => {
-    const { response, set } = captureCookies();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal Response stand-in
-    setSessionCookie(response as any, "session-id", EXPIRES);
+  withEnv(
+    { SESSION_COOKIE_SAMESITE: "strict-ish nonsense", NODE_ENV: "development" },
+    () => {
+      const { response, set } = captureCookies();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- minimal Response stand-in
+      setSessionCookie(response as any, "session-id", EXPIRES);
 
-    assert.equal(set[0]?.options["sameSite"], "lax");
-  });
+      assert.equal(set[0]?.options["sameSite"], "lax");
+    },
+  );
 });
 
 test("clearing uses the same attributes it was set with, or the browser keeps the cookie", () => {
