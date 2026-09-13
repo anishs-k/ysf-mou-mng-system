@@ -1,8 +1,13 @@
 node_modules/
 dist/
 build/
+# Figma Make reference exports - design source material, never built or deployed.
+# The v2 folder is spelled with a hyphen; an earlier `figma_code_v2/` (underscore)
+# typo here meant it was tracked by git while .dockerignore excluded it, which
+# broke every Railway/Railpack build with
+# `"/figma_code-v2/pnpm-lock.yaml": not found`.
 figma_code/
-figma_code_v2/
+figma_code-v2/
 .turbo/
 *.tsbuildinfo
 
