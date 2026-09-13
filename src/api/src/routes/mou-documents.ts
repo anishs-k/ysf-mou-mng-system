@@ -17,21 +17,21 @@ import { promises as fs } from "node:fs";
 import multer from "multer";
 import type { Pool } from "pg";
 
-import { requireAuth, requireRole, requireSession } from "../auth/middleware.ts";
+import {
+  requireAuth,
+  requireRole,
+  requireSession,
+} from "../auth/middleware.ts";
 import type { Database } from "../db/client.ts";
 import { mou, mouDocument, user } from "../db/schema.ts";
+import { readFileOrThrowMissing } from "../upload/file-errors.ts";
 import {
   mouDocumentAbsolutePath,
   scanForViruses,
   validatePdfBuffer,
   writeMouDocument,
 } from "../upload/mou-document-storage.ts";
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function isUuid(value: string): boolean {
-  return UUID_PATTERN.test(value);
-}
+import { isUuid } from "./request-parse.ts";
 
 /** SPEC-09 section 3: the same 10 MB cap as the wizard's upload. */
 const MAX_MOU_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -47,28 +47,32 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
   const requireAuthoring = requireRole("ADMIN", "DATA_ENTRY");
 
   /** GET /api/mous/:mouId/documents — SPEC-09 section 3.1, newest first. */
-  router.get("/mous/:mouId/documents", requireAuthSession, async (request: Request, response: Response) => {
-    const mouId = String(request.params["mouId"] ?? "");
-    if (!isUuid(mouId)) {
-      response.status(400).json({ error: "mouId must be a UUID" });
-      return;
-    }
+  router.get(
+    "/mous/:mouId/documents",
+    requireAuthSession,
+    async (request: Request, response: Response) => {
+      const mouId = String(request.params["mouId"] ?? "");
+      if (!isUuid(mouId)) {
+        response.status(400).json({ error: "mouId must be a UUID" });
+        return;
+      }
 
-    const rows = await db
-      .select({
-        id: mouDocument.id,
-        originalFilename: mouDocument.originalFilename,
-        fileSizeBytes: mouDocument.fileSizeBytes,
-        uploadedAt: mouDocument.uploadedAt,
-        uploadedByUsername: user.username,
-      })
-      .from(mouDocument)
-      .innerJoin(user, eq(user.id, mouDocument.uploadedBy))
-      .where(eq(mouDocument.mouId, mouId))
-      .orderBy(desc(mouDocument.uploadedAt));
+      const rows = await db
+        .select({
+          id: mouDocument.id,
+          originalFilename: mouDocument.originalFilename,
+          fileSizeBytes: mouDocument.fileSizeBytes,
+          uploadedAt: mouDocument.uploadedAt,
+          uploadedByUsername: user.username,
+        })
+        .from(mouDocument)
+        .innerJoin(user, eq(user.id, mouDocument.uploadedBy))
+        .where(eq(mouDocument.mouId, mouId))
+        .orderBy(desc(mouDocument.uploadedAt));
 
-    response.json(rows);
-  });
+      response.json(rows);
+    },
+  );
 
   /** POST /api/mous/:mouId/document — SPEC-09 section 4; ADMIN/DATA_ENTRY only (AC10). */
   router.post(
@@ -82,9 +86,12 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
           return;
         }
         const isSizeError =
-          error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE";
+          error instanceof multer.MulterError &&
+          error.code === "LIMIT_FILE_SIZE";
         response.status(422).json({
-          error: isSizeError ? "The file must be 10 MB or smaller" : "Upload failed",
+          error: isSizeError
+            ? "The file must be 10 MB or smaller"
+            : "Upload failed",
         });
       });
     },
@@ -96,7 +103,10 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
         return;
       }
 
-      const mouRows = await db.select({ id: mou.id }).from(mou).where(eq(mou.id, mouId));
+      const mouRows = await db
+        .select({ id: mou.id })
+        .from(mou)
+        .where(eq(mou.id, mouId));
       if (mouRows[0] === undefined) {
         response.status(404).json({ error: "MOU not found" });
         return;
@@ -135,40 +145,54 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
         uploadedBy: auth.userId,
       });
 
-      response.status(201).json({ id, originalFilename, fileSizeBytes: file.size });
+      response
+        .status(201)
+        .json({ id, originalFilename, fileSizeBytes: file.size });
     },
   );
 
   /** GET /api/documents/:documentId — SPEC-09 section 4; any authenticated role (AC9/AC10). */
-  router.get("/documents/:documentId", requireAuthSession, async (request: Request, response: Response) => {
-    const documentId = String(request.params["documentId"] ?? "");
-    if (!isUuid(documentId)) {
-      response.status(400).json({ error: "documentId must be a UUID" });
-      return;
-    }
+  router.get(
+    "/documents/:documentId",
+    requireAuthSession,
+    async (request: Request, response: Response) => {
+      const documentId = String(request.params["documentId"] ?? "");
+      if (!isUuid(documentId)) {
+        response.status(400).json({ error: "documentId must be a UUID" });
+        return;
+      }
 
-    const rows = await db
-      .select({ filePath: mouDocument.filePath, originalFilename: mouDocument.originalFilename })
-      .from(mouDocument)
-      .where(eq(mouDocument.id, documentId));
-    const row = rows[0];
-    if (row === undefined) {
-      response.status(404).json({ error: "Document not found" });
-      return;
-    }
+      const rows = await db
+        .select({
+          filePath: mouDocument.filePath,
+          originalFilename: mouDocument.originalFilename,
+        })
+        .from(mouDocument)
+        .where(eq(mouDocument.id, documentId));
+      const row = rows[0];
+      if (row === undefined) {
+        response.status(404).json({ error: "Document not found" });
+        return;
+      }
 
-    let buffer: Buffer;
-    try {
-      buffer = await fs.readFile(mouDocumentAbsolutePath(row.filePath));
-    } catch {
-      response.status(404).json({ error: "Document file missing" });
-      return;
-    }
+      // A genuinely absent file is a 404; any other read failure (permissions,
+      // disk fault) propagates as a 500 rather than masquerading as "missing".
+      const buffer = await readFileOrThrowMissing(
+        mouDocumentAbsolutePath(row.filePath),
+      );
+      if (buffer === undefined) {
+        response.status(404).json({ error: "Document file missing" });
+        return;
+      }
 
-    response.setHeader("Content-Type", "application/pdf");
-    response.setHeader("Content-Disposition", `inline; filename="${row.originalFilename}"`);
-    response.send(buffer);
-  });
+      response.setHeader("Content-Type", "application/pdf");
+      response.setHeader(
+        "Content-Disposition",
+        `inline; filename="${row.originalFilename}"`,
+      );
+      response.send(buffer);
+    },
+  );
 
   return router;
 }

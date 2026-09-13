@@ -9,11 +9,14 @@
 import { after, before, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { promises as fs } from "node:fs";
 import type { Server } from "node:http";
+import path from "node:path";
 
 import type { Pool } from "pg";
 
 import { createApp } from "./index.ts";
+import { uploadRoot } from "./upload/mou-document-storage.ts";
 import {
   createTestPool,
   insertCompany,
@@ -71,13 +74,20 @@ async function login(username: string, password: string): Promise<string> {
 
 async function setupMou(): Promise<{ mouId: string; adminCookie: string }> {
   const zoneId = await insertZone(pool);
-  const creator = await insertUserWithPassword(pool, { username: "creator", password: "pass" });
+  const creator = await insertUserWithPassword(pool, {
+    username: "creator",
+    password: "pass",
+  });
   const companyId = await insertCompany(pool, zoneId, creator.id);
   const plantId = await insertPlant(pool, companyId);
   const mouId = await insertMou(pool, companyId, plantId);
   const configId = await insertPayrollConfig(pool, mouId);
   await insertTraineeCategory(pool, configId, "Category A");
-  const admin = await insertUserWithPassword(pool, { username: "admin1", password: "pass", role: "ADMIN" });
+  const admin = await insertUserWithPassword(pool, {
+    username: "admin1",
+    password: "pass",
+    role: "ADMIN",
+  });
   const adminCookie = await login(admin.username, admin.password);
   return { mouId, adminCookie };
 }
@@ -99,14 +109,22 @@ async function editTenure(
   const form = new FormData();
   form.append("reason", reason);
   if (proof !== undefined) {
-    form.append("proof", new Blob([new Uint8Array(proof.buffer)], { type: proof.mimeType }), proof.name);
+    form.append(
+      "proof",
+      new Blob([new Uint8Array(proof.buffer)], { type: proof.mimeType }),
+      proof.name,
+    );
   }
-  const editResponse = await fetch(`${baseUrl}/api/mous/${mouId}/edit-request`, {
-    method: "POST",
-    headers: { Cookie: cookie },
-    body: form,
-  });
-  const { token, version, commercial, payroll } = (await editResponse.json()) as EditablePayload;
+  const editResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/edit-request`,
+    {
+      method: "POST",
+      headers: { Cookie: cookie },
+      body: form,
+    },
+  );
+  const { token, version, commercial, payroll } =
+    (await editResponse.json()) as EditablePayload;
 
   const applyResponse = await fetch(`${baseUrl}/api/mous/${mouId}`, {
     method: "PUT",
@@ -119,7 +137,9 @@ async function editTenure(
     }),
   });
   assert.equal(applyResponse.status, 200);
-  const { version: newVersion } = (await applyResponse.json()) as { version: number };
+  const { version: newVersion } = (await applyResponse.json()) as {
+    version: number;
+  };
   return newVersion;
 }
 
@@ -129,11 +149,19 @@ test("AC1/AC2 an MOU edited three times shows three history rows, newest first, 
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "36");
   await editTenure(mouId, adminCookie, "CHANGE_IN_STATUTORY_COMPLIANCE", "48");
 
-  const response = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
   assert.equal(response.status, 200);
   const body = (await response.json()) as {
     currentVersion: number;
-    rows: Array<{ version: number; editReason: string; editReasonLabel: string; editedByUsername: string; hasProof: boolean }>;
+    rows: Array<{
+      version: number;
+      editReason: string;
+      editReasonLabel: string;
+      editedByUsername: string;
+      hasProof: boolean;
+    }>;
   };
   assert.equal(body.currentVersion, 4);
   assert.equal(body.rows.length, 3);
@@ -154,36 +182,94 @@ test("AC3 a Communication from HR row offers a working proof download; other rea
   });
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "36");
 
-  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const body = (await listResponse.json()) as { rows: Array<{ historyId: string; hasProof: boolean; editReason: string }> };
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
+  const body = (await listResponse.json()) as {
+    rows: Array<{ historyId: string; hasProof: boolean; editReason: string }>;
+  };
   const hrRow = body.rows.find((r) => r.editReason === "COMMUNICATION_FROM_HR");
-  const addendumRow = body.rows.find((r) => r.editReason === "ADDENDUM_IN_AGREEMENT");
+  const addendumRow = body.rows.find(
+    (r) => r.editReason === "ADDENDUM_IN_AGREEMENT",
+  );
   assert.equal(hrRow?.hasProof, true);
   assert.equal(addendumRow?.hasProof, false);
 
-  const proofResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history/${hrRow?.historyId}/proof`, {
-    headers: { Cookie: adminCookie },
-  });
+  const proofResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/${hrRow?.historyId}/proof`,
+    {
+      headers: { Cookie: adminCookie },
+    },
+  );
   assert.equal(proofResponse.status, 200);
   assert.equal(proofResponse.headers.get("content-type"), "application/pdf");
 
-  const noProofResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history/${addendumRow?.historyId}/proof`, {
+  const noProofResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/${addendumRow?.historyId}/proof`,
+    {
+      headers: { Cookie: adminCookie },
+    },
+  );
+  assert.equal(noProofResponse.status, 404);
+});
+
+test("a proof file deleted from disk answers 404, not a crash", async () => {
+  const { mouId, adminCookie } = await setupMou();
+  await editTenure(mouId, adminCookie, "COMMUNICATION_FROM_HR", "24", {
+    name: "proof.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.4\n%proof\n"),
+  });
+
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
     headers: { Cookie: adminCookie },
   });
-  assert.equal(noProofResponse.status, 404);
+  const { rows } = (await listResponse.json()) as {
+    rows: Array<{ historyId: string }>;
+  };
+  const historyId = rows[0]?.historyId;
+  assert.ok(historyId !== undefined);
+
+  // The history row still records the proof; only the bytes behind it are gone.
+  const { rows: proofRows } = await pool.query<{ proof_file_path: string }>(
+    `SELECT proof_file_path FROM agreement_history WHERE id = $1`,
+    [historyId],
+  );
+  const proofFilePath = proofRows[0]?.proof_file_path;
+  assert.ok(proofFilePath !== undefined);
+  await fs.rm(path.join(uploadRoot(), proofFilePath), { force: true });
+
+  const response = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/${historyId}/proof`,
+    {
+      headers: { Cookie: adminCookie },
+    },
+  );
+  assert.equal(response.status, 404);
+  const body = (await response.json()) as { error: string };
+  assert.equal(body.error, "Proof file missing");
 });
 
 test("AC4 opening a version renders the values as they were at that version", async () => {
   const { mouId, adminCookie } = await setupMou();
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "24");
 
-  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const { rows } = (await listResponse.json()) as { rows: Array<{ historyId: string }> };
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
+  const { rows } = (await listResponse.json()) as {
+    rows: Array<{ historyId: string }>;
+  };
   const historyId = rows[0]?.historyId;
 
-  const detailResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history/${historyId}`, { headers: { Cookie: adminCookie } });
+  const detailResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/${historyId}`,
+    { headers: { Cookie: adminCookie } },
+  );
   assert.equal(detailResponse.status, 200);
-  const detail = (await detailResponse.json()) as { commercial: { tenureValue: string } };
+  const detail = (await detailResponse.json()) as {
+    commercial: { tenureValue: string };
+  };
   assert.equal(detail.commercial.tenureValue, "12");
 });
 
@@ -191,18 +277,27 @@ test("AC5 a snapshot missing a field renders blank instead of erroring", async (
   const { mouId, adminCookie } = await setupMou();
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "24");
 
-  await pool.query(`UPDATE agreement_history SET snapshot = $1 WHERE mou_id = $2`, [
-    JSON.stringify({ commercial: {}, payroll: {} }),
-    mouId,
-  ]);
+  await pool.query(
+    `UPDATE agreement_history SET snapshot = $1 WHERE mou_id = $2`,
+    [JSON.stringify({ commercial: {}, payroll: {} }), mouId],
+  );
 
-  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const { rows } = (await listResponse.json()) as { rows: Array<{ historyId: string }> };
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
+  const { rows } = (await listResponse.json()) as {
+    rows: Array<{ historyId: string }>;
+  };
   const historyId = rows[0]?.historyId;
 
-  const detailResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history/${historyId}`, { headers: { Cookie: adminCookie } });
+  const detailResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/${historyId}`,
+    { headers: { Cookie: adminCookie } },
+  );
   assert.equal(detailResponse.status, 200);
-  const detail = (await detailResponse.json()) as { commercial: { mouStartDate: string } };
+  const detail = (await detailResponse.json()) as {
+    commercial: { mouStartDate: string };
+  };
   assert.equal(detail.commercial.mouStartDate, "");
 });
 
@@ -211,16 +306,25 @@ test("AC6 comparing version 1 with version 2 lists only the tenure as changed", 
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "24");
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "36");
 
-  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const { rows } = (await listResponse.json()) as { rows: Array<{ version: number; historyId: string }> };
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
+  const { rows } = (await listResponse.json()) as {
+    rows: Array<{ version: number; historyId: string }>;
+  };
   const v1 = rows.find((r) => r.version === 1)?.historyId;
   const v2 = rows.find((r) => r.version === 2)?.historyId;
 
-  const compareResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history/compare?from=${v1}&to=${v2}`, {
-    headers: { Cookie: adminCookie },
-  });
+  const compareResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/compare?from=${v1}&to=${v2}`,
+    {
+      headers: { Cookie: adminCookie },
+    },
+  );
   assert.equal(compareResponse.status, 200);
-  const body = (await compareResponse.json()) as { rows: Array<{ field: string; changed: boolean }> };
+  const body = (await compareResponse.json()) as {
+    rows: Array<{ field: string; changed: boolean }>;
+  };
   const changed = body.rows.filter((r) => r.changed);
   assert.equal(changed.length, 1);
   assert.equal(changed[0]?.field, "Tenure");
@@ -230,15 +334,30 @@ test("AC7 comparing the latest history row with Current reflects the most recent
   const { mouId, adminCookie } = await setupMou();
   await editTenure(mouId, adminCookie, "ADDENDUM_IN_AGREEMENT", "24");
 
-  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const { rows } = (await listResponse.json()) as { rows: Array<{ historyId: string }> };
-  const v1 = rows[0]?.historyId;
-
-  const compareResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history/compare?from=${v1}&to=current`, {
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
     headers: { Cookie: adminCookie },
   });
+  const { rows } = (await listResponse.json()) as {
+    rows: Array<{ historyId: string }>;
+  };
+  const v1 = rows[0]?.historyId;
+
+  const compareResponse = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/compare?from=${v1}&to=current`,
+    {
+      headers: { Cookie: adminCookie },
+    },
+  );
   assert.equal(compareResponse.status, 200);
-  const body = (await compareResponse.json()) as { toLabel: string; rows: Array<{ field: string; oldValue: string; newValue: string; changed: boolean }> };
+  const body = (await compareResponse.json()) as {
+    toLabel: string;
+    rows: Array<{
+      field: string;
+      oldValue: string;
+      newValue: string;
+      changed: boolean;
+    }>;
+  };
   assert.equal(body.toLabel, "Current");
   const tenureRow = body.rows.find((r) => r.field === "Tenure");
   assert.equal(tenureRow?.changed, true);
@@ -248,8 +367,13 @@ test("AC7 comparing the latest history row with Current reflects the most recent
 
 test("AC8 an MOU with no edits shows an empty history list", async () => {
   const { mouId, adminCookie } = await setupMou();
-  const response = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const body = (await response.json()) as { currentVersion: number; rows: unknown[] };
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
+  const body = (await response.json()) as {
+    currentVersion: number;
+    rows: unknown[];
+  };
   assert.equal(body.currentVersion, 1);
   assert.equal(body.rows.length, 0);
 });
@@ -270,9 +394,15 @@ test("AC10 requesting a proof file without a session returns 401", async () => {
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4\n%proof\n"),
   });
-  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, { headers: { Cookie: adminCookie } });
-  const { rows } = (await listResponse.json()) as { rows: Array<{ historyId: string }> };
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/history`, {
+    headers: { Cookie: adminCookie },
+  });
+  const { rows } = (await listResponse.json()) as {
+    rows: Array<{ historyId: string }>;
+  };
 
-  const response = await fetch(`${baseUrl}/api/mous/${mouId}/history/${rows[0]?.historyId}/proof`);
+  const response = await fetch(
+    `${baseUrl}/api/mous/${mouId}/history/${rows[0]?.historyId}/proof`,
+  );
   assert.equal(response.status, 401);
 });

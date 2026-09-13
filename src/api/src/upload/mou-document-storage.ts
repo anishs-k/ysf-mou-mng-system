@@ -15,6 +15,8 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { isFileNotFoundError } from "./file-errors.ts";
+
 const DEFAULT_UPLOAD_ROOT = path.resolve(process.cwd(), ".data", "uploads");
 const TEMP_DOCUMENT_NAME = "document.pdf";
 const PDF_MAGIC_BYTES = "%PDF";
@@ -22,7 +24,9 @@ const PDF_MAGIC_BYTES = "%PDF";
 /** Shared with upload/edit-proof-storage.ts (SPEC-10) so both upload paths agree on where files live. */
 export function uploadRoot(): string {
   const configured = process.env["UPLOAD_ROOT"];
-  return configured !== undefined && configured !== "" ? configured : DEFAULT_UPLOAD_ROOT;
+  return configured !== undefined && configured !== ""
+    ? configured
+    : DEFAULT_UPLOAD_ROOT;
 }
 
 function tempDraftDir(draftId: string): string {
@@ -52,11 +56,17 @@ export interface PdfValidationResult {
  * fast; the `%PDF` header on the actual bytes is what a renamed `.docx`
  * cannot fake (AC2).
  */
-export function validatePdfBuffer(buffer: Buffer, mimetype: string): PdfValidationResult {
+export function validatePdfBuffer(
+  buffer: Buffer,
+  mimetype: string,
+): PdfValidationResult {
   if (mimetype !== "application/pdf") {
     return { valid: false, reason: "The file must be a PDF" };
   }
-  if (buffer.subarray(0, PDF_MAGIC_BYTES.length).toString("latin1") !== PDF_MAGIC_BYTES) {
+  if (
+    buffer.subarray(0, PDF_MAGIC_BYTES.length).toString("latin1") !==
+    PDF_MAGIC_BYTES
+  ) {
     return { valid: false, reason: "The file is not a valid PDF" };
   }
   return { valid: true };
@@ -74,7 +84,9 @@ export interface VirusScanResult {
  * on disk as its only argument if that variable is set, and is a no-op
  * (clean) otherwise. A non-zero exit code is treated as "infected".
  */
-export async function scanForViruses(filePath: string): Promise<VirusScanResult> {
+export async function scanForViruses(
+  filePath: string,
+): Promise<VirusScanResult> {
   const command = process.env["VIRUS_SCAN_COMMAND"];
   if (command === undefined || command === "") {
     return { clean: true };
@@ -118,7 +130,10 @@ export async function writeMouDocument(
 }
 
 /** Writes (or overwrites) the one temp file a draft may hold. */
-export async function writeTempDocument(draftId: string, buffer: Buffer): Promise<string> {
+export async function writeTempDocument(
+  draftId: string,
+  buffer: Buffer,
+): Promise<string> {
   const filePath = tempDocumentPath(draftId);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, buffer);
@@ -129,12 +144,20 @@ export function tempDocumentFilePath(draftId: string): string {
   return tempDocumentPath(draftId);
 }
 
+/**
+ * True only when the temp file is genuinely absent. Any other access failure
+ * (permissions, a disk fault) is rethrown so the final save fails loudly
+ * rather than telling the user to re-upload a file that is actually there.
+ */
 export async function tempDocumentExists(draftId: string): Promise<boolean> {
   try {
     await fs.access(tempDocumentPath(draftId));
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (isFileNotFoundError(error)) {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -148,7 +171,10 @@ export async function discardTempDocument(draftId: string): Promise<void> {
  * where possible; falls back to copy-then-delete across filesystems (EXDEV),
  * which `fs.rename` cannot do itself.
  */
-export async function promoteTempDocument(draftId: string, mouId: string): Promise<string> {
+export async function promoteTempDocument(
+  draftId: string,
+  mouId: string,
+): Promise<string> {
   const source = tempDocumentPath(draftId);
   const destinationDir = permanentDocumentDir(mouId);
   await fs.mkdir(destinationDir, { recursive: true });
