@@ -1,0 +1,45 @@
+# Purpose: Serves the built @mou/web static bundle. Processed by the stock
+# nginx:alpine entrypoint, which runs `envsubst` over every
+# /etc/nginx/templates/*.template at container start, so the listen port is
+# configurable rather than hardcoded to 80 - Railway assigns a random $PORT
+# the container MUST listen on, while docker-compose maps its own host port
+# to a fixed 80.
+#
+# The /api/ proxy is NOT written here: 20-api-proxy.sh generates it at
+# start-up, but only when API_UPSTREAM is set.
+#   * docker-compose (docs/devenv.md) sets API_UPSTREAM=http://api:3001, so
+#     the browser talks to one origin and nginx proxies /api/ to the api
+#     container over the compose network - the session cookie stays
+#     same-origin and no CORS hop is involved.
+#   * Railway leaves it unset: each service is separately addressable and
+#     there is no compose-network hostname like `api` to proxy to, so the
+#     browser calls the API's own public URL directly (VITE_API_URL, baked
+#     into the bundle at build time).
+#
+# try_files falls back to index.html so react-router's client-side routes
+# (e.g. /companies/new) don't 404 on a hard refresh.
+
+server {
+    listen ${NGINX_PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Long-lived caching for hashed static assets; index.html itself is not
+    # matched by this pattern and is always revalidated.
+    location ~* \.(?:js|css|woff2?|png|jpg|jpeg|svg|ico)$ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Written by docker-entrypoint.d/20-api-proxy.sh: the /api/ proxy block
+    # under docker-compose, or an empty file on Railway. Always exists (the
+    # Dockerfile ships an empty default), so nginx never fails to start on a
+    # missing include.
+    include /etc/nginx/api-proxy.conf;
+}

@@ -52,8 +52,14 @@ services:
       - "${MOU_API_PORT:-3001}:3001"
 
   # @mou/web, built into a static bundle and served by nginx, which also
-  # reverse-proxies /api to the api service above (src/web/nginx.conf) so the
-  # browser only ever talks to one origin.
+  # reverse-proxies /api to the api service above so the browser only ever
+  # talks to one origin (and the session cookie stays same-origin).
+  #
+  # API_UPSTREAM is what switches that proxy on: src/web/20-api-proxy.sh
+  # writes the /api/ location block only when it is set. A platform like
+  # Railway, where web and api are separate services with no shared compose
+  # network, leaves it unset and instead bakes an absolute VITE_API_URL into
+  # the bundle at build time.
   web:
     build:
       context: .
@@ -62,6 +68,9 @@ services:
         VITE_API_URL: ""
     container_name: mou_mng_system_web
     restart: always
+    environment:
+      NGINX_PORT: "80"
+      API_UPSTREAM: http://api:3001
     depends_on:
       - api
     ports:
