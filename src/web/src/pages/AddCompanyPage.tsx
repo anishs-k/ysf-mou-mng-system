@@ -49,7 +49,10 @@ import { WizardShell } from "../components/wizard/WizardShell.tsx";
 const DEFAULT_PAGE1: Page1Data = EMPTY_PAGE1;
 const DEFAULT_PAGE2: Page2Data = {
   ...EMPTY_PAGE2,
-  mouStartDate: new Date().toISOString().split("T")[0],
+  // .slice(0, 10), not .split("T")[0]: an array index is `string | undefined`
+  // under noUncheckedIndexedAccess, and this matches the same YYYY-MM-DD
+  // extraction already used elsewhere in this file and in EditAgreementPage.
+  mouStartDate: new Date().toISOString().slice(0, 10),
 };
 const DEFAULT_PAGE3: Page3Data = EMPTY_PAGE3;
 

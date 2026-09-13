@@ -16,6 +16,20 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* Strictness - matches tsconfig.base.json's intent (this file cannot
+       extend it directly: base sets module/moduleResolution to NodeNext,
+       which conflicts with Vite's own bundler mode above). A code-review
+       fix: without `strict`, `strictNullChecks` is off, which silently
+       breaks control-flow narrowing on a discriminated union whose
+       discriminant is a boolean literal (`{ ok: true }` / `{ ok: false }`) -
+       every `if (result.ok) {...} return result.message` pattern in this
+       codebase (LoginResult, ApplyEditResult) was already correct code that
+       a missing compiler flag was failing to type-check correctly. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+
     /* Linting */
     "noUnusedLocals": true,
     "noUnusedParameters": true,
