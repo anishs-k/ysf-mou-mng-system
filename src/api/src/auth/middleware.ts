@@ -25,11 +25,47 @@ declare global {
   }
 }
 
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  sameSite: "lax",
-  path: "/",
-} as const;
+/**
+ * `lax` keeps the cookie safe from cross-site request forgery and is correct
+ * whenever the browser reaches the API on the same site as the web app - the
+ * docker-compose deployment (nginx proxies /api to the api container, one
+ * origin) and any custom-domain setup where web and API are subdomains of one
+ * registrable domain (app.example.com + api.example.com are same-site).
+ *
+ * It must become `none` only when the two are genuinely cross-site, which is
+ * what a platform's own generated hostnames force: *.up.railway.app sits on
+ * the public suffix list, so two services there are cross-site and a `lax`
+ * cookie is simply never sent back on the credentialed fetch, making login
+ * silently impossible. `none` additionally requires `secure`, so the pairing
+ * is validated below rather than left to produce a cookie browsers reject.
+ *
+ * Configurable rather than hardcoded to `none` because permanently opting out
+ * of same-site protection to satisfy a temporary hostname would weaken every
+ * deployment, including the ones that never needed it.
+ */
+function sessionCookieSameSite(): "lax" | "none" {
+  return process.env["SESSION_COOKIE_SAMESITE"] === "none" ? "none" : "lax";
+}
+
+/** `sameSite: "none"` is void without it, and browsers drop such a cookie. */
+function sessionCookieSecure(): boolean {
+  return sessionCookieSameSite() === "none" || process.env["NODE_ENV"] === "production";
+}
+
+/**
+ * Every attribute except `expires`. clearCookie() has to be handed the same
+ * `path`/`sameSite`/`secure` it was set with: a browser matches on those, so
+ * clearing with different attributes silently leaves the original cookie in
+ * place and "log out" stops actually logging out in the browser.
+ */
+function cookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: sessionCookieSameSite(),
+    secure: sessionCookieSecure(),
+    path: "/",
+  } as const;
+}
 
 export function readSessionCookie(request: Request): string | null {
   const value: unknown = request.cookies?.[SESSION_COOKIE_NAME];
@@ -38,14 +74,13 @@ export function readSessionCookie(request: Request): string | null {
 
 export function setSessionCookie(response: Response, sessionId: string, expiresAt: Date): void {
   response.cookie(SESSION_COOKIE_NAME, sessionId, {
-    ...COOKIE_OPTIONS,
-    secure: process.env["NODE_ENV"] === "production",
+    ...cookieOptions(),
     expires: expiresAt,
   });
 }
 
 export function clearSessionCookie(response: Response): void {
-  response.clearCookie(SESSION_COOKIE_NAME, COOKIE_OPTIONS);
+  response.clearCookie(SESSION_COOKIE_NAME, cookieOptions());
 }
 
 export function requireSession(pool: Pool): RequestHandler {
