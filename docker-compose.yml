@@ -11,7 +11,7 @@ services:
       # Host ports 5432 and 5433 are already taken on this dev machine, so the
       # container is published on 5434. Override with MOU_DB_PORT if needed and
       # keep DATABASE_URL in step (see environment.sh / .env.example).
-      - "${MOU_DB_PORT:-5434}:5432"
+      - "${MOU_DB_PORT:-5435}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -29,52 +29,52 @@ services:
   # migrations and the idempotent zone/admin seed on every start
   # (docker-entrypoint.sh) before serving, so `docker compose up` alone is
   # enough on a brand-new machine.
-  api:
-    build:
-      context: .
-      dockerfile: src/api/Dockerfile
-    container_name: mou_mng_system_api
-    restart: always
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mou_mng_system
-      PORT: "3001"
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in .env - see .env.example}
-      UPLOAD_ROOT: /app/uploads
-    volumes:
-      - uploads_data:/app/uploads
-    ports:
-      - "${MOU_API_PORT:-3001}:3001"
+  # api:
+  #   build:
+  #     context: .
+  #     dockerfile: src/api/Dockerfile
+  #   container_name: mou_mng_system_api
+  #   restart: always
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   environment:
+  #     DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mou_mng_system
+  #     PORT: "3001"
+  #     WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:8080}
+  #     ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+  #     ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@localhost}
+  #     ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set in .env - see .env.example}
+  #     UPLOAD_ROOT: /app/uploads
+  #   volumes:
+  #     - uploads_data:/app/uploads
+  #   ports:
+  #     - "${MOU_API_PORT:-3001}:3001"
 
-  # @mou/web, built into a static bundle and served by nginx, which also
-  # reverse-proxies /api to the api service above so the browser only ever
-  # talks to one origin (and the session cookie stays same-origin).
-  #
-  # API_UPSTREAM is what switches that proxy on: src/web/20-api-proxy.sh
-  # writes the /api/ location block only when it is set. A platform like
-  # Railway, where web and api are separate services with no shared compose
-  # network, leaves it unset and instead bakes an absolute VITE_API_URL into
-  # the bundle at build time.
-  web:
-    build:
-      context: .
-      dockerfile: src/web/Dockerfile
-      args:
-        VITE_API_URL: ""
-    container_name: mou_mng_system_web
-    restart: always
-    environment:
-      NGINX_PORT: "80"
-      API_UPSTREAM: http://api:3001
-    depends_on:
-      - api
-    ports:
-      - "${MOU_WEB_PORT:-8080}:80"
+  # # @mou/web, built into a static bundle and served by nginx, which also
+  # # reverse-proxies /api to the api service above so the browser only ever
+  # # talks to one origin (and the session cookie stays same-origin).
+  # #
+  # # API_UPSTREAM is what switches that proxy on: src/web/20-api-proxy.sh
+  # # writes the /api/ location block only when it is set. A platform like
+  # # Railway, where web and api are separate services with no shared compose
+  # # network, leaves it unset and instead bakes an absolute VITE_API_URL into
+  # # the bundle at build time.
+  # web:
+  #   build:
+  #     context: .
+  #     dockerfile: src/web/Dockerfile
+  #     args:
+  #       VITE_API_URL: ""
+  #   container_name: mou_mng_system_web
+  #   restart: always
+  #   environment:
+  #     NGINX_PORT: "80"
+  #     API_UPSTREAM: http://api:3001
+  #   depends_on:
+  #     - api
+  #   ports:
+  #     - "${MOU_WEB_PORT:-8080}:80"
 
 volumes:
   postgres_data:

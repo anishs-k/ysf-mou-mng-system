@@ -10,24 +10,33 @@ import { Pool } from "pg";
 import { seedAdminUser } from "./admin-user.ts";
 import { seedZones } from "./zones.ts";
 
+const DATABASE_URL = requireEnv("DATABASE_URL");
+const ADMIN_USERNAME = requireEnv("ADMIN_USERNAME", "admin");
+const ADMIN_EMAIL = requireEnv("ADMIN_EMAIL", "admin@localhost");
+const ADMIN_PASSWORD = requireEnv("ADMIN_PASSWORD");
+
 function requireEnv(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
   if (value === undefined || value === "") {
-    throw new Error(`${name} must be set - see environment.sh and .env.example`);
+    throw new Error(
+      `${name} must be set - see environment.sh and .env.example`,
+    );
   }
   return value;
 }
 
 async function main(): Promise<void> {
-  const pool = new Pool({ connectionString: requireEnv("DATABASE_URL") });
+  const pool = new Pool({ connectionString: DATABASE_URL });
   try {
     const zonesInserted = await seedZones(pool);
     const adminOutcome = await seedAdminUser(pool, {
-      username: requireEnv("ADMIN_USERNAME", "admin"),
-      email: requireEnv("ADMIN_EMAIL", "admin@localhost"),
-      password: requireEnv("ADMIN_PASSWORD"),
+      username: ADMIN_USERNAME,
+      email: ADMIN_EMAIL,
+      password: ADMIN_PASSWORD,
     });
-    console.log(`Zones inserted: ${zonesInserted}. Admin user: ${adminOutcome}.`);
+    console.log(
+      `Zones inserted: ${zonesInserted}. Admin user: ${adminOutcome}.`,
+    );
   } finally {
     await pool.end();
   }
