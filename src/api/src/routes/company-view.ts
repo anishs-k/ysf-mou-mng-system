@@ -142,7 +142,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
       doc.fontSize(11).moveDown(0.5);
       // SPEC-16 D109: the code belongs to the MOU, not the company, so this print
       // (which is MOU-scoped) reports the MOU's own code.
-      doc.text(`MOU Code: ${detail.generatedCode}`);
+      doc.text(`MoU Code: ${detail.generatedCode}`);
       doc.text(`GST Number: ${overview.gstNumber}`);
       doc.text(
         `HR Contact: ${overview.hrContactName} (${overview.hrContactNumber})`,
@@ -157,9 +157,9 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
         .text("Commercial Details", { underline: true });
       doc.fontSize(11).moveDown(0.5);
       doc.text(`Scheme: ${detail.scheme}`);
-      doc.text(`MOU Start Date: ${detail.mouStartDate}`);
+      doc.text(`MoU Start Date: ${detail.mouStartDate}`);
       doc.text(`Tenure: ${detail.tenureValue} ${detail.tenureUnit}`);
-      doc.text(`End Date: ${detail.endDate}`);
+      doc.text(`MoU End Date: ${detail.endDate}`);
       doc.text(`Status: ${MOU_STATUS_LABELS[detail.status]}`);
       doc.text(`Attendance Cycle: ${detail.attendanceCycle}`);
       doc.text(`Stipend Date: ${detail.stipendDate ?? "—"}`);

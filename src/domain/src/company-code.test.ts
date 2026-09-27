@@ -8,10 +8,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { formatCompanyCode } from "./company-code.ts";
+import { formatCompanyCode, formatMoUDisplayCode } from "./company-code.ts";
 
 test("AC3 formatCompanyCode: WILP, 2026, 42 -> MOU-WILP-2026-0042", () => {
   assert.equal(formatCompanyCode("WILP", 2026, 42), "MOU-WILP-2026-0042");
+});
+
+test("SPEC-17 formatMoUDisplayCode: converts MOU- prefix to MoU-", () => {
+  assert.equal(formatMoUDisplayCode("MOU-WILP-2026-0042"), "MoU-WILP-2026-0042");
+  assert.equal(formatMoUDisplayCode("mou-naps-2025-0101"), "MoU-naps-2025-0101");
+  assert.equal(formatMoUDisplayCode("MoU-NAPS-2025-0101"), "MoU-NAPS-2025-0101");
 });
 
 test("AC3 formatCompanyCode: a sequence above 9999 renders at natural width", () => {

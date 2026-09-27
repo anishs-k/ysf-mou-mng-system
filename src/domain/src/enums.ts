@@ -108,8 +108,8 @@ export const SCHEME_LABELS: Readonly<Record<Scheme, string>> = {
   NAPS: "NAPS",
   NATS: "NATS",
   WILP: "WILP",
-  BVOC: "B.Voc",
-  DVOC: "D.Voc",
+  BVOC: "BVoc",
+  DVOC: "DVoc",
   FLEXI: "FLEXI",
   MSBTE: "MSBTE",
 };
@@ -157,28 +157,28 @@ export const SCHEME_GUIDELINES: Readonly<Record<Scheme, SchemeGuideline>> = {
     tagline: "Bachelor of Vocation (B.Voc)",
     eligibility: "Class 12 pass; vocational stream preferred",
     duration: "3 years (UG degree)",
-    stipend: "As per MOU terms",
+    stipend: "As per MoU terms",
     benefit: "UGC-recognised degree with industry embed; multiple exit options.",
   },
   DVOC: {
     tagline: "Diploma of Vocation (D.Voc)",
     eligibility: "Class 10 / ITI pass",
     duration: "2 years",
-    stipend: "As per MOU terms",
+    stipend: "As per MoU terms",
     benefit: "Diploma with hands-on industry training; pathway to B.Voc.",
   },
   FLEXI: {
-    tagline: "Flexi MOU Scheme",
+    tagline: "Flexi MoU Scheme",
     eligibility: "Any trainee as per company norms",
-    duration: "Flexible - defined in MOU",
-    stipend: "Defined in MOU",
+    duration: "Flexible - defined in MoU",
+    stipend: "Defined in MoU",
     benefit: "Custom training design; company retains full flexibility on duration and structure.",
   },
   MSBTE: {
     tagline: "Maharashtra State Board of Technical Education",
     eligibility: "Class 10 pass (Maharashtra students)",
     duration: "3 years (Diploma)",
-    stipend: "As per MOU terms",
+    stipend: "As per MoU terms",
     benefit: "State-board diploma; industry internship credits recognised by MSBTE.",
   },
 };
@@ -351,7 +351,7 @@ export type InsuranceType = (typeof INSURANCE_TYPES)[number];
 
 export const INSURANCE_TYPE_LABELS: Readonly<Record<InsuranceType, string>> = {
   TOPUP: "Top Up (GFS)",
-  RECOVERY: "Recovery (MOU)",
+  RECOVERY: "Recovery (MoU)",
   BOTH: "Both",
 };
 

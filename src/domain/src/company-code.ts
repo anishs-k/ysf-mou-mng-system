@@ -32,3 +32,10 @@ export function formatCompanyCode(scheme: string, year: number, sequence: number
   const sequenceText = String(sequence).padStart(SEQUENCE_PAD_WIDTH, "0");
   return `${CODE_PREFIX}-${scheme.toUpperCase()}-${yearText}-${sequenceText}`;
 }
+
+/**
+ * SPEC-17 D117: Formats a generated code for user display, converting leading "MOU-" to "MoU-".
+ */
+export function formatMoUDisplayCode(code: string): string {
+  return code.replace(/^MOU-/i, "MoU-");
+}
