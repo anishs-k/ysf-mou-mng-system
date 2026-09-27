@@ -1,11 +1,6 @@
 /**
- * Purpose: SPEC-08's alert list - every unacknowledged current-MOU expiry
- * alert, newest first, with threshold/zone/scheme/acknowledged filters and an
- * Acknowledge action (ADMIN/DATA_ENTRY only, enforced again on the server).
- * Each row links to the Existing Company view via its zoneId/companyId query
- * parameters (SPEC-07's deep-link support). SPEC-14 restyles the list and
- * adds a Renew shortcut per row (D90) - plain navigation to Upload MOU PDF,
- * no query-string prefill, since that page does not accept one.
+ * Purpose: SPEC-08's alert list — Figma v3 aligned UI with summary KPI cards
+ * (30d/60d/pending), styled table with Renew/View/Acknowledge actions.
  */
 
 import { SCHEME_LABELS } from "@mou/domain";
@@ -17,7 +12,7 @@ import { acknowledgeAlert, fetchAlerts, fetchEnums, fetchZones } from "../api/cl
 import { useAuth } from "../auth/AuthContext.tsx";
 import type { AppShellContext } from "../components/layout/AppShell.tsx";
 import { Topbar } from "../components/layout/Topbar.tsx";
-import { Badge, Card } from "../components/ui.tsx";
+import { Badge, Btn, Card, brand } from "../components/ui.tsx";
 
 const AUTHORING_ROLES: readonly string[] = ["ADMIN", "DATA_ENTRY"];
 
@@ -58,10 +53,6 @@ export function AlertsPage() {
 
   const currentFilters = { days, zoneId: zoneId || undefined, scheme: scheme || undefined, acknowledged };
 
-  // Re-fetches on every filter change and after an acknowledge action, in a
-  // plain .then()/.catch() chain rather than an intermediate named async
-  // function, so the effect below never calls a function react-hooks flags
-  // as "setting state" from an effect body.
   async function load() {
     try {
       setAlerts(await fetchAlerts(currentFilters));
@@ -94,174 +85,220 @@ export function AlertsPage() {
     }
   }
 
+  // Summary KPI cards config
+  const kpiCards: {
+    label: string;
+    filterKey: AlertFilters["days"];
+    count: number;
+    baseCls: string;
+    activeCls: string;
+    valCls: string;
+  }[] = [
+    {
+      label: "Expiring in 30 days",
+      filterKey: "30",
+      count: alerts.filter((a) => a.daysRemaining <= 30).length,
+      baseCls: "bg-[#FEF2F2] border-[#FECACA]",
+      activeCls: "ring-2 ring-red-400 bg-[#FEE2E2]",
+      valCls: "text-[#DC2626]",
+    },
+    {
+      label: "Expiring in 60 days",
+      filterKey: "60",
+      count: alerts.filter((a) => a.daysRemaining <= 60).length,
+      baseCls: "bg-[#FFFBEB] border-[#FDE68A]",
+      activeCls: "ring-2 ring-amber-400 bg-[#FEF3C7]",
+      valCls: "text-[#D97706]",
+    },
+    {
+      label: "Expiring in 90 days",
+      filterKey: "90",
+      count: alerts.filter((a) => a.daysRemaining <= 90).length,
+      baseCls: "bg-[#EFF6FF] border-[#BFDBFE]",
+      activeCls: "ring-2 ring-blue-400 bg-[#DBEAFE]",
+      valCls: "text-[#1B5FAE]",
+    },
+  ];
+
+  const tableTitle =
+    days === "30"
+      ? "Expiring within 30 Days"
+      : days === "60"
+        ? "Expiring within 60 Days"
+        : days === "90"
+          ? "Expiring within 90 Days"
+          : "All Expiring MoUs";
+
   return (
     <>
-      <Topbar title="MoU Expiry Alerts" subtitle="Agreements expiring in the next 30, 60 or 90 days" onOpenMenu={openMobileMenu} />
-      <div className="p-4 md:p-6 flex-1 overflow-y-auto">
+      <Topbar title="MoU Expiry Alerts" subtitle="Upcoming expirations requiring action" onOpenMenu={openMobileMenu} />
+      <div className="p-4 md:p-6 space-y-4 md:space-y-5 flex-1 overflow-y-auto">
         {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-        {/* Threshold Summary Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-          <button
-            type="button"
-            onClick={() => setDays((prev) => (prev === "30" ? "all" : "30"))}
-            className={`glass-card rounded-xl p-3 border-l-4 border-l-red-500 flex items-center justify-between text-left transition-all cursor-pointer ${
-              days === "30" ? "ring-2 ring-red-400 bg-red-50/60" : ""
-            }`}
-          >
-            <div>
-              <p className="text-xs font-bold text-red-600">Critical (≤ 30 days)</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Immediate action required</p>
-            </div>
-            <span className="text-lg font-bold mono text-red-600">
-              {alerts.filter((a) => a.daysRemaining <= 30).length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setDays((prev) => (prev === "60" ? "all" : "60"))}
-            className={`glass-card rounded-xl p-3 border-l-4 border-l-amber-500 flex items-center justify-between text-left transition-all cursor-pointer ${
-              days === "60" ? "ring-2 ring-amber-400 bg-amber-50/60" : ""
-            }`}
-          >
-            <div>
-              <p className="text-xs font-bold text-amber-600">Warning (31 – 60 days)</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Begin internal renewal</p>
-            </div>
-            <span className="text-lg font-bold mono text-amber-600">
-              {alerts.filter((a) => a.daysRemaining > 30 && a.daysRemaining <= 60).length}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setDays((prev) => (prev === "90" ? "all" : "90"))}
-            className={`glass-card rounded-xl p-3 border-l-4 border-l-blue-500 flex items-center justify-between text-left transition-all cursor-pointer ${
-              days === "90" ? "ring-2 ring-blue-400 bg-blue-50/60" : ""
-            }`}
-          >
-            <div>
-              <p className="text-xs font-bold text-blue-600">Notice (61 – 90 days)</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Schedule discussion</p>
-            </div>
-            <span className="text-lg font-bold mono text-blue-600">
-              {alerts.filter((a) => a.daysRemaining > 60 && a.daysRemaining <= 90).length}
-            </span>
-          </button>
+        {/* Summary KPI Cards */}
+        <div className="grid sm:grid-cols-3 gap-4">
+          {kpiCards.map((k) => {
+            const isActive = days === k.filterKey;
+            return (
+              <button
+                key={k.label}
+                type="button"
+                onClick={() => setDays((prev) => (prev === k.filterKey ? "all" : k.filterKey))}
+                className={`glass-kpi rounded-xl p-5 text-left transition-all duration-200 hover:shadow-lg active:scale-[0.98] ${
+                  isActive ? k.activeCls : ""
+                }`}
+              >
+                <p className={`font-bold text-3xl mono ${k.valCls}`}>{k.count}</p>
+                <p className="text-sm font-semibold text-foreground mt-1">{k.label}</p>
+                {isActive && (
+                  <p className="text-xs mt-1.5 font-semibold" style={{ color: brand.orange }}>
+                    ● Filtered — click to clear
+                  </p>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        <div className="mb-4 flex flex-wrap gap-3">
-          <select
-            aria-label="Threshold"
-            value={days}
-            onChange={(event) => setDays(event.target.value as AlertFilters["days"])}
-            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
-          >
-            <option value="all">All thresholds</option>
-            <option value="30">30 days</option>
-            <option value="60">60 days</option>
-            <option value="90">90 days</option>
-          </select>
-          <select
-            aria-label="Zone"
-            value={zoneId}
-            onChange={(event) => setZoneId(event.target.value)}
-            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
-          >
-            <option value="">All zones</option>
-            {zones.map((z) => (
-              <option key={z.id} value={z.id}>
-                {z.name}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Scheme"
-            value={scheme}
-            onChange={(event) => setScheme(event.target.value)}
-            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
-          >
-            <option value="">All schemes</option>
-            {schemes.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Acknowledged"
-            value={acknowledged}
-            onChange={(event) => setAcknowledged(event.target.value as AlertFilters["acknowledged"])}
-            className="rounded-lg border border-border px-3 py-1.5 text-sm bg-white"
-          >
-            <option value="false">Unacknowledged</option>
-            <option value="true">Acknowledged</option>
-            <option value="all">All</option>
-          </select>
-        </div>
+        {/* Filters */}
+        <Card className="p-4">
+          <div className="flex flex-wrap gap-3 items-end">
+            <select
+              aria-label="Threshold"
+              value={days}
+              onChange={(event) => setDays(event.target.value as AlertFilters["days"])}
+              className="h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">All thresholds</option>
+              <option value="30">30 days</option>
+              <option value="60">60 days</option>
+              <option value="90">90 days</option>
+            </select>
+            <select
+              aria-label="Zone"
+              value={zoneId}
+              onChange={(event) => setZoneId(event.target.value)}
+              className="h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">All zones</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Scheme"
+              value={scheme}
+              onChange={(event) => setScheme(event.target.value)}
+              className="h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">All schemes</option>
+              {schemes.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Acknowledged"
+              value={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.value as AlertFilters["acknowledged"])}
+              className="h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="false">Unacknowledged</option>
+              <option value="true">Acknowledged</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+        </Card>
 
+        {/* Alert Table */}
         {alerts.length === 0 ? (
           <p className="text-sm text-muted-foreground">No alerts match these filters.</p>
         ) : (
           <Card className="overflow-hidden">
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border">
+              <div className="flex items-center gap-3">
+                <h3 className="font-bold text-sm uppercase tracking-wide" style={{ color: brand.navy }}>
+                  {tableTitle}
+                </h3>
+                <span className="mono text-xs font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                  {alerts.length}
+                </span>
+              </div>
+            </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="p-2.5">Company</th>
-                    <th className="p-2.5">Code</th>
-                    <th className="p-2.5">Zone</th>
-                    <th className="p-2.5">Plant</th>
-                    <th className="p-2.5">Scheme</th>
-                    <th className="p-2.5">Start</th>
-                    <th className="p-2.5">End</th>
-                    <th className="p-2.5">Days Remaining</th>
-                    <th className="p-2.5">Threshold</th>
-                    <th className="p-2.5">Status</th>
-                    <th className="p-2.5">Actions</th>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    {["Company", "Zone", "MoU Code", "Scheme", "Expiry Date", "Days Left", "Status", "Action"].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide"
+                        >
+                          {h}
+                        </th>
+                      ),
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {alerts.map((alert) => (
-                    <tr key={alert.alertId} className="border-t border-border hover:bg-muted/30 transition-colors">
-                      <td className="p-2.5 font-semibold text-foreground">{alert.companyName}</td>
-                      <td className="p-2.5 mono text-muted-foreground">{alert.generatedCode}</td>
-                      <td className="p-2.5 text-muted-foreground">{alert.zoneName}</td>
-                      <td className="p-2.5 text-muted-foreground">{alert.plantName}</td>
-                      <td className="p-2.5">
-                        <Badge text={SCHEME_LABELS[alert.scheme as keyof typeof SCHEME_LABELS] ?? alert.scheme} variant="info" />
+                    <tr
+                      key={alert.alertId}
+                      className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
+                    >
+                      <td className="px-4 py-3 font-semibold text-foreground text-xs">{alert.companyName}</td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">{alert.zoneName}</td>
+                      <td className="px-4 py-3 mono text-xs font-bold text-[#1B5FAE]">{alert.generatedCode}</td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          text={SCHEME_LABELS[alert.scheme as keyof typeof SCHEME_LABELS] ?? alert.scheme}
+                          variant="info"
+                        />
                       </td>
-                      <td className="p-2.5 mono text-muted-foreground">{alert.mouStartDate}</td>
-                      <td className="p-2.5 mono text-muted-foreground">{alert.endDate}</td>
-                      <td className="p-2.5">
-                        <span className={`mono font-bold text-sm ${alert.daysRemaining <= 30 ? "text-red-600" : alert.daysRemaining <= 60 ? "text-amber-600" : "text-blue-600"}`}>
+                      <td className="px-4 py-3 mono text-xs">{alert.endDate}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`mono font-bold text-sm ${
+                            alert.daysRemaining <= 30
+                              ? "text-red-600"
+                              : alert.daysRemaining <= 60
+                                ? "text-amber-600"
+                                : "text-blue-600"
+                          }`}
+                        >
                           {alert.daysRemaining}d
                         </span>
                       </td>
-                      <td className="p-2.5 mono text-muted-foreground">{alert.thresholdDays}</td>
-                      <td className="p-2.5">
+                      <td className="px-4 py-3">
                         <Badge text={alert.status} variant={statusVariant(alert.status)} />
                       </td>
-                      <td className="p-2.5">
-                        <div className="flex gap-3">
-                          <Link
-                            to={`/companies?zoneId=${alert.zoneId}&companyId=${alert.companyId}`}
-                            className="font-semibold hover:underline"
-                            style={{ color: "#1B5FAE" }}
-                          >
-                            Open
-                          </Link>
-                          {canAcknowledge && (
-                            <Link to="/upload-mou" className="font-semibold hover:underline" style={{ color: "#F26522" }}>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-2">
+                          <Btn variant="orange" size="sm">
+                            <Link to="/upload-mou" className="text-white no-underline">
                               Renew
                             </Link>
-                          )}
+                          </Btn>
+                          <Link
+                            to={`/companies?zoneId=${alert.zoneId}&companyId=${alert.companyId}`}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border border-border text-foreground hover:bg-muted transition-colors"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </svg>
+                          </Link>
                           {canAcknowledge && alert.acknowledgedAt === null && (
                             <button
                               type="button"
                               onClick={() => void handleAcknowledge(alert.alertId)}
-                              className="font-semibold text-muted-foreground hover:underline hover:text-foreground"
+                              className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:underline hover:text-foreground"
                             >
-                              Acknowledge
+                              Ack
                             </button>
                           )}
                         </div>

@@ -3,14 +3,10 @@
  * selection, a reason gate that locks every field until a reason (and, for
  * "Communication from HR", a proof file) is on record, the edit form itself,
  * a review screen listing every changed field old -> new, and Apply. ADMIN
- * only (section 6); a DATA_ENTRY or VIEWER who types this URL directly sees
- * "Not available", the same client-side guard `AddCompanyPage.tsx` and
- * `UploadMouPage.tsx` already use.
+ * only (section 6).
  *
- * Reuses `validateCommercialDetails`/`validatePayrollDetails` unchanged from
- * SPEC-05/06 for local feedback before Review - the server re-runs the exact
- * same functions, so a form that passes here cannot fail there for a rule
- * reason (only staleness/no-changes are checked only on the server).
+ * UI aligned with Figma v3 — breadcrumb, styled cards, radio-style reason
+ * selection, tabbed editor, review diff with strikethrough.
  */
 
 import {
@@ -27,7 +23,7 @@ import { useOutletContext } from "react-router-dom";
 
 import type { AppShellContext } from "../components/layout/AppShell.tsx";
 import { Topbar } from "../components/layout/Topbar.tsx";
-import { brand } from "../components/ui.tsx";
+import { Badge, Btn, Card, SecTitle, brand } from "../components/ui.tsx";
 import type {
   CommercialItemOption,
   EditableCommercial,
@@ -42,6 +38,9 @@ import { useCascadingSelectors } from "../hooks/useCascadingSelectors.ts";
 
 const INPUT_CLASS =
   "mt-1 block w-full rounded-lg border border-border px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-ring";
+
+const SELECT_CLASS =
+  "block w-full h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white appearance-none focus:outline-none focus:ring-2 focus:ring-ring disabled:bg-muted disabled:text-muted-foreground";
 
 type Step = "select" | "reason" | "edit" | "review" | "done";
 
@@ -219,6 +218,7 @@ export function EditAgreementPage() {
   const [commercialErrors, setCommercialErrors] = useState<CommercialDetailErrors>({});
   const [payrollErrors, setPayrollErrors] = useState<PayrollDetailErrors>({});
 
+  const [editTab, setEditTab] = useState<"commercial" | "payroll">("commercial");
   const [applying, setApplying] = useState(false);
   const [appliedVersion, setAppliedVersion] = useState<number | null>(null);
 
@@ -253,6 +253,7 @@ export function EditAgreementPage() {
       setPayroll(response.payroll);
       setCommercialErrors({});
       setPayrollErrors({});
+      setEditTab("commercial");
       setStep("edit");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start the edit");
@@ -310,7 +311,7 @@ export function EditAgreementPage() {
   if (user !== null && user.role !== "ADMIN") {
     return (
       <div className="p-8">
-        <div className="mx-auto max-w-2xl rounded-xl bg-white p-8 shadow-sm border border-border">
+        <div className="mx-auto max-w-2xl glass-card rounded-xl p-8">
           <h1 className="text-base font-medium text-foreground">Not available</h1>
           <p className="mt-1 text-sm text-muted-foreground">Your role ({user.role}) does not have access to this screen.</p>
         </div>
@@ -322,147 +323,179 @@ export function EditAgreementPage() {
   const fixedCharges = commercialItems.filter((item) => item.itemType !== null).slice().sort((a, b) => a.displayOrder - b.displayOrder);
   const fixedPayrollItems = payrollItems.filter((item) => item.itemType !== null).slice().sort((a, b) => a.displayOrder - b.displayOrder);
 
+  /* Breadcrumb */
+  const stepLabels: { key: Step; label: string }[] = [
+    { key: "select", label: "Select Agreement" },
+    { key: "reason", label: "Reason" },
+    { key: "edit", label: "Edit" },
+    { key: "review", label: "Review" },
+  ];
+  const stepOrder: Step[] = ["select", "reason", "edit", "review", "done"];
+  const currentIdx = stepOrder.indexOf(step);
+
   return (
     <>
       <Topbar title="Edit Agreement" subtitle="Amend or update an existing MoU record" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl">
-          {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        <div className="mx-auto max-w-4xl space-y-5">
+          {error !== null && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
+          {/* Breadcrumb */}
+          {step !== "done" && (
+            <nav className="flex items-center gap-2 text-xs font-semibold">
+              {stepLabels.map((s, i) => {
+                const sIdx = stepOrder.indexOf(s.key);
+                const isCurrent = step === s.key;
+                const isPast = currentIdx > sIdx;
+                return (
+                  <span key={s.key} className="flex items-center gap-2">
+                    {i > 0 && <span className="text-muted-foreground">›</span>}
+                    <span
+                      className={`flex items-center gap-1.5 ${
+                        isCurrent ? "text-[#1B5FAE]" : isPast ? "text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      <span
+                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                          isCurrent
+                            ? "bg-[#1B5FAE] text-white"
+                            : isPast
+                              ? "bg-green-100 text-green-700"
+                              : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {isPast ? "✓" : i + 1}
+                      </span>
+                      {s.label}
+                    </span>
+                  </span>
+                );
+              })}
+            </nav>
+          )}
+
+          {/* Step: Select Agreement */}
           {step === "select" && (
-            <div className="space-y-4 glass-card rounded-xl p-6">
-              <div>
-                <label htmlFor="editZone" className="block text-sm font-medium text-gray-700">
-                  Zone
-                </label>
-                <select
-                  id="editZone"
-                  value={zoneId}
-                  onChange={(event) => void handleZoneChange(event.target.value)}
-                  className={INPUT_CLASS}
-                >
-                  <option value="">Select zone</option>
-                  {zones.map((z) => (
-                    <option key={z.id} value={z.id}>
-                      {z.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="editCompany" className="block text-sm font-medium text-gray-700">
-                  Company
-                </label>
-                <select
-                  id="editCompany"
-                  value={companyId}
-                  disabled={zoneId === ""}
-                  onChange={(event) => void handleCompanyChange(event.target.value)}
-                  className={`${INPUT_CLASS} disabled:bg-gray-100`}
-                >
-                  <option value="">{zoneId === "" ? "Select a zone first" : "Select company"}</option>
-                  {companies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="editPlant" className="block text-sm font-medium text-gray-700">
-                  Company Plant
-                </label>
-                <select
-                  id="editPlant"
-                  value={plantId}
-                  disabled={companyId === ""}
-                  onChange={(event) => void handlePlantChange(event.target.value)}
-                  className={`${INPUT_CLASS} disabled:bg-gray-100`}
-                >
-                  <option value="">{companyId === "" ? "Select a company first" : "Select plant"}</option>
-                  {plants.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.plantName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {mous.length > 1 && (
+            <Card className="p-6">
+              <SecTitle>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                Select Agreement
+              </SecTitle>
+              <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="editScheme" className="block text-sm font-medium text-gray-700">
-                    Scheme
-                  </label>
-                  <select
-                    id="editScheme"
-                    value={mouId}
-                    onChange={(event) => setMouId(event.target.value)}
-                    className={INPUT_CLASS}
-                  >
-                    <option value="">Select scheme</option>
-                    {mous.map((m) => (
-                      <option key={m.mouId} value={m.mouId}>
-                        {SCHEME_LABELS[m.scheme as keyof typeof SCHEME_LABELS] ?? m.scheme}
-                      </option>
+                  <label htmlFor="editZone" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Zone</label>
+                  <select id="editZone" value={zoneId} onChange={(event) => void handleZoneChange(event.target.value)} className={SELECT_CLASS}>
+                    <option value="">Select zone</option>
+                    {zones.map((z) => (
+                      <option key={z.id} value={z.id}>{z.name}</option>
                     ))}
                   </select>
                 </div>
-              )}
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  disabled={mouId === ""}
-                  onClick={proceedToReason}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  style={{ background: brand.blue }}
-                >
-                  Next
-                </button>
+                <div>
+                  <label htmlFor="editCompany" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Company</label>
+                  <select id="editCompany" value={companyId} disabled={zoneId === ""} onChange={(event) => void handleCompanyChange(event.target.value)} className={SELECT_CLASS}>
+                    <option value="">{zoneId === "" ? "Select a zone first" : "Select company"}</option>
+                    {companies.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="editPlant" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Company Plant</label>
+                  <select id="editPlant" value={plantId} disabled={companyId === ""} onChange={(event) => void handlePlantChange(event.target.value)} className={SELECT_CLASS}>
+                    <option value="">{companyId === "" ? "Select a company first" : "Select plant"}</option>
+                    {plants.map((p) => (
+                      <option key={p.id} value={p.id}>{p.plantName}</option>
+                    ))}
+                  </select>
+                </div>
+                {mous.length > 1 && (
+                  <div>
+                    <label htmlFor="editScheme" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">Scheme</label>
+                    <select id="editScheme" value={mouId} onChange={(event) => setMouId(event.target.value)} className={SELECT_CLASS}>
+                      <option value="">Select scheme</option>
+                      {mous.map((m) => (
+                        <option key={m.mouId} value={m.mouId}>
+                          {SCHEME_LABELS[m.scheme as keyof typeof SCHEME_LABELS] ?? m.scheme}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
-            </div>
+              <div className="flex justify-end mt-5 pt-4 border-t border-border">
+                <Btn variant="primary" disabled={mouId === ""} onClick={proceedToReason}>
+                  Next →
+                </Btn>
+              </div>
+            </Card>
           )}
 
+          {/* Step: Reason */}
           {step === "reason" && (
-            <div className="space-y-4 glass-card rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-gray-900">Why are you editing this agreement?</h2>
-              <div>
-                <label htmlFor="editReason" className="block text-sm font-medium text-gray-700">
-                  Reason
-                </label>
-                <select
-                  id="editReason"
-                  value={reason}
-                  onChange={(event) => {
-                    setReason(event.target.value);
-                    setProof(null);
-                  }}
-                  className={INPUT_CLASS}
-                >
-                  <option value="">Select a reason</option>
-                  {EDIT_AGREEMENT_REASON_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+            <Card className="p-6">
+              <SecTitle>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                Reason for Amendment
+              </SecTitle>
+
+              {/* Reason radio-style cards */}
+              <div className="grid sm:grid-cols-3 gap-3 mb-5">
+                {EDIT_AGREEMENT_REASON_OPTIONS.map((option) => {
+                  const isSelected = reason === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setReason(option.value);
+                        setProof(null);
+                      }}
+                      className={`text-left rounded-xl border-2 p-4 transition-all duration-150 ${
+                        isSelected
+                          ? "border-[#1B5FAE] bg-blue-50 ring-1 ring-[#1B5FAE]"
+                          : "border-border hover:border-[#1B5FAE]/50 hover:bg-muted/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <div
+                          className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                            isSelected ? "border-[#1B5FAE]" : "border-border"
+                          }`}
+                        >
+                          {isSelected && <div className="w-2 h-2 rounded-full bg-[#1B5FAE]" />}
+                        </div>
+                        <span className="text-sm font-semibold text-foreground">{option.label}</span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
               {reason === "COMMUNICATION_FROM_HR" && (
-                <div>
-                  <label htmlFor="editProof" className="block text-sm font-medium text-gray-700">
-                    Proof
+                <div className="mb-4">
+                  <label htmlFor="editProof" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
+                    Proof Document
                   </label>
                   <input
                     id="editProof"
                     type="file"
                     accept="application/pdf,image/png,image/jpeg"
                     onChange={(event) => setProof(event.target.files?.[0] ?? null)}
-                    className="mt-1 block w-full text-sm text-gray-700"
+                    className="block w-full text-sm text-foreground"
                   />
                 </div>
               )}
 
-              <div>
-                <label htmlFor="editRemark" className="block text-sm font-medium text-gray-700">
+              <div className="mb-4">
+                <label htmlFor="editRemark" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1 block">
                   Remark (optional)
                 </label>
                 <textarea
@@ -475,335 +508,358 @@ export function EditAgreementPage() {
                 />
               </div>
 
-              <div className="flex justify-between pt-2">
-                <button
-                  type="button"
-                  onClick={() => setStep("select")}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  disabled={!canContinueReason || requesting}
-                  onClick={() => void handleRequestEdit()}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  style={{ background: brand.blue }}
-                >
-                  Continue
-                </button>
+              <div className="flex justify-between pt-4 border-t border-border">
+                <Btn variant="ghost" onClick={() => setStep("select")}>← Back</Btn>
+                <Btn variant="primary" disabled={!canContinueReason || requesting} onClick={() => void handleRequestEdit()}>
+                  {requesting ? "Loading…" : "Continue →"}
+                </Btn>
               </div>
-            </div>
+            </Card>
           )}
 
+          {/* Step: Edit */}
           {step === "edit" && commercial !== null && payroll !== null && (
-            <div className="space-y-6 glass-card rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-gray-900">Commercial Details</h2>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div>
-                  <label htmlFor="mouStartDate" className="block text-sm font-medium text-gray-700">
-                    MoU Start Date
-                  </label>
-                  <input
-                    id="mouStartDate"
-                    value={commercial.mouStartDate}
-                    onChange={(event) => setCommercial({ ...commercial, mouStartDate: event.target.value })}
-                    aria-invalid={commercialErrors.mouStartDate !== undefined}
-                    className={INPUT_CLASS}
-                  />
-                  {commercialErrors.mouStartDate !== undefined && (
-                    <p className="mt-1 text-xs text-red-600">{commercialErrors.mouStartDate}</p>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label htmlFor="tenureValue" className="block text-sm font-medium text-gray-700">
-                      Tenure
-                    </label>
-                    <input
-                      id="tenureValue"
-                      value={commercial.tenureValue}
-                      onChange={(event) => setCommercial({ ...commercial, tenureValue: event.target.value })}
-                      aria-invalid={commercialErrors.tenureValue !== undefined}
-                      className={INPUT_CLASS}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="tenureUnit" className="block text-sm font-medium text-gray-700">
-                      Unit
-                    </label>
-                    <select
-                      id="tenureUnit"
-                      value={commercial.tenureUnit}
-                      onChange={(event) => setCommercial({ ...commercial, tenureUnit: event.target.value })}
-                      className={INPUT_CLASS}
-                    >
-                      <option value="MONTHS">Months</option>
-                      <option value="YEARS">Years</option>
-                    </select>
-                  </div>
-                </div>
-                {(commercialErrors.tenureValue !== undefined || commercialErrors.tenureUnit !== undefined) && (
-                  <p className="-mt-3 text-xs text-red-600 md:col-start-2">
-                    {commercialErrors.tenureValue ?? commercialErrors.tenureUnit}
-                  </p>
-                )}
-                <div>
-                  <label htmlFor="attendanceCycle" className="block text-sm font-medium text-gray-700">
-                    Attendance Cycle
-                  </label>
-                  <input
-                    id="attendanceCycle"
-                    value={commercial.attendanceCycle}
-                    onChange={(event) => setCommercial({ ...commercial, attendanceCycle: event.target.value })}
-                    aria-invalid={commercialErrors.attendanceCycle !== undefined}
-                    className={INPUT_CLASS}
-                  />
-                  {commercialErrors.attendanceCycle !== undefined && (
-                    <p className="mt-1 text-xs text-red-600">{commercialErrors.attendanceCycle}</p>
-                  )}
-                </div>
-                <div>
-                  <label htmlFor="stipendDate" className="block text-sm font-medium text-gray-700">
-                    Stipend Date
-                  </label>
-                  <input
-                    id="stipendDate"
-                    value={commercial.stipendDate}
-                    onChange={(event) => setCommercial({ ...commercial, stipendDate: event.target.value })}
-                    aria-invalid={commercialErrors.stipendDate !== undefined}
-                    className={INPUT_CLASS}
-                  />
-                  {commercialErrors.stipendDate !== undefined && (
-                    <p className="mt-1 text-xs text-red-600">{commercialErrors.stipendDate}</p>
-                  )}
-                </div>
-              </div>
+            <Card className="p-6">
+              <SecTitle>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+                Edit Agreement
+              </SecTitle>
 
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Commercial Charges</h3>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {fixedCharges.map((item) => (
-                  <div key={item.key}>
-                    <label htmlFor={`charge-${item.key}`} className="block text-sm font-medium text-gray-700">
-                      {item.label}
-                    </label>
-                    <input
-                      id={`charge-${item.key}`}
-                      value={commercial.charges[item.key] ?? ""}
-                      onChange={(event) =>
-                        setCommercial({ ...commercial, charges: { ...commercial.charges, [item.key]: event.target.value } })
-                      }
-                      placeholder="Leave blank if not applicable"
-                      aria-invalid={commercialErrors.charges?.[item.key] !== undefined}
-                      className={INPUT_CLASS}
-                    />
-                    {commercialErrors.charges?.[item.key] !== undefined && (
-                      <p className="mt-1 text-xs text-red-600">{commercialErrors.charges[item.key]}</p>
-                    )}
-                  </div>
+              {/* Tab bar */}
+              <div className="flex gap-1 mb-5 border-b border-border">
+                {(["commercial", "payroll"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setEditTab(tab)}
+                    className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors border-b-2 -mb-px ${
+                      editTab === tab
+                        ? "border-[#1B5FAE] text-[#1B5FAE]"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {tab === "commercial" ? "Commercial Details" : "Payroll Details"}
+                  </button>
                 ))}
               </div>
 
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Other Charges</h3>
-              <OtherItemsEditor
-                items={commercial.otherItems}
-                onChange={(items) => setCommercial({ ...commercial, otherItems: items })}
-                itemTypes={itemTypes}
-              />
-
-              <h2 className="pt-4 text-lg font-semibold text-gray-900">Payroll Details</h2>
-              <p className="text-sm text-gray-600">Scheme: {payroll.scheme} (not editable)</p>
-
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Trainee Categories</h3>
-              <div className="space-y-2">
-                {payroll.traineeCategories.map((category, index) => (
-                  <div key={index} className="flex gap-2">
-                    <input
-                      aria-label={`Trainee category ${index + 1}`}
-                      value={category}
-                      onChange={(event) =>
-                        setPayroll({
-                          ...payroll,
-                          traineeCategories: payroll.traineeCategories.map((c, i) => (i === index ? event.target.value : c)),
-                        })
-                      }
-                      className={INPUT_CLASS}
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPayroll({
-                          ...payroll,
-                          traineeCategories: payroll.traineeCategories.filter((_, i) => i !== index),
-                        })
-                      }
-                      className="mt-1 h-9 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-muted"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setPayroll({ ...payroll, traineeCategories: [...payroll.traineeCategories, ""] })}
-                  className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
-                >
-                  Add category
-                </button>
-                {payrollErrors.traineeCategories !== undefined && (
-                  <p className="text-xs text-red-600">{payrollErrors.traineeCategories}</p>
-                )}
-              </div>
-
-              <h3 className="pt-2 text-sm font-semibold uppercase tracking-wide text-gray-500">Payroll Items</h3>
-              <div className="space-y-3">
-                {fixedPayrollItems.map((item) => {
-                  const answer = payroll.items[item.key] ?? { isApplicable: undefined, amount: "" };
-                  return (
-                    <div key={item.key} className="grid grid-cols-1 items-center gap-2 md:grid-cols-[2fr_1fr_1fr]">
-                      <span className="text-sm text-gray-700">{item.label}</span>
-                      <div className="flex gap-4 text-sm">
-                        <label className="flex items-center gap-1">
-                          <input
-                            type="radio"
-                            name={`item-${item.key}`}
-                            checked={answer.isApplicable === true}
-                            onChange={() =>
-                              setPayroll({
-                                ...payroll,
-                                items: { ...payroll.items, [item.key]: { isApplicable: true, amount: answer.amount } },
-                              })
-                            }
-                          />
-                          Yes
-                        </label>
-                        <label className="flex items-center gap-1">
-                          <input
-                            type="radio"
-                            name={`item-${item.key}`}
-                            checked={answer.isApplicable === false}
-                            onChange={() =>
-                              setPayroll({
-                                ...payroll,
-                                items: { ...payroll.items, [item.key]: { isApplicable: false, amount: "" } },
-                              })
-                            }
-                          />
-                          No
-                        </label>
-                      </div>
-                      {answer.isApplicable === true && (
-                        <input
-                          aria-label={`${item.label} amount`}
-                          value={answer.amount}
-                          onChange={(event) =>
-                            setPayroll({
-                              ...payroll,
-                              items: { ...payroll.items, [item.key]: { isApplicable: true, amount: event.target.value } },
-                            })
-                          }
-                          className={INPUT_CLASS}
-                        />
-                      )}
-                      {payrollErrors.items?.[item.key] !== undefined && (
-                        <p className="text-xs text-red-600 md:col-span-3">{payrollErrors.items[item.key]}</p>
+              {/* Commercial tab */}
+              {editTab === "commercial" && (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div>
+                      <label htmlFor="mouStartDate" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                        MoU Start Date
+                      </label>
+                      <input
+                        id="mouStartDate"
+                        value={commercial.mouStartDate}
+                        onChange={(event) => setCommercial({ ...commercial, mouStartDate: event.target.value })}
+                        aria-invalid={commercialErrors.mouStartDate !== undefined}
+                        className={INPUT_CLASS}
+                      />
+                      {commercialErrors.mouStartDate !== undefined && (
+                        <p className="mt-1 text-xs text-red-600">{commercialErrors.mouStartDate}</p>
                       )}
                     </div>
-                  );
-                })}
-              </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label htmlFor="tenureValue" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                          Tenure
+                        </label>
+                        <input
+                          id="tenureValue"
+                          value={commercial.tenureValue}
+                          onChange={(event) => setCommercial({ ...commercial, tenureValue: event.target.value })}
+                          aria-invalid={commercialErrors.tenureValue !== undefined}
+                          className={INPUT_CLASS}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="tenureUnit" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                          Unit
+                        </label>
+                        <select
+                          id="tenureUnit"
+                          value={commercial.tenureUnit}
+                          onChange={(event) => setCommercial({ ...commercial, tenureUnit: event.target.value })}
+                          className={INPUT_CLASS}
+                        >
+                          <option value="MONTHS">Months</option>
+                          <option value="YEARS">Years</option>
+                        </select>
+                      </div>
+                    </div>
+                    {(commercialErrors.tenureValue !== undefined || commercialErrors.tenureUnit !== undefined) && (
+                      <p className="-mt-3 text-xs text-red-600 md:col-start-2">
+                        {commercialErrors.tenureValue ?? commercialErrors.tenureUnit}
+                      </p>
+                    )}
+                    <div>
+                      <label htmlFor="attendanceCycle" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                        Attendance Cycle
+                      </label>
+                      <input
+                        id="attendanceCycle"
+                        value={commercial.attendanceCycle}
+                        onChange={(event) => setCommercial({ ...commercial, attendanceCycle: event.target.value })}
+                        aria-invalid={commercialErrors.attendanceCycle !== undefined}
+                        className={INPUT_CLASS}
+                      />
+                      {commercialErrors.attendanceCycle !== undefined && (
+                        <p className="mt-1 text-xs text-red-600">{commercialErrors.attendanceCycle}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="stipendDate" className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                        Stipend Date
+                      </label>
+                      <input
+                        id="stipendDate"
+                        value={commercial.stipendDate}
+                        onChange={(event) => setCommercial({ ...commercial, stipendDate: event.target.value })}
+                        aria-invalid={commercialErrors.stipendDate !== undefined}
+                        className={INPUT_CLASS}
+                      />
+                      {commercialErrors.stipendDate !== undefined && (
+                        <p className="mt-1 text-xs text-red-600">{commercialErrors.stipendDate}</p>
+                      )}
+                    </div>
+                  </div>
 
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Other Payroll Items</h3>
-              <OtherItemsEditor
-                items={payroll.otherItems}
-                onChange={(items) => setPayroll({ ...payroll, otherItems: items })}
-                itemTypes={itemTypes}
-              />
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Commercial Charges</h3>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {fixedCharges.map((item) => (
+                        <div key={item.key}>
+                          <label htmlFor={`charge-${item.key}`} className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block">
+                            {item.label}
+                          </label>
+                          <input
+                            id={`charge-${item.key}`}
+                            value={commercial.charges[item.key] ?? ""}
+                            onChange={(event) =>
+                              setCommercial({ ...commercial, charges: { ...commercial.charges, [item.key]: event.target.value } })
+                            }
+                            placeholder="Leave blank if not applicable"
+                            aria-invalid={commercialErrors.charges?.[item.key] !== undefined}
+                            className={INPUT_CLASS}
+                          />
+                          {commercialErrors.charges?.[item.key] !== undefined && (
+                            <p className="mt-1 text-xs text-red-600">{commercialErrors.charges[item.key]}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="flex justify-between pt-2">
-                <button
-                  type="button"
-                  onClick={() => setStep("reason")}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={proceedToReview}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
-                  style={{ background: brand.blue }}
-                >
-                  Review changes
-                </button>
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Other Charges</h3>
+                    <OtherItemsEditor
+                      items={commercial.otherItems}
+                      onChange={(items) => setCommercial({ ...commercial, otherItems: items })}
+                      itemTypes={itemTypes}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Payroll tab */}
+              {editTab === "payroll" && (
+                <div className="space-y-5">
+                  <div className="flex items-center gap-3">
+                    <Badge text={payroll.scheme} variant="info" />
+                    <span className="text-xs text-muted-foreground">(not editable)</span>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Trainee Categories</h3>
+                    <div className="space-y-2">
+                      {payroll.traineeCategories.map((category, index) => (
+                        <div key={index} className="flex gap-2">
+                          <input
+                            aria-label={`Trainee category ${index + 1}`}
+                            value={category}
+                            onChange={(event) =>
+                              setPayroll({
+                                ...payroll,
+                                traineeCategories: payroll.traineeCategories.map((c, i) => (i === index ? event.target.value : c)),
+                              })
+                            }
+                            className={INPUT_CLASS}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPayroll({
+                                ...payroll,
+                                traineeCategories: payroll.traineeCategories.filter((_, i) => i !== index),
+                              })
+                            }
+                            className="mt-1 h-9 rounded-lg border border-border px-3 text-sm text-muted-foreground hover:bg-muted"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => setPayroll({ ...payroll, traineeCategories: [...payroll.traineeCategories, ""] })}
+                        className="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground hover:bg-muted"
+                      >
+                        Add category
+                      </button>
+                      {payrollErrors.traineeCategories !== undefined && (
+                        <p className="text-xs text-red-600">{payrollErrors.traineeCategories}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Payroll Items</h3>
+                    <div className="space-y-3">
+                      {fixedPayrollItems.map((item) => {
+                        const answer = payroll.items[item.key] ?? { isApplicable: undefined, amount: "" };
+                        return (
+                          <div key={item.key} className="grid grid-cols-1 items-center gap-2 md:grid-cols-[2fr_1fr_1fr]">
+                            <span className="text-sm text-foreground">{item.label}</span>
+                            <div className="flex gap-4 text-sm">
+                              <label className="flex items-center gap-1">
+                                <input
+                                  type="radio"
+                                  name={`item-${item.key}`}
+                                  checked={answer.isApplicable === true}
+                                  onChange={() =>
+                                    setPayroll({
+                                      ...payroll,
+                                      items: { ...payroll.items, [item.key]: { isApplicable: true, amount: answer.amount } },
+                                    })
+                                  }
+                                />
+                                Yes
+                              </label>
+                              <label className="flex items-center gap-1">
+                                <input
+                                  type="radio"
+                                  name={`item-${item.key}`}
+                                  checked={answer.isApplicable === false}
+                                  onChange={() =>
+                                    setPayroll({
+                                      ...payroll,
+                                      items: { ...payroll.items, [item.key]: { isApplicable: false, amount: "" } },
+                                    })
+                                  }
+                                />
+                                No
+                              </label>
+                            </div>
+                            {answer.isApplicable === true && (
+                              <input
+                                aria-label={`${item.label} amount`}
+                                value={answer.amount}
+                                onChange={(event) =>
+                                  setPayroll({
+                                    ...payroll,
+                                    items: { ...payroll.items, [item.key]: { isApplicable: true, amount: event.target.value } },
+                                  })
+                                }
+                                className={INPUT_CLASS}
+                              />
+                            )}
+                            {payrollErrors.items?.[item.key] !== undefined && (
+                              <p className="text-xs text-red-600 md:col-span-3">{payrollErrors.items[item.key]}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Other Payroll Items</h3>
+                    <OtherItemsEditor
+                      items={payroll.otherItems}
+                      onChange={(items) => setPayroll({ ...payroll, otherItems: items })}
+                      itemTypes={itemTypes}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-5 border-t border-border mt-5">
+                <Btn variant="ghost" onClick={() => setStep("reason")}>← Back</Btn>
+                <Btn variant="primary" onClick={proceedToReview}>
+                  Review Changes →
+                </Btn>
               </div>
-            </div>
+            </Card>
           )}
 
+          {/* Step: Review */}
           {step === "review" && original !== null && commercial !== null && payroll !== null && (
-            <div className="space-y-4 glass-card rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-gray-900">Review Changes</h2>
+            <Card className="p-6">
+              <SecTitle>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+                  <polyline points="9 11 12 14 22 4" />
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                </svg>
+                Review Changes
+              </SecTitle>
               {(() => {
                 const diff = computeDiff(original, { commercial, payroll }, commercialItems, payrollItems);
                 if (diff.length === 0) {
-                  return <p className="text-sm text-gray-600">No changes to apply.</p>;
+                  return <p className="text-sm text-muted-foreground">No changes to apply.</p>;
                 }
                 return (
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr className="text-xs uppercase text-gray-500">
-                        <th className="py-1 font-medium">Field</th>
-                        <th className="py-1 font-medium">Old Value</th>
-                        <th className="py-1 font-medium">New Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {diff.map((row) => (
-                        <tr key={row.field} className="border-b border-gray-100">
-                          <td className="py-1">{row.field}</td>
-                          <td className="py-1 text-gray-500">{row.oldValue}</td>
-                          <td className="py-1 font-medium">{row.newValue}</td>
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-muted/40 border-b border-border">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Field</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Previous Value</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">New Value</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {diff.map((row) => (
+                          <tr key={row.field} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                            <td className="px-4 py-3 text-xs font-semibold text-foreground">{row.field}</td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground line-through">{row.oldValue}</td>
+                            <td className="px-4 py-3 text-xs font-bold" style={{ color: brand.blue }}>{row.newValue}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 );
               })()}
 
-              <div className="flex justify-between pt-2">
-                <button
-                  type="button"
-                  onClick={() => setStep("edit")}
-                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  disabled={applying}
-                  onClick={() => void handleApply()}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  style={{ background: brand.blue }}
-                >
-                  Apply
-                </button>
+              <div className="flex justify-between pt-5 border-t border-border mt-5">
+                <Btn variant="ghost" onClick={() => setStep("edit")}>← Back</Btn>
+                <Btn variant="primary" disabled={applying} onClick={() => void handleApply()}>
+                  {applying ? "Applying…" : "Apply Changes"}
+                </Btn>
               </div>
-            </div>
+            </Card>
           )}
 
+          {/* Step: Done */}
           {step === "done" && (
-            <div className="space-y-4 glass-card rounded-xl p-6">
-              <h2 className="text-lg font-semibold text-gray-900">Edit Applied</h2>
-              <p className="text-sm text-gray-600">The agreement is now at version {appliedVersion}.</p>
-              <button
-                type="button"
-                onClick={startAnother}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
-                style={{ background: brand.blue }}
-              >
+            <Card className="p-6 text-center">
+              <div className="mx-auto w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <h2 className="text-lg font-bold text-foreground mb-1">Edit Applied Successfully</h2>
+              <p className="text-sm text-muted-foreground mb-5">The agreement is now at version {appliedVersion}.</p>
+              <Btn variant="primary" onClick={startAnother}>
                 Edit another agreement
-              </button>
-            </div>
+              </Btn>
+            </Card>
           )}
         </div>
       </div>
