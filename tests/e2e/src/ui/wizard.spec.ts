@@ -94,7 +94,7 @@ async function fillPage1(
 const VALID_PDF_BYTES = Buffer.from("%PDF-1.4\n%mock mou document\n");
 
 async function uploadValidPdf(page: Page, filename = "agreement.pdf") {
-  await page.getByLabel("Upload MOU PDF").setInputFiles({
+  await page.getByLabel("Upload MoU PDF").setInputFiles({
     name: filename,
     mimeType: "application/pdf",
     buffer: VALID_PDF_BYTES,
@@ -114,7 +114,7 @@ const VALID_PAGE2 = {
 async function fillPage2(page: Page, overrides: Partial<typeof VALID_PAGE2> = {}) {
   const values = { ...VALID_PAGE2, ...overrides };
 
-  await page.getByLabel("MOU Start Date").fill(values.mouStartDate);
+  await page.getByLabel("MoU Start Date").fill(values.mouStartDate);
   await page.getByLabel("Tenure").fill(values.tenureValue);
   await page.getByLabel("Unit").selectOption(values.tenureUnit);
   await page.getByLabel("Attendance Cycle").fill(values.attendanceCycle);
@@ -320,7 +320,7 @@ test("AC1 a 24-month and a 2-year tenure from the same start date compute the sa
 test("AC2 a file that is not really a PDF is rejected at upload time", async ({ page, request }) => {
   await goToPage2(page, request);
 
-  await page.getByLabel("Upload MOU PDF").setInputFiles({
+  await page.getByLabel("Upload MoU PDF").setInputFiles({
     name: "agreement.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("this is not a pdf"),
@@ -335,7 +335,7 @@ test("AC3 an 11 MB PDF is rejected with a size error", async ({ page, request })
   await goToPage2(page, request);
 
   const oversized = Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(11 * 1024 * 1024)]);
-  await page.getByLabel("Upload MOU PDF").setInputFiles({
+  await page.getByLabel("Upload MoU PDF").setInputFiles({
     name: "agreement.pdf",
     mimeType: "application/pdf",
     buffer: oversized,

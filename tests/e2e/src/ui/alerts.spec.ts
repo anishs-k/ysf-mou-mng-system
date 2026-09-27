@@ -110,7 +110,7 @@ test("the dashboard badge shows a count including a newly created MOU inside the
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
 
   const badge = page
-    .locator("li", { hasText: "MOU Expiry Alerts" })
+    .locator("li", { hasText: "MoU Expiry Alerts" })
     .locator("span.rounded-full");
   await expect(badge).toBeVisible();
   const count = Number(await badge.innerText());
@@ -125,7 +125,7 @@ test("the alert list shows a raised alert with its columns and honours the thres
 
   await signIn(page, accountFor("VIEWER"));
   await page.goto("/alerts");
-  await expect(page.getByRole("heading", { name: "MOU Expiry Alerts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MoU Expiry Alerts" })).toBeVisible();
 
   await expect(page.getByText(fixture.companyName)).toBeVisible();
 

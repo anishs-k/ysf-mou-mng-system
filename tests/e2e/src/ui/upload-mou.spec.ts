@@ -83,7 +83,7 @@ async function insertCompanyWithSchemes(schemeCount: 1 | 2): Promise<Fixture> {
 async function goToUploadMou(page: import("@playwright/test").Page) {
   await signIn(page, accountFor("ADMIN"));
   await page.goto("/upload-mou");
-  await expect(page.getByRole("heading", { name: "Upload MOU PDF" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Upload MoU PDF" })).toBeVisible();
 }
 
 test("AC1 the company dropdown stays empty and disabled until a zone is chosen", async ({ page }) => {
