@@ -67,7 +67,7 @@ export function Topbar({
         </div>
         <button
           onClick={() => navigate("/alerts")}
-          aria-label="MOU Expiry Alerts"
+          aria-label="MoU Expiry Alerts"
           className="relative w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-all"
         >
           {Icon.bell}

@@ -166,7 +166,7 @@ export function Page2({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Field
           id="mouStartDate"
-          label="MOU Start Date"
+          label="MoU Start Date"
           value={data.mouStartDate}
           onChange={(value) => set("mouStartDate", value)}
           error={errors.mouStartDate}
@@ -209,7 +209,7 @@ export function Page2({
           <p className="-mt-3 text-xs text-amber-600">{warnings.mouStartDate}</p>
         )}
         <div>
-          <span className="block text-sm font-medium text-gray-700">End Date</span>
+          <span className="block text-sm font-medium text-gray-700">MoU End Date</span>
           <p className="mt-1 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
             {endDatePreview ?? "—"}
           </p>
@@ -218,7 +218,7 @@ export function Page2({
 
       <div>
         <label htmlFor="mouDocument" className="block text-sm font-medium text-gray-700">
-          Upload MOU PDF
+          Upload MoU PDF
         </label>
         <input
           id="mouDocument"

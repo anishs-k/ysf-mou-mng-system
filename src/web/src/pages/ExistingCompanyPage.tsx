@@ -12,6 +12,7 @@
  * specific company's overview instead of leaving the visitor to reselect it.
  */
 
+import { SCHEME_LABELS } from "@mou/domain";
 import { useEffect, useState } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 
@@ -170,7 +171,7 @@ export function ExistingCompanyPage() {
 
   return (
     <>
-      <Topbar title="Existing Company" subtitle="Review a company's MOU, commercial and payroll details" onOpenMenu={openMobileMenu} />
+      <Topbar title="Existing Company" subtitle="Review a company's MoU, commercial and payroll details" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl">
           {error !== null && (
@@ -290,13 +291,13 @@ export function ExistingCompanyPage() {
                 >
                   {mous.map((m) => (
                     <option key={m.mouId} value={m.scheme}>
-                      {m.scheme}
+                      {SCHEME_LABELS[m.scheme as keyof typeof SCHEME_LABELS] ?? m.scheme}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {mous.length === 0 && <p className="text-sm text-muted-foreground">No MOUs recorded for this company.</p>}
+              {mous.length === 0 && <p className="text-sm text-muted-foreground">No MoUs recorded for this company.</p>}
 
               {commercial !== null && (
                 <div className="space-y-3 text-sm">
@@ -332,7 +333,7 @@ export function ExistingCompanyPage() {
                     </tbody>
                   </table>
 
-                  <h3 className="pt-2 font-semibold uppercase tracking-wide text-muted-foreground text-xs">MOU Document</h3>
+                  <h3 className="pt-2 font-semibold uppercase tracking-wide text-muted-foreground text-xs">MoU Document</h3>
                   {commercial.document !== undefined ? (
                     <p>
                       {commercial.document.originalFilename} — uploaded{" "}

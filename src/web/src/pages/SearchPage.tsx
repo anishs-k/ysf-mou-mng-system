@@ -169,7 +169,7 @@ export function SearchPage() {
 
         <div>
           <label htmlFor="searchStatus" className="block text-sm font-medium text-gray-700">
-            MOU Status
+            MoU Status
           </label>
           <select
             id="searchStatus"
@@ -215,13 +215,13 @@ export function SearchPage() {
             <thead>
               <tr className="text-xs uppercase text-muted-foreground">
                 <th className="py-1 font-medium">Company Name</th>
-                <th className="py-1 font-medium">Generated Code</th>
+                <th className="py-1 font-medium">MoU Code</th>
                 <th className="py-1 font-medium">Zone</th>
                 <th className="py-1 font-medium">Plant</th>
                 <th className="py-1 font-medium">Scheme</th>
-                <th className="py-1 font-medium">MOU Start Date</th>
-                <th className="py-1 font-medium">End Date</th>
-                <th className="py-1 font-medium">MOU Status</th>
+                <th className="py-1 font-medium">MoU Start Date</th>
+                <th className="py-1 font-medium">MoU End Date</th>
+                <th className="py-1 font-medium">MoU Status</th>
               </tr>
             </thead>
             <tbody>

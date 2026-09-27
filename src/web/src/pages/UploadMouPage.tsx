@@ -7,6 +7,7 @@
  * before the upload control is enabled (AC3/AC4).
  */
 
+import { SCHEME_LABELS } from "@mou/domain";
 import { useState } from "react";
 import { useOutletContext } from "react-router-dom";
 
@@ -127,7 +128,7 @@ export function UploadMouPage() {
 
   return (
     <>
-      <Topbar title="Upload MOU PDF" subtitle="Attach a signed agreement to an existing company" onOpenMenu={openMobileMenu} />
+      <Topbar title="Upload MoU PDF" subtitle="Attach signed MoU documents to company records" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl">
           {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -194,7 +195,7 @@ export function UploadMouPage() {
             </div>
 
             {plantId !== "" && mous.length === 0 && (
-              <p className="text-sm text-muted-foreground">No MOUs recorded for this company plant.</p>
+              <p className="text-sm text-muted-foreground">No MoUs recorded for this company plant.</p>
             )}
 
             {showSchemeStep && (
@@ -211,7 +212,7 @@ export function UploadMouPage() {
                   <option value="">Select scheme</option>
                   {mous.map((m) => (
                     <option key={m.mouId} value={m.mouId}>
-                      {m.scheme}
+                      {SCHEME_LABELS[m.scheme as keyof typeof SCHEME_LABELS] ?? m.scheme}
                     </option>
                   ))}
                 </select>

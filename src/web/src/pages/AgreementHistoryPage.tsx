@@ -8,7 +8,7 @@
  * alert list already uses to link into `ExistingCompanyPage`.
  */
 
-import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY, PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "@mou/domain";
+import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY, PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY, SCHEME_LABELS } from "@mou/domain";
 import { useEffect, useState } from "react";
 import { useOutletContext, useSearchParams } from "react-router-dom";
 
@@ -32,7 +32,7 @@ function DetailView({ detail }: { readonly detail: HistoryDetail }) {
     <div className="space-y-4 text-sm">
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <p>
-          <span className="font-medium">MOU Start Date:</span> {detail.commercial.mouStartDate}
+          <span className="font-medium">MoU Start Date:</span> {detail.commercial.mouStartDate}
         </p>
         <p>
           <span className="font-medium">Tenure:</span> {detail.commercial.tenureValue} {detail.commercial.tenureUnit}
@@ -188,7 +188,7 @@ export function AgreementHistoryPage() {
 
   return (
     <>
-      <Topbar title="Agreement History" subtitle="Every past version of an agreement, with the reason" onOpenMenu={openMobileMenu} />
+      <Topbar title="Agreement History" subtitle="Complete record of all MoU agreements" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl">
           {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -255,7 +255,7 @@ export function AgreementHistoryPage() {
                     <option value="">Select scheme</option>
                     {mous.map((m) => (
                       <option key={m.mouId} value={m.mouId}>
-                        {m.scheme}
+                        {SCHEME_LABELS[m.scheme as keyof typeof SCHEME_LABELS] ?? m.scheme}
                       </option>
                     ))}
                   </select>

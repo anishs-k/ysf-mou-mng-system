@@ -9,12 +9,13 @@
 
 import { MOU_STATUS_OPTIONS, SCHEME_OPTIONS } from "@mou/domain";
 import { useEffect, useRef, useState } from "react";
-import { useOutletContext, useSearchParams } from "react-router-dom";
+import { Link, useOutletContext, useSearchParams } from "react-router-dom";
 
 import type { ExportJobStatus, SearchFilters, ZoneOption } from "../api/client.ts";
 import { exportDownloadUrl, fetchExportJob, fetchZones, startExcelExport } from "../api/client.ts";
 import type { AppShellContext } from "../components/layout/AppShell.tsx";
 import { Topbar } from "../components/layout/Topbar.tsx";
+import { Icon } from "../components/icons.tsx";
 import { Card, brand } from "../components/ui.tsx";
 
 const INPUT_CLASS =
@@ -86,14 +87,14 @@ export function ExportExcelPage() {
 
   return (
     <>
-      <Topbar title="Export Excel" subtitle="Download the company and MOU data as a workbook" onOpenMenu={openMobileMenu} />
+      <Topbar title="Export Excel" subtitle="Download the company and MoU data as a workbook" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl">
       {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
       <Card className="space-y-4 p-6">
         <p className="text-sm text-muted-foreground">
-          With no filter set, the export includes every company and MOU you may see.
+          With no filter set, the export includes every company and MoU you may see.
         </p>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -150,7 +151,7 @@ export function ExportExcelPage() {
           </div>
           <div>
             <label htmlFor="excelStatus" className="block text-sm font-medium text-gray-700">
-              MOU Status
+              MoU Status
             </label>
             <select id="excelStatus" value={status} onChange={(event) => setStatus(event.target.value)} className={INPUT_CLASS}>
               <option value="">All statuses</option>
@@ -185,6 +186,47 @@ export function ExportExcelPage() {
           </div>
         )}
       </Card>
+
+      {/* Report Cards Grid */}
+      <div className="grid sm:grid-cols-2 gap-4 mt-6">
+        <Card className="p-5 hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between mb-3">
+            <div style={{ color: brand.blue }}>{Icon.download}</div>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold mono bg-secondary text-primary border border-border">
+              Excel (.xlsx)
+            </span>
+          </div>
+          <h4 className="font-bold text-sm text-foreground mb-1">MoU Summary Report</h4>
+          <p className="text-xs text-muted-foreground mb-4">All company MoU records with commercial and payroll status</p>
+          <button
+            type="button"
+            disabled={starting}
+            onClick={() => void handleStart()}
+            className="w-full justify-center inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg px-4 py-2 text-sm text-white disabled:opacity-50"
+            style={{ background: brand.blue, borderColor: brand.blue }}
+          >
+            {Icon.download} Export Summary
+          </button>
+        </Card>
+
+        <Card className="p-5 hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between mb-3">
+            <div style={{ color: brand.blue }}>{Icon.download}</div>
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold mono bg-secondary text-primary border border-border">
+              PDF (.pdf)
+            </span>
+          </div>
+          <h4 className="font-bold text-sm text-foreground mb-1">Scoped PDF Report</h4>
+          <p className="text-xs text-muted-foreground mb-4">Generate a printable summary report for all zones or a company</p>
+          <Link
+            to="/export/pdf"
+            className="w-full justify-center inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg px-4 py-2 text-sm text-white"
+            style={{ background: brand.orange, borderColor: brand.orange }}
+          >
+            {Icon.file} Configure PDF Export
+          </Link>
+        </Card>
+      </div>
         </div>
       </div>
     </>

@@ -12,7 +12,7 @@
 @import "@fontsource/roboto-mono/500.css";
 
 /* SPEC-14 D94: design tokens ported verbatim from figma_code/src/index.css.
-   Tailwind v4 is still configured from CSS - no tailwind.config.js. */
+   Tailwind v4 is configured from CSS via @theme inline. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -28,9 +28,18 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-border: var(--border);
   --color-ring: var(--ring);
+
+  --color-ysf-blue: var(--ysf-blue);
+  --color-ysf-orange: var(--ysf-orange);
+  --color-ysf-green: var(--ysf-green);
+  --color-ysf-navy: var(--ysf-navy);
+
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 4px);
+
+  --font-mono: 'Roboto Mono', monospace;
+  --font-sans: 'Roboto', system-ui, sans-serif;
 }
 
 :root {
@@ -85,14 +94,14 @@ body {
   font-family: 'Roboto Mono', monospace;
 }
 
-/* ── Glass utilities ────────────────────────────────────────────────────── */
+/* ── Glass utilities (Tailwind v4 @utility) ───────────────────────────── */
 
 /* Cards, panels */
-.glass-card {
-  background: rgba(255, 255, 255, 0.60) !important;
+@utility glass-card {
+  background: rgba(255, 255, 255, 0.60);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.78) !important;
+  border: 1px solid rgba(255, 255, 255, 0.78);
   box-shadow:
     0 2px 24px rgba(27, 95, 174, 0.10),
     0 1px  3px rgba(27, 95, 174, 0.06),
@@ -100,33 +109,33 @@ body {
 }
 
 /* Sidebar */
-.glass-sidebar {
-  background: rgba(255, 255, 255, 0.72) !important;
+@utility glass-sidebar {
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-right: 1px solid rgba(255, 255, 255, 0.70) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.70);
   box-shadow: 4px 0 32px rgba(27, 95, 174, 0.10);
 }
 
 /* Topbar */
-.glass-topbar {
-  background: rgba(255, 255, 255, 0.68) !important;
+@utility glass-topbar {
+  background: rgba(255, 255, 255, 0.68);
   backdrop-filter: blur(20px) saturate(170%);
   -webkit-backdrop-filter: blur(20px) saturate(170%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.65) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.65);
   box-shadow: 0 2px 20px rgba(27, 95, 174, 0.08);
 }
 
 /* Login page header */
-.glass-header {
-  background: rgba(255, 255, 255, 0.75) !important;
+@utility glass-header {
+  background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   box-shadow: 0 2px 16px rgba(27, 95, 174, 0.10);
 }
 
 /* Login card — stronger glass with color glow */
-.glass-login {
+@utility glass-login {
   background: rgba(255, 255, 255, 0.68);
   backdrop-filter: blur(28px) saturate(180%);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
@@ -138,7 +147,7 @@ body {
 }
 
 /* Stat tiles on login */
-.glass-stat {
+@utility glass-stat {
   background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(14px) saturate(150%);
   -webkit-backdrop-filter: blur(14px) saturate(150%);
@@ -149,7 +158,7 @@ body {
 }
 
 /* Modal dialogs */
-.glass-modal {
+@utility glass-modal {
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
@@ -161,40 +170,30 @@ body {
 }
 
 /* KPI tile glow */
-.glass-kpi {
-  background: rgba(255, 255, 255, 0.58) !important;
+@utility glass-kpi {
+  background: rgba(255, 255, 255, 0.58);
   backdrop-filter: blur(16px) saturate(160%);
   -webkit-backdrop-filter: blur(16px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.80) !important;
+  border: 1px solid rgba(255, 255, 255, 0.80);
   box-shadow:
     0 2px 20px rgba(27, 95, 174, 0.09),
     inset 0 1px 0 rgba(255,255,255,0.95);
   transition: box-shadow 0.2s, transform 0.15s;
-}
-.glass-kpi:hover {
-  box-shadow:
-    0 6px 28px rgba(27, 95, 174, 0.16),
-    inset 0 1px 0 rgba(255,255,255,1.00);
-  transform: translateY(-1px);
-}
 
-/* Floating chat panel (unused - SPEC-14 D81 excludes the chatbot entirely) */
-.glass-chat {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(20px) saturate(170%);
-  -webkit-backdrop-filter: blur(20px) saturate(170%);
-  border: 1px solid rgba(255, 255, 255, 0.80);
-  box-shadow:
-    0 16px 48px rgba(13, 46, 90, 0.18),
-    0  4px 16px rgba(27, 95, 174, 0.10);
+  &:hover {
+    box-shadow:
+      0 6px 28px rgba(27, 95, 174, 0.16),
+      inset 0 1px 0 rgba(255,255,255,1.00);
+    transform: translateY(-1px);
+  }
 }
 
 /* Alert / banner strip */
-.glass-alert {
-  background: rgba(255, 248, 240, 0.75) !important;
+@utility glass-alert {
+  background: rgba(255, 248, 240, 0.75);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(242, 101, 34, 0.25) !important;
+  border: 1px solid rgba(242, 101, 34, 0.25);
 }
 
 /* Glow orb animation */

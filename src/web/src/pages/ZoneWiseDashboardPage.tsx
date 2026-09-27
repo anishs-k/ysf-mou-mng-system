@@ -67,7 +67,7 @@ export function ZoneWiseDashboardPage() {
   if (data === null) {
     return (
       <>
-        <Topbar title="Zone Wise Dashboard" subtitle="Companies and MOUs summarised by zone" onOpenMenu={openMobileMenu} />
+        <Topbar title="Zone Wise Dashboard" subtitle="MoU statistics across all zones" onOpenMenu={openMobileMenu} />
         <div className="p-4 md:p-6 flex-1 overflow-y-auto">
           {error !== null && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         </div>
@@ -79,7 +79,7 @@ export function ZoneWiseDashboardPage() {
 
   return (
     <>
-      <Topbar title="Zone Wise Dashboard" subtitle="Companies and MOUs summarised by zone" onOpenMenu={openMobileMenu} />
+      <Topbar title="Zone Wise Dashboard" subtitle="MoU statistics across all zones" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl">
       {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -100,7 +100,7 @@ export function ZoneWiseDashboardPage() {
         </div>
         <div>
           <label htmlFor="zoneStatus" className="block text-sm font-medium text-gray-700">
-            MOU Status
+            MoU Status
           </label>
           <select id="zoneStatus" value={status} onChange={(event) => setStatus(event.target.value)} className={INPUT_CLASS}>
             <option value="">All statuses</option>
@@ -125,7 +125,7 @@ export function ZoneWiseDashboardPage() {
                   <th className="py-1 font-medium">Zone</th>
                   <th className="py-1 font-medium">Companies</th>
                   <th className="py-1 font-medium">Plants</th>
-                  <th className="py-1 font-medium">MOUs</th>
+                  <th className="py-1 font-medium">MoUs</th>
                   <th className="py-1 font-medium">Active</th>
                   <th className="py-1 font-medium">Expired</th>
                   <th className="py-1 font-medium">New</th>
@@ -149,7 +149,7 @@ export function ZoneWiseDashboardPage() {
                     <td className="py-1">
                       <button
                         type="button"
-                        onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — MOUs`)}
+                        onClick={() => void openDrillDown(zone.zoneId, zone.zoneName, `${zone.zoneName} — MoUs`)}
                         className="hover:underline" style={{ color: "#1B5FAE" }}
                       >
                         {zone.mous}
@@ -251,7 +251,7 @@ export function ZoneWiseDashboardPage() {
         <div className="glass-card rounded-xl p-4">
           <h2 className="mb-3 text-lg font-semibold text-gray-900">{drillDownRequest.label}</h2>
           {drillDownRows.length === 0 ? (
-            <p className="text-sm text-gray-600">No matching MOUs.</p>
+            <p className="text-sm text-gray-600">No matching MoUs.</p>
           ) : (
             <table className="w-full text-left text-sm">
               <thead>

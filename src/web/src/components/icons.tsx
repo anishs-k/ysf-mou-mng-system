@@ -144,6 +144,12 @@ export const Icon = {
       <path d="M12 6v6l4 2" />
     </svg>
   ),
+  book: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  ),
 } as const;
 
 /** One icon per `DASHBOARD_ENTRY_POINTS` id (D92) - shared by Sidebar and DashboardPage so they never drift apart. */
@@ -158,4 +164,5 @@ export const ENTRY_ICON: Record<string, keyof typeof Icon> = {
   "export-excel": "download",
   "export-pdf": "file",
   search: "search",
+  "user-manual": "book",
 };

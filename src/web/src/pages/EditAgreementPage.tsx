@@ -17,6 +17,7 @@ import {
   COMMERCIAL_FIXED_ITEM_KEYS,
   EDIT_AGREEMENT_REASON_OPTIONS,
   PAYROLL_FIXED_ITEM_KEYS,
+  SCHEME_LABELS,
   validateCommercialDetails,
   validatePayrollDetails,
 } from "@mou/domain";
@@ -71,7 +72,7 @@ function computeDiff(
     }
   };
 
-  push("MOU Start Date", original.commercial.mouStartDate, edited.commercial.mouStartDate);
+  push("MoU Start Date", original.commercial.mouStartDate, edited.commercial.mouStartDate);
   push(
     "Tenure",
     `${original.commercial.tenureValue} ${original.commercial.tenureUnit}`,
@@ -323,7 +324,7 @@ export function EditAgreementPage() {
 
   return (
     <>
-      <Topbar title="Edit Agreement" subtitle="Amend a saved agreement after stating a reason" onOpenMenu={openMobileMenu} />
+      <Topbar title="Edit Agreement" subtitle="Amend or update an existing MoU record" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl">
           {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -400,7 +401,7 @@ export function EditAgreementPage() {
                     <option value="">Select scheme</option>
                     {mous.map((m) => (
                       <option key={m.mouId} value={m.mouId}>
-                        {m.scheme}
+                        {SCHEME_LABELS[m.scheme as keyof typeof SCHEME_LABELS] ?? m.scheme}
                       </option>
                     ))}
                   </select>
@@ -501,7 +502,7 @@ export function EditAgreementPage() {
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
                   <label htmlFor="mouStartDate" className="block text-sm font-medium text-gray-700">
-                    MOU Start Date
+                    MoU Start Date
                   </label>
                   <input
                     id="mouStartDate"

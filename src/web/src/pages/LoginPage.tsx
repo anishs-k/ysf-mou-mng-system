@@ -37,7 +37,7 @@ interface StatTile {
 }
 
 const STAT_TILES: readonly StatTile[] = [
-  { key: "activeMou", label: "Active MOUs", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.user },
+  { key: "activeMou", label: "Active MoUs", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.user },
   { key: "totalCompanies", label: "Companies", color: brand.orange, iconBg: "#FFF0E8", icon: Icon.building },
   { key: "expiringSoon", label: "Expiring Soon", color: brand.blue, iconBg: "#EBF2FB", icon: Icon.clock },
   { key: "activeZones", label: "Active Zones", color: brand.orange, iconBg: "#FFF0E8", icon: Icon.map },

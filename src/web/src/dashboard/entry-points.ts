@@ -41,7 +41,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
   {
     id: "existing-company",
     label: "Existing Company",
-    description: "Review a company's MOU, commercial and payroll details",
+    description: "Review a company's MoU, commercial and payroll details",
     path: "/companies",
     roles: ALL_ROLES,
     available: true,
@@ -49,7 +49,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
   },
   {
     id: "expiry-alerts",
-    label: "MOU Expiry Alerts",
+    label: "MoU Expiry Alert",
     description: "Agreements expiring in the next 30, 60 or 90 days",
     path: "/alerts",
     roles: ALL_ROLES,
@@ -58,7 +58,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
   },
   {
     id: "upload-mou",
-    label: "Upload MOU PDF",
+    label: "Upload MoU",
     description: "Attach a signed agreement to an existing company",
     path: "/upload-mou",
     roles: AUTHORING_ROLES,
@@ -85,8 +85,8 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
   },
   {
     id: "zone-dashboard",
-    label: "Zone Wise Dashboard",
-    description: "Companies and MOUs summarised by zone",
+    label: "Zone Dashboard",
+    description: "Companies and MoUs summarised by zone",
     path: "/zones/overview",
     roles: ALL_ROLES,
     available: true,
@@ -94,8 +94,8 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
   },
   {
     id: "export-excel",
-    label: "Export Excel",
-    description: "Download the company and MOU data as a workbook",
+    label: "Export",
+    description: "Download the company and MoU data as a workbook",
     path: "/export/excel",
     roles: ALL_ROLES,
     available: true,
@@ -118,6 +118,15 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
     roles: ALL_ROLES,
     available: true,
     spec: "SPEC-13",
+  },
+  {
+    id: "user-manual",
+    label: "User Manual",
+    description: "Agreement Management System reference guide",
+    path: "/user-manual",
+    roles: ALL_ROLES,
+    available: true,
+    spec: "SPEC-16",
   },
 ];
 

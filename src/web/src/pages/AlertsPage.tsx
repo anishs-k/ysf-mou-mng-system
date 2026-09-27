@@ -8,6 +8,7 @@
  * no query-string prefill, since that page does not accept one.
  */
 
+import { SCHEME_LABELS } from "@mou/domain";
 import { useEffect, useState } from "react";
 import { Link, useOutletContext } from "react-router-dom";
 
@@ -41,10 +42,18 @@ export function AlertsPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchZones().then(setZones).catch(() => undefined);
-    fetchEnums()
-      .then((enums) => setSchemes(enums.schemes))
+    let cancelled = false;
+    Promise.all([fetchZones(), fetchEnums()])
+      .then(([zonesData, enumsData]) => {
+        if (!cancelled) {
+          setZones(zonesData);
+          setSchemes(enumsData.schemes);
+        }
+      })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const currentFilters = { days, zoneId: zoneId || undefined, scheme: scheme || undefined, acknowledged };
@@ -87,9 +96,58 @@ export function AlertsPage() {
 
   return (
     <>
-      <Topbar title="MOU Expiry Alerts" subtitle="Agreements expiring in the next 30, 60 or 90 days" onOpenMenu={openMobileMenu} />
+      <Topbar title="MoU Expiry Alerts" subtitle="Agreements expiring in the next 30, 60 or 90 days" onOpenMenu={openMobileMenu} />
       <div className="p-4 md:p-6 flex-1 overflow-y-auto">
         {error !== null && <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+
+        {/* Threshold Summary Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+          <button
+            type="button"
+            onClick={() => setDays((prev) => (prev === "30" ? "all" : "30"))}
+            className={`glass-card rounded-xl p-3 border-l-4 border-l-red-500 flex items-center justify-between text-left transition-all cursor-pointer ${
+              days === "30" ? "ring-2 ring-red-400 bg-red-50/60" : ""
+            }`}
+          >
+            <div>
+              <p className="text-xs font-bold text-red-600">Critical (≤ 30 days)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Immediate action required</p>
+            </div>
+            <span className="text-lg font-bold mono text-red-600">
+              {alerts.filter((a) => a.daysRemaining <= 30).length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDays((prev) => (prev === "60" ? "all" : "60"))}
+            className={`glass-card rounded-xl p-3 border-l-4 border-l-amber-500 flex items-center justify-between text-left transition-all cursor-pointer ${
+              days === "60" ? "ring-2 ring-amber-400 bg-amber-50/60" : ""
+            }`}
+          >
+            <div>
+              <p className="text-xs font-bold text-amber-600">Warning (31 – 60 days)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Begin internal renewal</p>
+            </div>
+            <span className="text-lg font-bold mono text-amber-600">
+              {alerts.filter((a) => a.daysRemaining > 30 && a.daysRemaining <= 60).length}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDays((prev) => (prev === "90" ? "all" : "90"))}
+            className={`glass-card rounded-xl p-3 border-l-4 border-l-blue-500 flex items-center justify-between text-left transition-all cursor-pointer ${
+              days === "90" ? "ring-2 ring-blue-400 bg-blue-50/60" : ""
+            }`}
+          >
+            <div>
+              <p className="text-xs font-bold text-blue-600">Notice (61 – 90 days)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Schedule discussion</p>
+            </div>
+            <span className="text-lg font-bold mono text-blue-600">
+              {alerts.filter((a) => a.daysRemaining > 60 && a.daysRemaining <= 90).length}
+            </span>
+          </button>
+        </div>
 
         <div className="mb-4 flex flex-wrap gap-3">
           <select
@@ -170,11 +228,15 @@ export function AlertsPage() {
                       <td className="p-2.5 text-muted-foreground">{alert.zoneName}</td>
                       <td className="p-2.5 text-muted-foreground">{alert.plantName}</td>
                       <td className="p-2.5">
-                        <Badge text={alert.scheme} variant="info" />
+                        <Badge text={SCHEME_LABELS[alert.scheme as keyof typeof SCHEME_LABELS] ?? alert.scheme} variant="info" />
                       </td>
                       <td className="p-2.5 mono text-muted-foreground">{alert.mouStartDate}</td>
                       <td className="p-2.5 mono text-muted-foreground">{alert.endDate}</td>
-                      <td className="p-2.5 mono text-muted-foreground">{alert.daysRemaining}</td>
+                      <td className="p-2.5">
+                        <span className={`mono font-bold text-sm ${alert.daysRemaining <= 30 ? "text-red-600" : alert.daysRemaining <= 60 ? "text-amber-600" : "text-blue-600"}`}>
+                          {alert.daysRemaining}d
+                        </span>
+                      </td>
                       <td className="p-2.5 mono text-muted-foreground">{alert.thresholdDays}</td>
                       <td className="p-2.5">
                         <Badge text={alert.status} variant={statusVariant(alert.status)} />

@@ -28,6 +28,7 @@ import { ExportPdfPage } from "./pages/ExportPdfPage.tsx";
 import { LoginPage } from "./pages/LoginPage.tsx";
 import { SearchPage } from "./pages/SearchPage.tsx";
 import { UploadMouPage } from "./pages/UploadMouPage.tsx";
+import { UserManualPage } from "./pages/UserManualPage.tsx";
 import { ZoneWiseDashboardPage } from "./pages/ZoneWiseDashboardPage.tsx";
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
           <Route path="/search" element={<SearchPage />} />
           <Route path="/export/excel" element={<ExportExcelPage />} />
           <Route path="/export/pdf" element={<ExportPdfPage />} />
+          <Route path="/user-manual" element={<UserManualPage />} />
           {/* Every SPEC-07-13 destination now has a real page; ComingSoonPage
               remains only as the catch-all below for an unrecognised path. */}
           <Route path="*" element={<ComingSoonPage />} />

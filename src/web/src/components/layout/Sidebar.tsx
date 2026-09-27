@@ -113,24 +113,53 @@ export function Sidebar({
             {!collapsed && <span className="text-sm font-medium truncate">Dashboard</span>}
             {!collapsed && location.pathname === "/" && <span className="ml-auto">{Icon.chevR}</span>}
           </Link>
-          {entries.map((entry) => {
-            const active = location.pathname === entry.path;
-            return (
+          {entries
+            .filter((entry) => entry.id !== "export-pdf" && entry.id !== "search" && entry.id !== "user-manual")
+            .map((entry) => {
+              const active = location.pathname === entry.path;
+              return (
+                <Link
+                  key={entry.id}
+                  to={entry.path}
+                  onClick={onMobileClose}
+                  title={collapsed ? entry.label : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-150 text-left ${
+                    active ? "text-white bg-[#1B5FAE]" : "text-[#5A7AA8] hover:bg-[#E8F0FB] hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0">{Icon[ENTRY_ICON[entry.id] ?? "file"]}</span>
+                  {!collapsed && <span className="text-sm font-medium truncate">{entry.label}</span>}
+                  {!collapsed && active && <span className="ml-auto">{Icon.chevR}</span>}
+                </Link>
+              );
+            })}
+
+          {/* Operation Section */}
+          {entries.some((entry) => entry.id === "user-manual") && (
+            <>
+              {collapsed ? (
+                <div className="my-2 border-t border-border" />
+              ) : (
+                <div className="mt-3 mb-1 px-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: brand.orange }}>
+                    Operation
+                  </p>
+                </div>
+              )}
               <Link
-                key={entry.id}
-                to={entry.path}
+                to="/user-manual"
                 onClick={onMobileClose}
-                title={collapsed ? entry.label : undefined}
+                title={collapsed ? "User Manual" : undefined}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-150 text-left ${
-                  active ? "text-white bg-[#1B5FAE]" : "text-[#5A7AA8] hover:bg-[#E8F0FB] hover:text-foreground"
+                  location.pathname === "/user-manual" ? "text-white bg-[#1B5FAE]" : "text-[#5A7AA8] hover:bg-[#E8F0FB] hover:text-foreground"
                 }`}
               >
-                <span className="shrink-0">{Icon[ENTRY_ICON[entry.id] ?? "file"]}</span>
-                {!collapsed && <span className="text-sm font-medium truncate">{entry.label}</span>}
-                {!collapsed && active && <span className="ml-auto">{Icon.chevR}</span>}
+                <span className="shrink-0">{Icon.book}</span>
+                {!collapsed && <span className="text-sm font-medium truncate">User Manual</span>}
+                {!collapsed && location.pathname === "/user-manual" && <span className="ml-auto">{Icon.chevR}</span>}
               </Link>
-            );
-          })}
+            </>
+          )}
         </nav>
 
         {collapsed && (
