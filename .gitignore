@@ -8,6 +8,7 @@ build/
 # `"/figma_code-v2/pnpm-lock.yaml": not found`.
 figma_code/
 figma_code-v2/
+figma_code-v3/
 .turbo/
 *.tsbuildinfo
 

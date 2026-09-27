@@ -234,6 +234,22 @@ phase-level work begins.
     order-based: Postgres appends every `ADD COLUMN`, so physical column
     order tracks migration history, not `schema.ts`.
 
+16. `SPEC-17-figma-v3-alignment.md` — **implemented**. Alignment with the
+    third Figma export (`figma_code-v3/`). Standardized all-caps `MOU` to
+    mixed-case `MoU` across UI text, labels, export filenames and PDF print
+    headers. Updated scheme display labels (`BVOC` $\rightarrow$ `BVoc`, `DVOC`
+    $\rightarrow$ `DVoc`), category insurance state key to `insuranceMoU`, and
+    replaced `logo-ysf.png` with the registered trademark symbol ($\text{\textregistered}$)
+    asset. AI chatbot marked out of scope.
+
+17. `SPEC-18-figma-v3-ui-completion.md` — **implemented**. Visual and layout
+    fidelity completion for Figma v3:
+    - Sidebar: Added `OPERATION` section header and `User Manual` item linking to `/user-manual`.
+    - User Manual: Created `UserManualPage.tsx` with sticky 12-section TOC navigation, smooth topbar scroll offsets, cover card, step badges, and FAQ cards.
+    - Dashboard: Rebuilt with 3-tier layout (interactive 5-tile KPI row with drill-down, 1/3 `Quick Actions` + 2/3 `Recent Activity` grid, and bottom `glass-alert` Expiring MoUs banner).
+    - Expiry Alerts: Added top 3 interactive threshold cards (`Critical ≤ 30 days`, `Warning 31–60 days`, `Notice 61–90 days`) and colored days badges.
+    - Export: Added report summary cards grid on Export Excel page.
+
 ### Known gaps carried forward
 
 - `SPEC-01` §11.2 requires a forced password change on first login, but `SPEC-02`

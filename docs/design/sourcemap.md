@@ -110,6 +110,9 @@
 - `src/web/src/pages/ExportPdfPage.tsx` : SPEC-13's `/export/pdf` page -
   scope choice, cascading selectors for the company scope (Export disabled
   until fully resolved, AC10), poll-until-ready.
+- `src/web/src/pages/UserManualPage.tsx` : SPEC-18 / SPEC-16 `/user-manual` page —
+  full 12-section user reference guide with sticky table-of-contents navigation,
+  scheme pill badges, step definitions, callout boxes, and comprehensive FAQ items.
 - `tests/e2e/src/ui/search-export.spec.ts` : UI tests for SPEC-13 (the
   minimum-length hint, a real search hit linking to Existing Company, the
   no-records message, both exports' download links, and the company-scope
