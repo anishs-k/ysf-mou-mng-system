@@ -160,7 +160,7 @@ body {
 /* Modal dialogs */
 @utility glass-modal {
   background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(24px) saturate(180%);
+  /* Prefixed only, as in the prototype: Chromium ignores it, so dialogs show no blur there. */
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.88);
   box-shadow:
@@ -194,6 +194,17 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(242, 101, 34, 0.25);
+}
+
+/* Floating AI assistant panel */
+@utility glass-chat {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.80);
+  box-shadow:
+    0 16px 48px rgba(13, 46, 90, 0.18),
+    0  4px 16px rgba(27, 95, 174, 0.10);
 }
 
 /* Glow orb animation */

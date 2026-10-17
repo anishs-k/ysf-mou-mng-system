@@ -1,65 +1,45 @@
 /**
- * Purpose: The application shell and route table for SPEC-02. Every route except
- * /login sits behind RequireAuth, so section 2.1's "every screen except login
- * requires an authenticated session" is enforced in one place rather than per
- * screen. Every Dashboard Home entry point (`dashboard/entry-points.ts`) now has
- * a real route here - SPEC-13 was the last spec to land, so `ComingSoonPage` is
- * kept only as the catch-all for an unrecognised path.
- *
- * SPEC-14 wraps every authenticated route in `AppShell` (a nested layout
- * route rendering the persistent Sidebar + each page's own content via
- * `<Outlet/>`) - `/login` stays outside it, unchanged.
+ * Purpose: Route table of the static UI clone of the Figma prototype. Nothing here
+ * talks to the API: sign-in is checked in the browser (ui/session.tsx) and every
+ * screen renders hardcoded data from src/data. `/login` stands alone; every other
+ * route sits inside AppShell, which redirects to /login without a session.
  */
 
 import { Route, Routes } from "react-router-dom";
 
-import { AuthProvider } from "./auth/AuthContext.tsx";
-import { RequireAuth } from "./auth/RequireAuth.tsx";
-import { AppShell } from "./components/layout/AppShell.tsx";
-import { AddCompanyPage } from "./pages/AddCompanyPage.tsx";
-import { AgreementHistoryPage } from "./pages/AgreementHistoryPage.tsx";
-import { AlertsPage } from "./pages/AlertsPage.tsx";
-import { ComingSoonPage } from "./pages/ComingSoonPage.tsx";
-import { DashboardPage } from "./pages/DashboardPage.tsx";
-import { EditAgreementPage } from "./pages/EditAgreementPage.tsx";
-import { ExistingCompanyPage } from "./pages/ExistingCompanyPage.tsx";
-import { ExportExcelPage } from "./pages/ExportExcelPage.tsx";
-import { ExportPdfPage } from "./pages/ExportPdfPage.tsx";
-import { LoginPage } from "./pages/LoginPage.tsx";
-import { SearchPage } from "./pages/SearchPage.tsx";
-import { UploadMouPage } from "./pages/UploadMouPage.tsx";
-import { UserManualPage } from "./pages/UserManualPage.tsx";
-import { ZoneWiseDashboardPage } from "./pages/ZoneWiseDashboardPage.tsx";
+import { AddCompanyScreen } from "./screens/AddCompanyScreen.tsx";
+import { AgreementHistoryScreen } from "./screens/AgreementHistoryScreen.tsx";
+import { DashboardScreen } from "./screens/DashboardScreen.tsx";
+import { EditAgreementScreen } from "./screens/EditAgreementScreen.tsx";
+import { ExistingCompaniesScreen } from "./screens/ExistingCompaniesScreen.tsx";
+import { ExpiryAlertsScreen } from "./screens/ExpiryAlertsScreen.tsx";
+import { ExportScreen } from "./screens/ExportScreen.tsx";
+import { LoginScreen } from "./screens/LoginScreen.tsx";
+import { UploadMouScreen } from "./screens/UploadMouScreen.tsx";
+import { UserManualScreen } from "./screens/UserManualScreen.tsx";
+import { ZoneDashboardScreen } from "./screens/ZoneDashboardScreen.tsx";
+import { AppShell } from "./ui/layout/AppShell.tsx";
+import { SessionProvider } from "./ui/SessionProvider.tsx";
 
 export default function App() {
   return (
-    <AuthProvider>
+    <SessionProvider>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route
-          element={
-            <RequireAuth>
-              <AppShell />
-            </RequireAuth>
-          }
-        >
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/companies/new" element={<AddCompanyPage />} />
-          <Route path="/companies" element={<ExistingCompanyPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/upload-mou" element={<UploadMouPage />} />
-          <Route path="/agreements/edit" element={<EditAgreementPage />} />
-          <Route path="/agreements/history" element={<AgreementHistoryPage />} />
-          <Route path="/zones/overview" element={<ZoneWiseDashboardPage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/export/excel" element={<ExportExcelPage />} />
-          <Route path="/export/pdf" element={<ExportPdfPage />} />
-          <Route path="/user-manual" element={<UserManualPage />} />
-          {/* Every SPEC-07-13 destination now has a real page; ComingSoonPage
-              remains only as the catch-all below for an unrecognised path. */}
-          <Route path="*" element={<ComingSoonPage />} />
+        <Route path="/login" element={<LoginScreen />} />
+        <Route element={<AppShell />}>
+          <Route path="/" element={<DashboardScreen />} />
+          <Route path="/companies/new" element={<AddCompanyScreen />} />
+          <Route path="/companies" element={<ExistingCompaniesScreen />} />
+          <Route path="/agreements/edit" element={<EditAgreementScreen />} />
+          <Route path="/upload-mou" element={<UploadMouScreen />} />
+          <Route path="/alerts" element={<ExpiryAlertsScreen />} />
+          <Route path="/agreements/history" element={<AgreementHistoryScreen />} />
+          <Route path="/zones/overview" element={<ZoneDashboardScreen />} />
+          <Route path="/export" element={<ExportScreen />} />
+          <Route path="/user-manual" element={<UserManualScreen />} />
+          <Route path="*" element={<DashboardScreen />} />
         </Route>
       </Routes>
-    </AuthProvider>
+    </SessionProvider>
   );
 }

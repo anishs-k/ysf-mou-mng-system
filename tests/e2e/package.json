@@ -7,6 +7,8 @@
     "check-types": "tsc --noEmit",
     "test": "node --test --experimental-strip-types \"src/**/*.test.ts\"",
     "test:ui": "playwright test",
+    "test:visual": "playwright test --config=playwright.visual.config.ts parity",
+    "test:visual:baseline": "FIGMA_CAPTURE=1 playwright test --config=playwright.visual.config.ts baseline",
     "clean": "rm -rf .turbo *.tsbuildinfo test-results playwright-report"
   },
   "devDependencies": {
