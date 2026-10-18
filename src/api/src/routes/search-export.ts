@@ -5,23 +5,25 @@
  * the 5,000-company threshold (section 5) it is generated synchronously and
  * the job is inserted already `ready`; over it, the job starts `pending` and
  * a fire-and-forget generation finishes it later. Every route is open to any
- * authenticated role; nothing here writes to a record table.
+ * authenticated role; nothing here writes to a record table. SPEC-19: every query
+ * runs under the caller's zone scope, and a job is visible only to its creator (D120).
  */
 
 import { MOU_STATUSES, SCHEMES } from "@mou/domain";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
 import { requireAuth, requireSession } from "../auth/middleware.ts";
+import { recordInScope, zoneScopeOf } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import {
   buildAllZonesPdfBuffer,
   buildCompanyPdfBuffer,
   buildExportWorkbook,
 } from "../db/export-builder.ts";
-import type { SearchFilters } from "../db/search.ts";
+import type { SearchFilters, SearchStatusFilter } from "../db/search.ts";
 import { searchMous } from "../db/search.ts";
 import { exportJob } from "../db/schema.ts";
 import {
@@ -29,9 +31,10 @@ import {
   writeExportFile,
 } from "../upload/export-storage.ts";
 import { readFileOrThrowMissing } from "../upload/file-errors.ts";
-import { isUuid } from "./request-parse.ts";
+import { isIsoDate, isUuid } from "./request-parse.ts";
 
 const SEARCH_PAGE_SIZE = 25;
+const SEARCH_MAX_PAGE_SIZE = 100;
 const EXPORT_SYNC_COMPANY_THRESHOLD = 5000;
 const EXPORT_EXPIRY_HOURS = 24;
 
@@ -39,21 +42,28 @@ function isSearchBy(value: string): value is "company" | "plant" | "scheme" {
   return value === "company" || value === "plant" || value === "scheme";
 }
 
-/** Shared by /search and both /export routes - `by`/`q` are required for /search, optional for export ("no search active" exports everything). */
-function readFilters(
-  request: Request,
-  requireQuery: boolean,
-): { filters: SearchFilters; error?: string } {
-  const byRaw = request.query["by"];
-  const qRaw = request.query["q"];
-  const zoneIdRaw = request.query["zoneId"];
-  const statusRaw = request.query["status"];
+const STATUS_FILTERS: readonly string[] = [...MOU_STATUSES, "EXPIRING"];
 
-  if (byRaw === undefined) {
-    if (requireQuery) {
-      return { filters: {}, error: "by is required" };
-    }
-  } else if (typeof byRaw !== "string" || !isSearchBy(byRaw)) {
+type QueryParams = Readonly<Record<string, unknown>>;
+
+/**
+ * Shared by /search and /export/excel so what Search selects is what Export
+ * writes out (SPEC-13 section 5). Every parameter is optional - no filters
+ * selects every active MoU - but `by` still requires a valid `q`.
+ */
+export function parseSearchFilters(query: QueryParams): {
+  filters: SearchFilters;
+  error?: string;
+} {
+  const byRaw = query["by"];
+  const qRaw = query["q"];
+  const zoneIdRaw = query["zoneId"];
+  const statusRaw = query["status"];
+  const schemeRaw = query["scheme"];
+  const startFromRaw = query["startFrom"];
+  const startToRaw = query["startTo"];
+
+  if (byRaw !== undefined && (typeof byRaw !== "string" || !isSearchBy(byRaw))) {
     return { filters: {}, error: "by must be company, plant or scheme" };
   }
 
@@ -70,6 +80,8 @@ function readFilters(
     } else if (q.length < 2) {
       return { filters: {}, error: "Enter at least 2 characters" };
     }
+  } else if (qRaw !== undefined) {
+    return { filters: {}, error: "by is required when q is given" };
   }
 
   if (
@@ -80,66 +92,133 @@ function readFilters(
   }
   if (
     statusRaw !== undefined &&
-    (typeof statusRaw !== "string" ||
-      !(MOU_STATUSES as readonly string[]).includes(statusRaw))
+    (typeof statusRaw !== "string" || !STATUS_FILTERS.includes(statusRaw))
   ) {
     return { filters: {}, error: "status must be a recognised value" };
   }
+  if (
+    schemeRaw !== undefined &&
+    (typeof schemeRaw !== "string" ||
+      !(SCHEMES as readonly string[]).includes(schemeRaw))
+  ) {
+    return { filters: {}, error: "scheme must be a valid scheme" };
+  }
+  for (const [name, raw] of [
+    ["startFrom", startFromRaw],
+    ["startTo", startToRaw],
+  ] as const) {
+    if (raw !== undefined && (typeof raw !== "string" || !isIsoDate(raw))) {
+      return { filters: {}, error: `${name} must be a YYYY-MM-DD date` };
+    }
+  }
+  if (
+    typeof startFromRaw === "string" &&
+    typeof startToRaw === "string" &&
+    startFromRaw > startToRaw
+  ) {
+    return { filters: {}, error: "startFrom must not be after startTo" };
+  }
 
-  return {
-    filters: {
-      by: byRaw as "company" | "plant" | "scheme" | undefined,
-      q,
-      zoneId: zoneIdRaw as string | undefined,
-      status: statusRaw as string | undefined,
-    },
-  };
+  // Only defined keys are set, so an empty query yields exactly {}.
+  const filters: {
+    -readonly [K in keyof SearchFilters]: SearchFilters[K];
+  } = {};
+  if (byRaw !== undefined) {
+    filters.by = byRaw;
+    filters.q = q;
+  }
+  if (zoneIdRaw !== undefined) {
+    filters.zoneId = zoneIdRaw as string;
+  }
+  if (statusRaw !== undefined) {
+    filters.status = statusRaw as SearchStatusFilter;
+  }
+  if (schemeRaw !== undefined) {
+    filters.scheme = schemeRaw as string;
+  }
+  if (startFromRaw !== undefined) {
+    filters.startFrom = startFromRaw as string;
+  }
+  if (startToRaw !== undefined) {
+    filters.startTo = startToRaw as string;
+  }
+  return { filters };
+}
+
+/** /search paging: `page` from 1, `pageSize` 1-100 (default 25). */
+export function parseSearchPaging(
+  query: QueryParams,
+): { page: number; pageSize: number } | { error: string } {
+  const readPositive = (raw: unknown, fallback: number): number =>
+    typeof raw === "string" && raw !== "" ? Number(raw) : fallback;
+
+  const page = readPositive(query["page"], 1);
+  if (!Number.isInteger(page) || page < 1) {
+    return { error: "page must be a positive integer" };
+  }
+  const pageSize = readPositive(query["pageSize"], SEARCH_PAGE_SIZE);
+  if (
+    !Number.isInteger(pageSize) ||
+    pageSize < 1 ||
+    pageSize > SEARCH_MAX_PAGE_SIZE
+  ) {
+    return {
+      error: `pageSize must be an integer from 1 to ${SEARCH_MAX_PAGE_SIZE}`,
+    };
+  }
+  return { page, pageSize };
 }
 
 export function createSearchExportRouter(db: Database, pool: Pool): Router {
   const router = Router();
   const requireAuthSession = requireSession(pool);
 
-  /** GET /api/search — SPEC-13 section 2. */
+  /**
+   * GET /api/search?by=&q=&scheme=&zoneId=&status=&startFrom=&startTo=&page=&pageSize=
+   * — SPEC-13 section 2. With no filters it lists every active MoU.
+   */
   router.get(
     "/search",
     requireAuthSession,
     async (request: Request, response: Response) => {
-      const { filters, error } = readFilters(request, true);
+      const { filters, error } = parseSearchFilters(request.query);
       if (error !== undefined) {
         response.status(422).json({ error });
         return;
       }
 
-      const pageRaw = request.query["page"];
-      const page =
-        typeof pageRaw === "string" && pageRaw !== "" ? Number(pageRaw) : 1;
-      if (!Number.isInteger(page) || page < 1) {
-        response.status(400).json({ error: "page must be a positive integer" });
+      const paging = parseSearchPaging(request.query);
+      if ("error" in paging) {
+        response.status(400).json({ error: paging.error });
         return;
       }
+      const { page, pageSize } = paging;
 
-      const { rows, total } = await searchMous(pool, filters, {
-        limit: SEARCH_PAGE_SIZE,
-        offset: (page - 1) * SEARCH_PAGE_SIZE,
+      const { rows, total } = await searchMous(pool, zoneScopeOf(request), filters, {
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
       });
-      response.json({ rows, total, page, pageSize: SEARCH_PAGE_SIZE });
+      response.json({ rows, total, page, pageSize });
     },
   );
 
-  /** GET /api/export/excel?by=&q=&zoneId=&status= — SPEC-13 section 3. */
+  /**
+   * GET /api/export/excel — SPEC-13 section 3, same filters as /search.
+   * The Expiry Report is this export with status=EXPIRING.
+   */
   router.get(
     "/export/excel",
     requireAuthSession,
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      const { filters, error } = readFilters(request, false);
+      const { filters, error } = parseSearchFilters(request.query);
       if (error !== undefined) {
         response.status(422).json({ error });
         return;
       }
 
-      const { rows: mous } = await searchMous(pool, filters);
+      const scope = zoneScopeOf(request);
+      const { rows: mous } = await searchMous(pool, scope, filters);
       const companyCount = new Set(mous.map((row) => row.companyId)).size;
 
       const expiresAt = new Date(
@@ -162,7 +241,7 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
 
       const generate = async (): Promise<void> => {
         try {
-          const workbook = await buildExportWorkbook(db, pool, filters);
+          const workbook = await buildExportWorkbook(db, pool, scope, filters);
           const buffer = await workbook.xlsx.writeBuffer();
           const relativePath = await writeExportFile(
             jobId,
@@ -233,6 +312,11 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
         }
         companyId = companyIdRaw;
         plantId = plantIdRaw;
+        // Another zone's company is refused exactly like an unknown one.
+        if (!(await recordInScope(pool, zoneScopeOf(request), "company", companyId))) {
+          response.status(404).json({ error: "Company not found" });
+          return;
+        }
       }
 
       const expiresAt = new Date(
@@ -258,7 +342,7 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
         // unlike Excel, there is no large-scope case that needs a background path.
         const buffer =
           scope === "all_zones"
-            ? await buildAllZonesPdfBuffer(pool, auth.username)
+            ? await buildAllZonesPdfBuffer(pool, zoneScopeOf(request), auth.username)
             : await buildCompanyPdfBuffer(
                 db,
                 pool,
@@ -308,7 +392,7 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
           status: exportJob.status,
         })
         .from(exportJob)
-        .where(eq(exportJob.id, jobId));
+        .where(and(eq(exportJob.id, jobId), eq(exportJob.createdBy, requireAuth(request).userId)));
       const row = rows[0];
       if (row === undefined) {
         response.status(404).json({ error: "Export job not found" });
@@ -343,7 +427,7 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
           filePath: exportJob.filePath,
         })
         .from(exportJob)
-        .where(eq(exportJob.id, jobId));
+        .where(and(eq(exportJob.id, jobId), eq(exportJob.createdBy, requireAuth(request).userId)));
       const row = rows[0];
       if (
         row === undefined ||

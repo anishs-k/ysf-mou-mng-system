@@ -5,11 +5,12 @@
  * existing query layers rather than re-deriving anything - the KPI counts
  * are SPEC-12's own per-zone aggregation (`zone-dashboard.ts`) summed across
  * zones, and MOU status in the activity feed is `@mou/domain`'s
- * `deriveStatus`, computed live, never stored.
+ * `deriveStatus`, computed live, never stored. Both take a SPEC-19 ZoneScope.
  */
 
 import type { Pool } from "pg";
 
+import type { ZoneScope } from "../auth/zone-scope.ts";
 import { fetchZoneSummary } from "./zone-dashboard.ts";
 
 export interface DashboardSummary {
@@ -21,8 +22,8 @@ export interface DashboardSummary {
 }
 
 /** A company belongs to exactly one zone, so summing SPEC-12's per-zone rows never double-counts. */
-export async function fetchDashboardSummary(pool: Pool): Promise<DashboardSummary> {
-  const zones = await fetchZoneSummary(pool, {});
+export async function fetchDashboardSummary(pool: Pool, scope: ZoneScope): Promise<DashboardSummary> {
+  const zones = await fetchZoneSummary(pool, {}, scope);
   const totals = zones.reduce(
     (acc, zone) => ({
       totalCompanies: acc.totalCompanies + zone.companies,
@@ -35,7 +36,12 @@ export async function fetchDashboardSummary(pool: Pool): Promise<DashboardSummar
 
   // D85: "Pending Review" is a wizard session started but never finished -
   // zero new schema, company_draft already exists for exactly this (SPEC-03).
-  const { rows } = await pool.query<{ count: string }>(`SELECT COUNT(*)::int AS count FROM company_draft`);
+  // A draft belongs to the zone its Page 1 names (SPEC-19 section 4.1).
+  const { rows } = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::int AS count FROM company_draft
+      WHERE $1::text IS NULL OR payload->'page1'->>'zoneId' = $1::text`,
+    [scope],
+  );
   const pendingReview = Number(rows[0]?.count ?? 0);
 
   return { ...totals, pendingReview };
@@ -58,7 +64,7 @@ export interface RecentActivityRow {
  * alongside the company, SPEC-03) for its plant/scheme/status; a MOU_EDITED
  * row shows the specific MOU that edit belongs to. No new table.
  */
-export async function fetchRecentActivity(pool: Pool, limit: number): Promise<RecentActivityRow[]> {
+export async function fetchRecentActivity(pool: Pool, limit: number, scope: ZoneScope): Promise<RecentActivityRow[]> {
   const { rows } = await pool.query<{
     type: "COMPANY_CREATED" | "MOU_EDITED";
     company: string;
@@ -95,6 +101,7 @@ export async function fetchRecentActivity(pool: Pool, limit: number): Promise<Re
             LEFT JOIN first_mou fm ON fm.company_id = c.id
             LEFT JOIN company_plant cp ON cp.id = fm.company_plant_id
             WHERE c.is_active
+              AND ($2::uuid IS NULL OR c.zone_id = $2)
           ),
           mou_edit_events AS (
             SELECT
@@ -115,13 +122,14 @@ export async function fetchRecentActivity(pool: Pool, limit: number): Promise<Re
             JOIN company c ON c.id = m.company_id
             JOIN zone z ON z.id = c.zone_id
             LEFT JOIN company_plant cp ON cp.id = m.company_plant_id
+            WHERE $2::uuid IS NULL OR c.zone_id = $2
           )
      SELECT * FROM company_events
      UNION ALL
      SELECT * FROM mou_edit_events
      ORDER BY occurred_at DESC
      LIMIT $1`,
-    [limit],
+    [limit, scope],
   );
 
   return rows.map((row) => ({

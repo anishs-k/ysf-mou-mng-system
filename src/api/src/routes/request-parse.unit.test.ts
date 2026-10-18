@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { asArray, asRecord, isUuid, readJsonField, UUID_PATTERN } from "./request-parse.ts";
+import { asArray, asRecord, isIsoDate, isUuid, readJsonField, UUID_PATTERN } from "./request-parse.ts";
 
 test("isUuid accepts a well-formed v4-shaped UUID in any case", () => {
   assert.equal(isUuid("123e4567-e89b-12d3-a456-426614174000"), true);
@@ -63,4 +63,18 @@ test("readJsonField returns undefined for a missing field or a non-object body",
   assert.equal(readJsonField(null, "draftId"), undefined);
   assert.equal(readJsonField("not an object", "draftId"), undefined);
   assert.equal(readJsonField({}, "draftId"), undefined);
+});
+
+test("isIsoDate accepts a real YYYY-MM-DD calendar date", () => {
+  assert.equal(isIsoDate("2026-02-28"), true);
+  assert.equal(isIsoDate("2024-02-29"), true); // leap day
+});
+
+test("isIsoDate rejects other shapes and impossible dates", () => {
+  assert.equal(isIsoDate(""), false);
+  assert.equal(isIsoDate("2026-2-28"), false);
+  assert.equal(isIsoDate("28-02-2026"), false);
+  assert.equal(isIsoDate("2026-02-30"), false);
+  assert.equal(isIsoDate("2026-13-01"), false);
+  assert.equal(isIsoDate("2026-02-28T00:00:00Z"), false);
 });

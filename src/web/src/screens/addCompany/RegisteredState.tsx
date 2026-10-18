@@ -1,6 +1,6 @@
 /**
  * Purpose: The full-area confirmation shown after "Generate Code & Save" - the
- * green tick, the generated MoU code, and the Add Another / Go to Dashboard actions.
+ * green tick, the MoU code POST /api/companies generated, and the Add Another / Go to Dashboard actions.
  */
 
 import { Icon } from "../../ui/Icon.tsx";
@@ -23,7 +23,7 @@ export function RegisteredState({ mouCode, onAddAnother, onDashboard }: Register
           Company Registered!
         </h2>
         <p className="text-muted-foreground text-sm mb-1">MoU Code generated:</p>
-        <p className="mono font-bold text-base mb-6" style={{ color: "#1B5FAE" }}>
+        <p data-testid="generated-code" className="mono font-bold text-base mb-6" style={{ color: "#1B5FAE" }}>
           {mouCode}
         </p>
         <div className="flex gap-3 justify-center">

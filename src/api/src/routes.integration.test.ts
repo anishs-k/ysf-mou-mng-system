@@ -18,6 +18,7 @@ import {
   insertCompany,
   insertPlant,
   insertUser,
+  insertUserWithPassword,
   insertZone,
   resetDatabase,
 } from "./db/test-harness.ts";
@@ -95,10 +96,21 @@ test("AC15 GET /api/enums returns every section 2, 3 and 4 list", async () => {
   assert.equal(payroll[9]?.itemType, "DEDUCTION");
 });
 
+/** SPEC-19 D121: the zone and plant lookups now need a session; an all-zone user sees everything. */
+async function signedIn(path: string): Promise<Response> {
+  const viewer = await insertUserWithPassword(pool, { username: `viewer${Math.random()}`, password: "pass", role: "VIEWER" });
+  const login = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: viewer.username, password: viewer.password }),
+  });
+  return fetch(`${baseUrl}${path}`, { headers: { Cookie: login.headers.get("set-cookie") ?? "" } });
+}
+
 test("AC15 GET /api/zones returns the seeded active zones ordered by name", async () => {
   await seedZones(pool);
 
-  const response = await fetch(`${baseUrl}/api/zones`);
+  const response = await signedIn("/api/zones");
   assert.equal(response.status, 200);
   const zones = (await response.json()) as { code: string; name: string }[];
 
@@ -171,7 +183,7 @@ test("AC15 GET /api/zones omits deactivated zones", async () => {
   // the deactivated row here is one of those, not the old "WEST" placeholder.
   await pool.query(`UPDATE zone SET is_active = false WHERE code = 'GOA'`);
 
-  const zones = (await (await fetch(`${baseUrl}/api/zones`)).json()) as { code: string }[];
+  const zones = (await (await signedIn("/api/zones")).json()) as { code: string }[];
 
   assert.equal(zones.length, 23);
   assert.ok(!zones.some((zone) => zone.code === "GOA"));
@@ -186,7 +198,7 @@ test("AC16 a deactivated company leaves the zone list but stays resolvable by id
   // SPEC-16 D109: a company no longer carries a generated code, so this
   // company-scoped list reports only its id and name.
   const listed = (await (
-    await fetch(`${baseUrl}/api/zones/${zoneId}/companies`)
+    await signedIn(`/api/zones/${zoneId}/companies`)
   ).json()) as { id: string; name: string }[];
   assert.equal(listed.length, 1);
   assert.equal(listed[0]?.name, "Acme Trainees");
@@ -195,11 +207,11 @@ test("AC16 a deactivated company leaves the zone list but stays resolvable by id
   await pool.query(`UPDATE company SET is_active = false WHERE id = $1`, [companyId]);
 
   const afterDeactivation = (await (
-    await fetch(`${baseUrl}/api/zones/${zoneId}/companies`)
+    await signedIn(`/api/zones/${zoneId}/companies`)
   ).json()) as unknown[];
   assert.deepEqual(afterDeactivation, []);
 
-  const plantsResponse = await fetch(`${baseUrl}/api/companies/${companyId}/plants`);
+  const plantsResponse = await signedIn(`/api/companies/${companyId}/plants`);
   assert.equal(plantsResponse.status, 200);
   const plants = (await plantsResponse.json()) as { plantName: string }[];
   assert.deepEqual(
@@ -209,6 +221,6 @@ test("AC16 a deactivated company leaves the zone list but stays resolvable by id
 });
 
 test("GET /api/companies/{id}/plants rejects an id that is not a UUID", async () => {
-  const response = await fetch(`${baseUrl}/api/companies/not-a-uuid/plants`);
+  const response = await signedIn("/api/companies/not-a-uuid/plants");
   assert.equal(response.status, 400);
 });

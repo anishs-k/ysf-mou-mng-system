@@ -6,15 +6,39 @@
  * SPEC-12's `scoped_mou` CTE) because pagination has to happen after
  * filtering by a derived value, which application-code filtering after the
  * fact cannot do correctly.
+ *
+ * Every filter is optional, so the same query also backs the plain
+ * "all MoUs" list screens, and dates are selected as `::text` so rows carry
+ * YYYY-MM-DD strings rather than driver-parsed Date objects.
+ *
+ * The SPEC-19 zone scope is a required argument rather than one more optional
+ * filter, so no caller can forget it; it is ANDed with the user's own zoneId.
  */
 
 import type { Pool } from "pg";
+
+import type { ZoneScope } from "../auth/zone-scope.ts";
+
+/**
+ * "Expiring soon" = end date between today and today + 90 days, the same
+ * window as the Dashboard KPI (zone-dashboard.ts) and the alert badge
+ * (routes/alerts.ts), so the list a KPI links to holds exactly that many rows.
+ */
+export const EXPIRING_SOON_DAYS = 90;
+
+/** The derived statuses plus EXPIRING, which is a filter only - rows never carry it. */
+export type SearchStatusFilter = "ACTIVE" | "EXPIRED" | "NEW" | "EXPIRING";
 
 export interface SearchFilters {
   readonly by?: "company" | "plant" | "scheme";
   readonly q?: string;
   readonly zoneId?: string;
-  readonly status?: string;
+  readonly status?: SearchStatusFilter;
+  /** Independent of `by=scheme`, so it can narrow a company/plant query. */
+  readonly scheme?: string;
+  /** Inclusive bounds on mou_start_date, YYYY-MM-DD. */
+  readonly startFrom?: string;
+  readonly startTo?: string;
 }
 
 export interface SearchRow {
@@ -29,6 +53,8 @@ export interface SearchRow {
   readonly mouStartDate: string;
   readonly endDate: string;
   readonly status: string;
+  readonly hrContactName: string;
+  readonly hrContactNumber: string;
   /** Not part of Search's own display (section 2.2) - carried along for Export's MOUs sheet (section 3.2), which needs the full row. */
   readonly tenureValue: number;
   readonly tenureUnit: string;
@@ -50,6 +76,7 @@ const STATUS_CASE = `CASE WHEN t.d < m.mou_start_date THEN 'NEW' WHEN t.d <= m.e
  */
 export async function searchMous(
   pool: Pool,
+  scope: ZoneScope,
   filters: SearchFilters,
   page?: SearchPage,
 ): Promise<{ rows: SearchRow[]; total: number }> {
@@ -57,6 +84,9 @@ export async function searchMous(
   const q = filters.q ?? null;
   const zoneId = filters.zoneId ?? null;
   const status = filters.status ?? null;
+  const scheme = filters.scheme ?? null;
+  const startFrom = filters.startFrom ?? null;
+  const startTo = filters.startTo ?? null;
   const limit = page?.limit ?? null;
   const offset = page?.offset ?? 0;
 
@@ -72,6 +102,8 @@ export async function searchMous(
     mou_start_date: string;
     end_date: string;
     status: string;
+    hr_contact_name: string;
+    hr_contact_number: string;
     tenure_value: number;
     tenure_unit: string;
     attendance_cycle: string;
@@ -88,9 +120,11 @@ export async function searchMous(
        z.name AS zone_name,
        cp.plant_name,
        m.scheme,
-       m.mou_start_date,
-       m.end_date,
+       m.mou_start_date::text AS mou_start_date,
+       m.end_date::text AS end_date,
        ${STATUS_CASE} AS status,
+       c.hr_contact_name,
+       c.hr_contact_number,
        m.tenure_value,
        m.tenure_unit,
        m.attendance_cycle,
@@ -103,16 +137,24 @@ export async function searchMous(
      CROSS JOIN t
      WHERE m.is_active
        AND ($1::uuid IS NULL OR c.zone_id = $1)
-       AND ($2::text IS NULL OR ${STATUS_CASE} = $2)
+       AND (
+         $2::text IS NULL
+         OR ($2 = 'EXPIRING' AND m.end_date BETWEEN t.d AND t.d + ${EXPIRING_SOON_DAYS})
+         OR ${STATUS_CASE} = $2
+       )
        AND (
          $3::text IS NULL
          OR ($3 = 'company' AND (c.company_name ILIKE '%' || $4 || '%' OR m.generated_code ILIKE '%' || $4 || '%'))
          OR ($3 = 'plant' AND cp.plant_name ILIKE '%' || $4 || '%')
          OR ($3 = 'scheme' AND m.scheme = $4)
        )
+       AND ($7::text IS NULL OR m.scheme = $7)
+       AND ($8::date IS NULL OR m.mou_start_date >= $8)
+       AND ($9::date IS NULL OR m.mou_start_date <= $9)
+       AND ($10::uuid IS NULL OR c.zone_id = $10)
      ORDER BY c.company_name, m.scheme
      LIMIT COALESCE($5::int, 2147483647) OFFSET $6`,
-    [zoneId, status, by, q, limit, offset],
+    [zoneId, status, by, q, limit, offset, scheme, startFrom, startTo, scope],
   );
 
   const total = rows.length > 0 ? Number(rows[0]?.total_count ?? 0) : 0;
@@ -130,6 +172,8 @@ export async function searchMous(
       mouStartDate: row.mou_start_date,
       endDate: row.end_date,
       status: row.status,
+      hrContactName: row.hr_contact_name,
+      hrContactNumber: row.hr_contact_number,
       tenureValue: row.tenure_value,
       tenureUnit: row.tenure_unit,
       attendanceCycle: row.attendance_cycle,

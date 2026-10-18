@@ -56,6 +56,15 @@ export interface UseCascadingSelectorsOptions {
   readonly initialMouId?: string;
 }
 
+/** A known position in the cascade, e.g. from a `?mouId=` deep link; inner levels are optional. */
+export interface CascadeSelection {
+  readonly zoneId: string;
+  readonly companyId?: string;
+  /** Omitted for an MOU recorded against no plant; its MOU list is then the company's. */
+  readonly plantId?: string;
+  readonly mouId?: string;
+}
+
 export interface UseCascadingSelectorsResult {
   readonly zones: readonly ZoneOption[];
   readonly zoneId: string;
@@ -84,6 +93,10 @@ export interface UseCascadingSelectorsResult {
    * EditAgreementPage that offers a "start another" action returning to
    * step "select" without a full remount. */
   readonly reset: () => void;
+  /** Walks the cascade to `selection` in one go, fetching each level's options.
+   * The per-level handlers cannot be chained for this, because each reads the
+   * level above from state that has not re-rendered yet. */
+  readonly preselect: (selection: CascadeSelection) => Promise<void>;
 }
 
 export function useCascadingSelectors(
@@ -171,6 +184,25 @@ export function useCascadingSelectors(
     }
   }
 
+  async function preselect(selection: CascadeSelection): Promise<void> {
+    reset();
+    setZoneId(selection.zoneId);
+    try {
+      setCompanies(await fetchZoneCompanies(selection.zoneId));
+      if (selection.companyId === undefined) return;
+      setCompanyId(selection.companyId);
+      setPlants(await fetchCompanyPlants(selection.companyId));
+      if (selection.plantId === undefined && selection.mouId === undefined) return;
+      setPlantId(selection.plantId ?? "");
+      const list = await fetchCompanyMous(selection.companyId, selection.plantId);
+      setMous(list);
+      const only = list.length === 1 ? list[0] : undefined;
+      setMouId(selection.mouId ?? only?.mouId ?? "");
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : "Failed to load the selection");
+    }
+  }
+
   function reset(): void {
     setZoneId("");
     setCompanies([]);
@@ -196,5 +228,6 @@ export function useCascadingSelectors(
     handleCompanyChange,
     handlePlantChange,
     reset,
+    preselect,
   };
 }

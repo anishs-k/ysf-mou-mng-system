@@ -252,3 +252,85 @@ test("a document whose file has been deleted from disk answers 404, not a crash"
   const body = (await response.json()) as { error: string };
   assert.equal(body.error, "Document file missing");
 });
+
+// ---------------------------------------------------------------------------
+// Optional document metadata captured by the Upload MoU screen
+// ---------------------------------------------------------------------------
+
+function pdfFormWithMeta(meta: Record<string, string>): FormData {
+  const form = pdfFormData(TINY_PDF, "meta.pdf", "application/pdf");
+  for (const [key, value] of Object.entries(meta)) {
+    form.append(key, value);
+  }
+  return form;
+}
+
+test("documentDate, validUntil and referenceNumber are stored and listed", async () => {
+  const { mouId, cookie } = await setupMou();
+
+  const upload = await fetch(`${baseUrl}/api/mous/${mouId}/document`, {
+    method: "POST",
+    headers: { Cookie: cookie },
+    body: pdfFormWithMeta({
+      documentDate: "2026-01-10",
+      validUntil: "2027-01-09",
+      referenceNumber: "  REF/2026/001  ",
+    }),
+  });
+  assert.equal(upload.status, 201);
+  const created = (await upload.json()) as Record<string, unknown>;
+  assert.equal(created["documentDate"], "2026-01-10");
+  assert.equal(created["validUntil"], "2027-01-09");
+  assert.equal(created["referenceNumber"], "REF/2026/001");
+
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/documents`, {
+    headers: { Cookie: cookie },
+  });
+  const list = (await listResponse.json()) as Array<Record<string, unknown>>;
+  assert.equal(list[0]?.["documentDate"], "2026-01-10");
+  assert.equal(list[0]?.["validUntil"], "2027-01-09");
+  assert.equal(list[0]?.["referenceNumber"], "REF/2026/001");
+});
+
+test("an upload without metadata still succeeds and lists the fields as null", async () => {
+  const { mouId, cookie } = await setupMou();
+
+  const upload = await fetch(`${baseUrl}/api/mous/${mouId}/document`, {
+    method: "POST",
+    headers: { Cookie: cookie },
+    body: pdfFormWithMeta({ referenceNumber: "   " }),
+  });
+  assert.equal(upload.status, 201);
+
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/documents`, {
+    headers: { Cookie: cookie },
+  });
+  const list = (await listResponse.json()) as Array<Record<string, unknown>>;
+  assert.equal(list[0]?.["documentDate"], null);
+  assert.equal(list[0]?.["validUntil"], null);
+  assert.equal(list[0]?.["referenceNumber"], null);
+});
+
+test("invalid document metadata is rejected with 422 and nothing is stored", async () => {
+  const { mouId, cookie } = await setupMou();
+
+  const invalid: Array<Record<string, string>> = [
+    { documentDate: "10-01-2026" },
+    { validUntil: "2026-02-30" },
+    { documentDate: "2026-05-01", validUntil: "2026-04-30" },
+    { referenceNumber: "x".repeat(101) },
+  ];
+  for (const meta of invalid) {
+    const response = await fetch(`${baseUrl}/api/mous/${mouId}/document`, {
+      method: "POST",
+      headers: { Cookie: cookie },
+      body: pdfFormWithMeta(meta),
+    });
+    assert.equal(response.status, 422, JSON.stringify(meta));
+  }
+
+  const listResponse = await fetch(`${baseUrl}/api/mous/${mouId}/documents`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(((await listResponse.json()) as unknown[]).length, 0);
+});

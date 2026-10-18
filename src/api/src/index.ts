@@ -20,6 +20,7 @@ import { createDatabase, createPool } from "./db/client.ts";
 import { runExportCleanup } from "./jobs/export-cleanup.ts";
 import { runExpiryAlertJob } from "./jobs/expiry-alerts.ts";
 import { createAlertsRouter } from "./routes/alerts.ts";
+import { createAdminUsersRouter } from "./routes/admin-users.ts";
 import { createAuthRouter } from "./routes/auth.ts";
 import { createCompaniesRouter } from "./routes/companies.ts";
 import { createAgreementHistoryRouter } from "./routes/agreement-history.ts";
@@ -58,7 +59,7 @@ export function createApp(pool: Pool): Express {
     createAuthRouter(pool, db),
     createPublicStatsRouter(pool),
     createEnumsRouter(),
-    createZonesRouter(db),
+    createZonesRouter(db, pool),
     createCompaniesRouter(db, pool),
     createCompanyViewRouter(db, pool),
     createMouDocumentsRouter(db, pool),
@@ -68,6 +69,7 @@ export function createApp(pool: Pool): Express {
     createDashboardSummaryRouter(pool),
     createSearchExportRouter(db, pool),
     createAlertsRouter(pool),
+    createAdminUsersRouter(db, pool),
   );
 
   return app;

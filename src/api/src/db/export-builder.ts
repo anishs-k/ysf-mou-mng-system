@@ -16,6 +16,7 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
 
+import type { ZoneScope } from "../auth/zone-scope.ts";
 import type { Database } from "./client.ts";
 import { fetchCompanyMous, fetchCompanyOverview, fetchMouCommercialDetail, fetchMouPayrollDetail } from "./mou-view.ts";
 import { company, companyPlant } from "./schema.ts";
@@ -96,8 +97,13 @@ async function fetchCompaniesWithPlants(db: Database, companyIds: readonly strin
 }
 
 /** SPEC-13 section 3: the four-sheet workbook, scoped to whatever Search's filters select. */
-export async function buildExportWorkbook(db: Database, pool: Pool, filters: SearchFilters): Promise<ExcelJS.Workbook> {
-  const { rows: mous } = await searchMous(pool, filters);
+export async function buildExportWorkbook(
+  db: Database,
+  pool: Pool,
+  scope: ZoneScope,
+  filters: SearchFilters,
+): Promise<ExcelJS.Workbook> {
+  const { rows: mous } = await searchMous(pool, scope, filters);
   const companyIds = [...new Set(mous.map((row) => row.companyId))];
   const companies = await fetchCompaniesWithPlants(db, companyIds);
 
@@ -234,9 +240,9 @@ export async function buildExportWorkbook(db: Database, pool: Pool, filters: Sea
 const PDF_MARGIN = 50;
 
 /** SPEC-13 section 4.2: the zone summary followed by a company listing grouped by zone. */
-export async function buildAllZonesPdfBuffer(pool: Pool, generatedByUsername: string): Promise<Buffer> {
-  const [summary, matrix] = await Promise.all([fetchZoneSummary(pool, {}), fetchSchemeMatrix(pool, {})]);
-  const { rows: mous } = await searchMous(pool, {});
+export async function buildAllZonesPdfBuffer(pool: Pool, scope: ZoneScope, generatedByUsername: string): Promise<Buffer> {
+  const [summary, matrix] = await Promise.all([fetchZoneSummary(pool, {}, scope), fetchSchemeMatrix(pool, {}, scope)]);
+  const { rows: mous } = await searchMous(pool, scope, {});
   const mousByZone = new Map<string, SearchRow[]>();
   for (const m of mous) {
     const list = mousByZone.get(m.zoneId) ?? [];

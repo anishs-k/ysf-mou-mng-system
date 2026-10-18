@@ -13,7 +13,7 @@
  */
 
 import { COMMERCIAL_FIXED_ITEM_KEYS } from "./commercial-items.ts";
-import { TENURE_UNITS } from "./enums.ts";
+import { COMMERCIAL_BASES, COMMERCIAL_PERIODS, TENURE_UNITS } from "./enums.ts";
 import { validateAmountString } from "./money.ts";
 
 const MAX_BACKDATE_DAYS = 365;
@@ -28,6 +28,17 @@ export interface OtherChargeRow {
   readonly itemType: string;
 }
 
+/** SPEC-16 D108: the optional period and basis codes a fixed charge may carry. */
+export interface ChargeMeta {
+  readonly period?: string;
+  readonly basis?: string;
+}
+
+export interface ChargeMetaErrors {
+  readonly period?: string;
+  readonly basis?: string;
+}
+
 /** The 22 Page 2 fields of SPEC-05 section 2, in diagram order. */
 export interface CommercialDetails {
   readonly mouStartDate: string;
@@ -38,6 +49,11 @@ export interface CommercialDetails {
   /** Keyed by the 16 fixed CommercialItemKeys; blank means "not applicable". */
   readonly charges: Readonly<Record<string, string>>;
   readonly otherItems: readonly OtherChargeRow[];
+  /**
+   * Optional, keyed like `charges`. Absent or blank means "no period/basis" -
+   * payloads written before this field existed stay valid unchanged.
+   */
+  readonly chargeMeta?: Readonly<Record<string, ChargeMeta>>;
   /** Whether a PDF has been accepted by the upload endpoint for this draft. */
   readonly hasMouDocument: boolean;
 }
@@ -56,6 +72,7 @@ export interface CommercialDetailErrors {
   readonly stipendDate?: string;
   readonly mouDocument?: string;
   readonly charges?: Readonly<Record<string, string>>;
+  readonly chargeMeta?: Readonly<Record<string, ChargeMetaErrors>>;
   /** Parallel to the input otherItems array; an all-blank row has no entry. */
   readonly otherItems?: readonly (OtherChargeRowErrors | undefined)[];
 }
@@ -164,6 +181,33 @@ export function validateOtherChargeRows(
   return rowErrors;
 }
 
+/** A blank code is "not given"; a present one must be a known COMMERCIAL_PERIODS / COMMERCIAL_BASES value. */
+function validateChargeMeta(chargeMeta: Readonly<Record<string, ChargeMeta>>): Record<string, ChargeMetaErrors> {
+  const fixedKeys: readonly string[] = COMMERCIAL_FIXED_ITEM_KEYS;
+  const periods: readonly string[] = COMMERCIAL_PERIODS;
+  const bases: readonly string[] = COMMERCIAL_BASES;
+  const result: Record<string, ChargeMetaErrors> = {};
+  for (const [key, meta] of Object.entries(chargeMeta)) {
+    if (!fixedKeys.includes(key)) {
+      result[key] = { period: "Unknown charge" };
+      continue;
+    }
+    const keyErrors: { period?: string; basis?: string } = {};
+    const period = (meta.period ?? "").trim();
+    if (period !== "" && !periods.includes(period)) {
+      keyErrors.period = "Choose a period from the list";
+    }
+    const basis = (meta.basis ?? "").trim();
+    if (basis !== "" && !bases.includes(basis)) {
+      keyErrors.basis = "Choose a basis from the list";
+    }
+    if (Object.keys(keyErrors).length > 0) {
+      result[key] = keyErrors;
+    }
+  }
+  return result;
+}
+
 export function validateCommercialDetails(
   input: Partial<CommercialDetails>,
   today: string,
@@ -176,6 +220,7 @@ export function validateCommercialDetails(
     stipendDate?: string;
     mouDocument?: string;
     charges?: Record<string, string>;
+    chargeMeta?: Record<string, ChargeMetaErrors>;
     otherItems?: readonly (OtherChargeRowErrors | undefined)[];
   } = {};
   const warnings: { mouStartDate?: string } = {};
@@ -242,6 +287,12 @@ export function validateCommercialDetails(
   }
   if (Object.keys(chargeErrors).length > 0) {
     errors.charges = chargeErrors;
+  }
+
+  // --- Per-charge period / basis (SPEC-16 D108) -----------------------------------
+  const chargeMetaErrors = validateChargeMeta(input.chargeMeta ?? {});
+  if (Object.keys(chargeMetaErrors).length > 0) {
+    errors.chargeMeta = chargeMetaErrors;
   }
 
   // --- "Other" rows --------------------------------------------------------------

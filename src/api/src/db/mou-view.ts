@@ -28,6 +28,7 @@ import {
   payrollConfig,
   payrollItem,
   traineeCategory,
+  zone,
 } from "./schema.ts";
 
 function firstRow<T>(rows: T[]): T | undefined {
@@ -47,16 +48,32 @@ export async function businessToday(pool: Pool): Promise<string> {
 export interface CompanyOverview {
   readonly id: string;
   readonly companyName: string;
+  readonly companyType: string;
+  readonly sector: string;
+  readonly registrationType: string;
+  readonly tanNumber: string;
   readonly gstNumber: string;
   readonly zoneId: string;
+  readonly zoneName: string;
+  readonly addressLine1: string;
+  readonly addressLine2: string | null;
+  readonly city: string;
+  readonly pinCode: string;
+  readonly district: string;
+  readonly state: string;
+  readonly contactType: string;
   readonly hrContactName: string;
   readonly hrContactNumber: string;
   readonly financeHeadContactName: string;
   readonly financeHeadContactNumber: string;
+  readonly officialEmail: string;
+  readonly purchaseName: string | null;
+  readonly purchaseNumber: string | null;
+  readonly purchaseEmail: string | null;
   readonly plants: readonly { readonly id: string; readonly plantName: string }[];
 }
 
-/** SPEC-07 Page 1: company identity, contacts, and every active plant. */
+/** SPEC-07 Page 1: the full SPEC-04 company record (identity, address, contacts), its zone name, and every active plant. */
 export async function fetchCompanyOverview(
   db: Database,
   companyId: string,
@@ -65,14 +82,31 @@ export async function fetchCompanyOverview(
     .select({
       id: company.id,
       companyName: company.companyName,
+      companyType: company.companyType,
+      sector: company.sector,
+      registrationType: company.registrationType,
+      tanNumber: company.tanNumber,
       gstNumber: company.gstNumber,
       zoneId: company.zoneId,
+      zoneName: zone.name,
+      addressLine1: company.addressLine1,
+      addressLine2: company.addressLine2,
+      city: company.city,
+      pinCode: company.pinCode,
+      district: company.district,
+      state: company.state,
+      contactType: company.contactType,
       hrContactName: company.hrContactName,
       hrContactNumber: company.hrContactNumber,
       financeHeadContactName: company.financeHeadContactName,
       financeHeadContactNumber: company.financeHeadContactNumber,
+      officialEmail: company.officialEmail,
+      purchaseName: company.purchaseName,
+      purchaseNumber: company.purchaseNumber,
+      purchaseEmail: company.purchaseEmail,
     })
     .from(company)
+    .innerJoin(zone, eq(zone.id, company.zoneId))
     .where(and(eq(company.id, companyId), eq(company.isActive, true)));
 
   const row = firstRow(rows);
@@ -87,6 +121,67 @@ export async function fetchCompanyOverview(
     .orderBy(asc(companyPlant.plantName));
 
   return { ...row, plants };
+}
+
+export interface CompanyAgreementRow {
+  readonly mouId: string;
+  readonly generatedCode: string;
+  readonly scheme: string;
+  readonly plantName: string | null;
+  readonly mouStartDate: string;
+  readonly endDate: string;
+  readonly status: MouStatus;
+  readonly isActive: boolean;
+}
+
+/**
+ * Every MoU the company has ever held - active and inactive (superseded) -
+ * newest start date first, for the company's agreements list. Undefined when
+ * the company itself does not exist or is inactive.
+ */
+export async function fetchCompanyAgreements(
+  db: Database,
+  pool: Pool,
+  companyId: string,
+): Promise<readonly CompanyAgreementRow[] | undefined> {
+  const companyRows = await db
+    .select({ id: company.id })
+    .from(company)
+    .where(and(eq(company.id, companyId), eq(company.isActive, true)));
+  if (firstRow(companyRows) === undefined) {
+    return undefined;
+  }
+
+  const rows = await db
+    .select({
+      mouId: mou.id,
+      generatedCode: mou.generatedCode,
+      scheme: mou.scheme,
+      plantName: companyPlant.plantName,
+      mouStartDate: mou.mouStartDate,
+      endDate: mou.endDate,
+      isActive: mou.isActive,
+    })
+    .from(mou)
+    .leftJoin(companyPlant, eq(companyPlant.id, mou.companyPlantId))
+    .where(eq(mou.companyId, companyId))
+    .orderBy(desc(mou.mouStartDate), asc(mou.scheme));
+
+  const today = await businessToday(pool);
+  // end_date is a generated column, so it is never null for a stored row.
+  return rows.map((row) => {
+    const endDate = row.endDate ?? row.mouStartDate;
+    return {
+      mouId: row.mouId,
+      generatedCode: row.generatedCode,
+      scheme: row.scheme,
+      plantName: row.plantName,
+      mouStartDate: row.mouStartDate,
+      endDate,
+      status: deriveStatus(row.mouStartDate, endDate, today),
+      isActive: row.isActive,
+    };
+  });
 }
 
 export interface CompanyMouOption {
@@ -117,6 +212,9 @@ export interface MouChargeRow {
   readonly label: string;
   /** null means "not applicable" (SPEC-07 AC8 - renders as "—", distinct from "0.00"). */
   readonly amount: string | null;
+  /** SPEC-16 D108 codes (COMMERCIAL_PERIODS / COMMERCIAL_BASES); null when not recorded. */
+  readonly period: string | null;
+  readonly basis: string | null;
 }
 
 export interface MouOtherItemRow {
@@ -188,6 +286,8 @@ export async function fetchMouCommercialDetail(
       customLabel: commercialItem.customLabel,
       amount: commercialItem.amount,
       itemType: commercialItem.itemType,
+      period: commercialItem.period,
+      basis: commercialItem.basis,
     })
     .from(commercialItem)
     .where(eq(commercialItem.mouId, mouId));
@@ -197,6 +297,8 @@ export async function fetchMouCommercialDetail(
     itemKey: key,
     label: COMMERCIAL_ITEM_BY_KEY[key].label,
     amount: fixedByKey.get(key)?.amount ?? null,
+    period: fixedByKey.get(key)?.period ?? null,
+    basis: fixedByKey.get(key)?.basis ?? null,
   }));
   const otherItems: MouOtherItemRow[] = itemRows
     .filter((row) => row.itemKey === "OTHER")

@@ -1,29 +1,38 @@
 /**
- * Purpose: The Upload MoU screen - the zone -> company -> plant cascade plus scheme,
- * a drag-and-drop / browse zone for one PDF or Excel file, and the simulated
- * upload -> save -> success sequence of the prototype (timed progress bars, no
- * server). Save is enabled as soon as a file has finished "uploading".
+ * Purpose: The Upload MoU screen (ADMIN / DATA_ENTRY; AppShell guards the route) -
+ * the Zone -> Company -> Plant -> Scheme cascade of real ids (each select disabled
+ * until the previous is chosen; ?mouId= or ?zoneId=&companyId= preselect it), a
+ * drag-and-drop / browse zone for one PDF, the optional Document Details, and Save,
+ * which uploads through POST /api/mous/:mouId/document. The chosen MoU's attached
+ * documents are listed from GET /api/mous/:mouId/documents.
  */
 
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { SCHEMES } from "../data/addCompanyOptions.ts";
-import { ZONE_COMPANIES } from "../data/companies.ts";
-import { MOUS, ZONE_NAMES } from "../data/mous.ts";
-import { Field, TextInput } from "../ui/form.tsx";
+import {
+  documentDownloadUrl,
+  fetchCompanyOverview,
+  fetchMouCommercial,
+  fetchMouDocuments,
+  uploadMouDocumentToMou,
+} from "../api/client.ts";
+import type { MouDocumentRow, UploadedMouDocument } from "../api/client.ts";
+import { useCascadingSelectors } from "../hooks/useCascadingSelectors.ts";
+import { PENDING_FIGURE, formatCalendarDate, formatTimestamp, schemeLabel } from "../ui/format.ts";
+import { Field, SelectInput, TextInput } from "../ui/form.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
-import { Button, Card, SectionTitle } from "../ui/primitives.tsx";
+import { Badge, Button, Card, SectionTitle } from "../ui/primitives.tsx";
+import { BRAND } from "../ui/theme.ts";
 
-const ALL_COMPANIES: readonly string[] = Object.values(ZONE_COMPANIES).flat();
-const ALL_PLANTS: readonly string[] = MOUS.map((mou) => mou.plant);
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const NOT_PDF = "Only PDF files can be uploaded.";
+const TOO_LARGE = "The file must be 10 MB or smaller.";
+const DOCUMENTS_ERROR = "Could not load the attached documents.";
 
-/** Before a company is chosen every MoU row's plant is offered; afterwards only that company's rows (any zone). */
-function plantsOf(company: string): readonly string[] {
-  return company === "" ? ALL_PLANTS : MOUS.filter((mou) => mou.company === company).map((mou) => mou.plant);
-}
+const ALERT_CLASS = "rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]";
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -31,41 +40,17 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-interface CascadeSelectProps {
-  readonly options: readonly string[];
-  readonly value: string;
-  readonly onChange: (value: string) => void;
+/** The browser's own check before the server's %PDF header check. */
+function fileProblem(file: File): string | null {
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  if (!isPdf) return NOT_PDF;
+  if (file.size > MAX_FILE_BYTES) return TOO_LARGE;
+  return null;
 }
 
-/** The prototype's select; options may repeat or be blank, so they are keyed by position. */
-function CascadeSelect({ options, value, onChange }: CascadeSelectProps) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(event: ChangeEvent<HTMLSelectElement>) => onChange(event.target.value)}
-        className="w-full h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white text-foreground appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
-      >
-        <option value="">Select…</option>
-        {options.map((option, index) => (
-          <option key={index}>{option}</option>
-        ))}
-      </select>
-      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
-        <Icon name="chevronDown" className="w-4 h-4" strokeWidth={2} />
-      </span>
-    </div>
-  );
-}
+type Phase = "idle" | "saving" | "saved";
 
-interface PickedFile {
-  readonly name: string;
-  readonly size: number;
-}
-
-type Phase = "idle" | "uploading" | "uploaded" | "saving" | "saved";
-
-/** Document Details, shown once the file is uploaded; the prototype saves without validating them. */
+/** Document Details, sent with the upload when filled in; every field is optional. */
 interface DocumentDetails {
   readonly date: string;
   readonly validUntil: string;
@@ -76,48 +61,104 @@ const NO_DETAILS: DocumentDetails = { date: "", validUntil: "", reference: "" };
 
 export function UploadMouScreen() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [zone, setZone] = useState("");
-  const [company, setCompany] = useState("");
-  const [plant, setPlant] = useState("");
-  const [scheme, setScheme] = useState("");
-  const [file, setFile] = useState<PickedFile | null>(null);
-  const [savedFile, setSavedFile] = useState<PickedFile | null>(null);
+  const [error, setError] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [saved, setSaved] = useState<UploadedMouDocument | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const [progress, setProgress] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [details, setDetails] = useState(NO_DETAILS);
+  // Kept with the MoU they belong to, so a stale list is never shown for another MoU.
+  const [loadedDocuments, setLoadedDocuments] = useState<{ readonly mouId: string; readonly rows: readonly MouDocumentRow[] } | null>(null);
+  const [documentsKey, setDocumentsKey] = useState(0);
 
-  // Upload and save are simulated: progress climbs in steps, then the phase advances.
+  const cascade = useCascadingSelectors({ onError: setError });
+  const { mouId, preselect } = cascade;
+
+  // A deep link from the alerts screen: ?mouId= (or ?zoneId=&companyId=) preselects the cascade.
   useEffect(() => {
-    if (phase !== "uploading" && phase !== "saving") return undefined;
-    if (progress === 100) {
-      const done = window.setTimeout(() => setPhase(phase === "uploading" ? "uploaded" : "saved"), 200);
-      return () => window.clearTimeout(done);
+    const linkedMouId = searchParams.get("mouId");
+    const linkedZoneId = searchParams.get("zoneId");
+    const linkedCompanyId = searchParams.get("companyId");
+    let cancelled = false;
+    if (linkedMouId !== null) {
+      fetchMouCommercial(linkedMouId)
+        .then(async (mou) => {
+          const company = await fetchCompanyOverview(mou.companyId);
+          if (cancelled) return;
+          await preselect({
+            zoneId: company.zoneId,
+            companyId: mou.companyId,
+            plantId: mou.companyPlantId ?? undefined,
+            mouId: mou.mouId,
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setError("Could not open the linked MoU. Please choose it below.");
+        });
+    } else if (linkedZoneId !== null) {
+      void preselect({ zoneId: linkedZoneId, companyId: linkedCompanyId ?? undefined });
     }
-    const tick = window.setTimeout(() => setProgress((current) => Math.min(100, current + (phase === "uploading" ? 9 : 14))), 100);
-    return () => window.clearTimeout(tick);
-  }, [phase, progress]);
+    return () => {
+      cancelled = true;
+    };
+    // Runs once: the link is read on arrival, later selections are the user's own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (mouId === "") return undefined;
+    let cancelled = false;
+    fetchMouDocuments(mouId)
+      .then((rows) => {
+        if (!cancelled) setLoadedDocuments({ mouId, rows });
+      })
+      .catch(() => {
+        if (!cancelled) setError(DOCUMENTS_ERROR);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mouId, documentsKey]);
 
   const pick = (picked: File | undefined) => {
     if (picked === undefined) return;
-    setFile({ name: picked.name, size: picked.size });
-    setProgress(0);
-    setPhase("uploading");
+    const problem = fileProblem(picked);
+    setError(problem ?? "");
+    setFile(problem === null ? picked : null);
+    if (problem !== null && inputRef.current !== null) inputRef.current.value = "";
   };
 
   const removeFile = () => {
     setFile(null);
-    setPhase("idle");
     if (inputRef.current !== null) inputRef.current.value = "";
   };
 
   const save = () => {
-    setSavedFile(file);
-    setDetails(NO_DETAILS);
-    removeFile();
-    setProgress(0);
+    if (file === null || mouId === "") return;
+    if (details.date !== "" && details.validUntil !== "" && details.validUntil < details.date) {
+      setError("Valid Until cannot be earlier than the Document Date.");
+      return;
+    }
+    setError("");
     setPhase("saving");
+    uploadMouDocumentToMou(mouId, file, {
+      documentDate: details.date,
+      validUntil: details.validUntil,
+      referenceNumber: details.reference,
+    })
+      .then((uploaded) => {
+        setSaved(uploaded);
+        setDetails(NO_DETAILS);
+        removeFile();
+        setPhase("saved");
+        setDocumentsKey((key) => key + 1);
+      })
+      .catch((uploadError: unknown) => {
+        setError(uploadError instanceof Error ? uploadError.message : "Upload failed");
+        setPhase("idle");
+      });
   };
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -126,42 +167,61 @@ export function UploadMouScreen() {
     pick(event.dataTransfer.files[0]);
   };
 
+  const { zones, zoneId, companies, companyId, plants, plantId, mous } = cascade;
+
   return (
     <ScreenFrame
       title="Upload MoU PDF"
       subtitle="Attach signed MoU documents to company records"
       contentClassName="p-4 md:p-6 max-w-2xl mx-auto space-y-4 md:space-y-5"
     >
+      {error !== "" && (
+        <div role="alert" className={ALERT_CLASS}>
+          {error}
+        </div>
+      )}
+
       <Card className="p-6">
         <SectionTitle>Select Company</SectionTitle>
         <div className="grid gap-4">
-          <Field label="Zone" required>
-            <CascadeSelect
-              options={ZONE_NAMES}
-              value={zone}
-              onChange={(value) => {
-                setZone(value);
-                setCompany("");
-                setPlant("");
-              }}
+          <Field label="Zone" htmlFor="upload-zone" required>
+            <SelectInput
+              id="upload-zone"
+              options={zones.map((zone) => ({ value: zone.id, label: zone.name }))}
+              value={zoneId}
+              onChange={(value) => void cascade.handleZoneChange(value)}
             />
           </Field>
-          <Field label="Company" required>
-            <CascadeSelect
-              options={zone === "" ? ALL_COMPANIES : (ZONE_COMPANIES[zone] ?? [])}
-              value={company}
-              onChange={(value) => {
-                setCompany(value);
-                setPlant("");
-              }}
+          <Field label="Company" htmlFor="upload-company" required>
+            <SelectInput
+              id="upload-company"
+              options={companies.map((company) => ({ value: company.id, label: company.name }))}
+              value={companyId}
+              disabled={zoneId === ""}
+              onChange={(value) => void cascade.handleCompanyChange(value)}
             />
           </Field>
-          <Field label="Plant" required>
-            <CascadeSelect options={plantsOf(company)} value={plant} onChange={setPlant} />
+          <Field label="Plant" htmlFor="upload-plant" required>
+            <SelectInput
+              id="upload-plant"
+              options={plants.map((plant) => ({ value: plant.id, label: plant.plantName }))}
+              value={plantId}
+              disabled={companyId === ""}
+              onChange={(value) => void cascade.handlePlantChange(value)}
+            />
           </Field>
-          <Field label="Scheme" required>
-            <CascadeSelect options={SCHEMES} value={scheme} onChange={setScheme} />
+          <Field label="Scheme" htmlFor="upload-scheme" required>
+            <SelectInput
+              id="upload-scheme"
+              options={mous.map((mou) => ({ value: mou.mouId, label: schemeLabel(mou.scheme) }))}
+              value={mouId}
+              disabled={mous.length === 0}
+              onChange={cascade.setMouId}
+            />
           </Field>
+          {plantId !== "" && mous.length === 0 && (
+            <p className="text-xs text-muted-foreground">No MoUs are recorded for this company plant.</p>
+          )}
         </div>
       </Card>
 
@@ -170,11 +230,26 @@ export function UploadMouScreen() {
         <input
           ref={inputRef}
           type="file"
-          accept=".pdf,.xls,.xlsx"
+          accept="application/pdf,.pdf"
           className="hidden"
           onChange={(event: ChangeEvent<HTMLInputElement>) => pick(event.target.files?.[0])}
         />
-        {file === null ? (
+        {phase === "saving" && file !== null ? (
+          <div className="rounded-xl border border-border p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-lg bg-[#E8F0FB] flex items-center justify-center text-[#1B5FAE] shrink-0 animate-pulse">
+                <Icon name="upload" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-foreground truncate">{file.name}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Saving to server…</p>
+              </div>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div className="h-full rounded-full bg-[#F26522] w-full animate-pulse" />
+            </div>
+          </div>
+        ) : file === null ? (
           <div
             onClick={() => inputRef.current?.click()}
             onDragOver={(event) => {
@@ -191,23 +266,8 @@ export function UploadMouScreen() {
               <Icon name="uploadBox" className="w-12 h-12 mx-auto" strokeWidth={1.5} />
             </div>
             <p className="text-base font-bold text-foreground">Drop file here or click to browse</p>
-            <p className="text-sm text-muted-foreground mt-1">PDF or Excel · Max 10 MB</p>
+            <p className="text-sm text-muted-foreground mt-1">PDF only · Max 10 MB</p>
             <div className="mt-4 px-4 py-2 rounded-lg text-xs font-semibold bg-[#E8F0FB] text-[#1B5FAE]">Browse Files</div>
-          </div>
-        ) : phase === "uploading" ? (
-          <div className="rounded-xl border border-border p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg bg-[#E8F0FB] flex items-center justify-center text-[#1B5FAE] shrink-0">
-                <Icon name="upload" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-foreground truncate">{file.name}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Uploading… {progress}%</p>
-              </div>
-            </div>
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full rounded-full bg-[#1B5FAE] transition-all duration-200" style={{ width: `${progress}%` }} />
-            </div>
           </div>
         ) : (
           <div className="rounded-xl border p-4 bg-green-50 border-green-200">
@@ -217,36 +277,39 @@ export function UploadMouScreen() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-bold text-green-900 truncate">{file.name}</p>
-                <p className="text-xs text-green-700 mt-0.5">{formatSize(file.size)} · Uploaded successfully</p>
+                <p className="text-xs text-green-700 mt-0.5">{formatSize(file.size)} · Ready to save</p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-green-600">
                   <Icon name="check" className="w-4 h-4" strokeWidth={2.5} />
                 </span>
-                <button type="button" onClick={removeFile} className="text-muted-foreground hover:text-red-500 transition-colors">
+                <button type="button" aria-label="Remove file" onClick={removeFile} className="text-muted-foreground hover:text-red-500 transition-colors">
                   <Icon name="close" className="w-4 h-4" strokeWidth={2} />
                 </button>
               </div>
-            </div>
-            <div className="mt-3 h-1.5 rounded-full bg-green-200 overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full w-full" />
             </div>
           </div>
         )}
       </Card>
 
-      {phase === "uploaded" && (
+      {phase === "idle" && file !== null && (
         <Card className="p-6">
           <SectionTitle>Document Details</SectionTitle>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Document Date" required>
-              <TextInput type="date" value={details.date} onChange={(date) => setDetails({ ...details, date })} />
+            <Field label="Document Date" htmlFor="document-date">
+              <TextInput id="document-date" type="date" value={details.date} onChange={(date) => setDetails({ ...details, date })} />
             </Field>
-            <Field label="Valid Until" required>
-              <TextInput type="date" value={details.validUntil} onChange={(validUntil) => setDetails({ ...details, validUntil })} />
-            </Field>
-            <Field label="Reference Number" className="col-span-2">
+            <Field label="Valid Until" htmlFor="document-valid-until">
               <TextInput
+                id="document-valid-until"
+                type="date"
+                value={details.validUntil}
+                onChange={(validUntil) => setDetails({ ...details, validUntil })}
+              />
+            </Field>
+            <Field label="Reference Number" htmlFor="document-reference" className="col-span-2">
+              <TextInput
+                id="document-reference"
                 placeholder="e.g. RIL/HR/MoU/2026/001"
                 value={details.reference}
                 onChange={(reference) => setDetails({ ...details, reference })}
@@ -256,32 +319,15 @@ export function UploadMouScreen() {
         </Card>
       )}
 
-      {phase === "saving" && (
-        <Card className="p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-9 h-9 rounded-lg bg-[#E8F0FB] flex items-center justify-center text-[#1B5FAE] shrink-0 animate-pulse">
-              <Icon name="upload" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-foreground">Saving to server…</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{progress}% complete</p>
-            </div>
-          </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div className="h-full rounded-full bg-[#F26522] transition-all duration-150" style={{ width: `${progress}%` }} />
-          </div>
-        </Card>
-      )}
-
-      {phase === "saved" && savedFile !== null && (
+      {phase === "saved" && saved !== null && (
         <Card className="p-8 flex flex-col items-center text-center">
           <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center text-green-600 mb-4">
             <Icon name="check" className="w-8 h-8" strokeWidth={2.5} />
           </div>
           <h3 className="font-bold text-lg text-[#0D2E5A] mb-1">Document Saved Successfully</h3>
-          <p className="text-sm text-muted-foreground mb-1">{savedFile.name}</p>
+          <p className="text-sm text-muted-foreground mb-1">{saved.originalFilename}</p>
           <p className="text-xs text-muted-foreground mb-5">
-            {formatSize(savedFile.size)} · Saved on{" "}
+            {formatSize(saved.fileSizeBytes)} · Saved on{" "}
             {new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
           </p>
           <div className="flex gap-3">
@@ -297,7 +343,9 @@ export function UploadMouScreen() {
         </Card>
       )}
 
-      {phase !== "saving" && phase !== "saved" && (
+      {mouId !== "" && <AttachedDocuments documents={loadedDocuments?.mouId === mouId ? loadedDocuments.rows : null} />}
+
+      {phase === "idle" && (
         <div className="flex justify-end gap-3">
           <button
             type="button"
@@ -306,12 +354,68 @@ export function UploadMouScreen() {
           >
             Cancel
           </button>
-          <Button variant="accent" disabled={phase !== "uploaded"} onClick={save}>
+          <Button variant="accent" disabled={file === null || mouId === ""} onClick={save}>
             <Icon name="upload" />
             Save Document
           </Button>
         </div>
       )}
     </ScreenFrame>
+  );
+}
+
+const DOCUMENT_HEADINGS = ["Filename", "Size", "Document Date", "Valid Until", "Reference", "Uploaded By", "Uploaded On", ""];
+
+function AttachedDocuments({ documents }: { readonly documents: readonly MouDocumentRow[] | null }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border">
+        <h3 className="font-bold text-sm uppercase tracking-wide" style={{ color: BRAND.navy }}>
+          Attached Documents
+        </h3>
+        <Badge text={documents === null ? PENDING_FIGURE : String(documents.length)} />
+      </div>
+      {documents !== null && documents.length === 0 ? (
+        <p className="px-5 py-8 text-sm text-muted-foreground text-center">No documents attached yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                {DOCUMENT_HEADINGS.map((heading) => (
+                  <th key={heading} className="px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+                    {heading}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {documents?.map((document) => (
+                <tr key={document.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                  <td className="px-4 py-3 font-semibold text-foreground text-xs max-w-[180px] truncate">{document.originalFilename}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs mono whitespace-nowrap">{formatSize(document.fileSizeBytes)}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs mono whitespace-nowrap">{formatCalendarDate(document.documentDate)}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs mono whitespace-nowrap">{formatCalendarDate(document.validUntil)}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{document.referenceNumber ?? PENDING_FIGURE}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs">{document.uploadedByUsername}</td>
+                  <td className="px-4 py-3 text-muted-foreground text-xs mono whitespace-nowrap">{formatTimestamp(document.uploadedAt)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <a
+                      href={documentDownloadUrl(document.id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-semibold text-xs hover:underline"
+                      style={{ color: BRAND.blue }}
+                    >
+                      Download
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
   );
 }

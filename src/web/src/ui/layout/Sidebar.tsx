@@ -1,16 +1,19 @@
 /**
  * Purpose: The persistent left navigation of the signed-in shell: brand block,
- * product strip, the ten destinations with an "Operation" section, and the
- * officer card with sign-out. It collapses to an icon rail on desktop and becomes
- * a slide-in drawer below the `lg` breakpoint.
+ * product strip, the destinations the signed-in role may open (ui/access.ts) with
+ * an "Operation" section, and the card of the API session's user with sign-out.
+ * It collapses to an icon rail on desktop and becomes a slide-in drawer below the
+ * `lg` breakpoint.
  */
 
+import { USER_ROLE_LABELS } from "@mou/domain";
 import { NavLink } from "react-router-dom";
 
 import logo from "../../assets/logo-ysf.png";
-import { CURRENT_OFFICER } from "../../data/dashboard.ts";
+import { APPROVALS_PATH, canOpenPath } from "../access.ts";
 import { Icon } from "../Icon.tsx";
 import type { IconName } from "../Icon.tsx";
+import { useSession } from "../session.ts";
 import { BRAND } from "../theme.ts";
 
 interface NavItem {
@@ -35,7 +38,15 @@ const NAV_ENTRIES: readonly NavEntry[] = [
   { path: "/export", label: "Export", icon: "download", iconClass: "w-5 h-5" },
   { section: "Operation" },
   { path: "/user-manual", label: "User Manual", icon: "book", iconClass: "w-5 h-5" },
+  { path: APPROVALS_PATH, label: "User Approvals", icon: "check", iconClass: "w-5 h-5", strokeWidth: 2.2 },
 ];
+
+/** "e2e-admin" -> "EA", "admin" -> "AD": the first letters of up to two name parts. */
+function initialsOf(username: string): string {
+  const parts = username.split(/[^A-Za-z0-9]+/).filter((part) => part !== "");
+  const letters = parts.length > 1 ? `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}` : username.slice(0, 2);
+  return letters.toUpperCase();
+}
 
 interface SidebarProps {
   readonly collapsed: boolean;
@@ -46,6 +57,11 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onMobileClose, onSignOut }: SidebarProps) {
+  const { user } = useSession();
+  const username = user?.username ?? "";
+  const initials = initialsOf(username);
+  const roleLabel = user === null ? "" : USER_ROLE_LABELS[user.role];
+  const entries = NAV_ENTRIES.filter((entry) => "section" in entry || (user !== null && canOpenPath(user, entry.path)));
   return (
     <>
       {mobileOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onMobileClose} />}
@@ -97,7 +113,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onMobileClos
         )}
 
         <nav className="flex-1 py-3 px-2 overflow-y-auto">
-          {NAV_ENTRIES.map((entry) =>
+          {entries.map((entry) =>
             "section" in entry ? (
               collapsed ? (
                 <div key={entry.section} className="my-2 border-t border-border" />
@@ -156,7 +172,7 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onMobileClos
               className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold"
               style={{ background: BRAND.orange }}
             >
-              {CURRENT_OFFICER.initials}
+              {initials}
             </div>
           ) : (
             <div className="flex items-center gap-2">
@@ -164,11 +180,11 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onMobileClos
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
                 style={{ background: BRAND.orange }}
               >
-                {CURRENT_OFFICER.initials}
+                {initials}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-foreground truncate">{CURRENT_OFFICER.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{CURRENT_OFFICER.role}</p>
+                <p className="text-xs font-bold text-foreground truncate">{username}</p>
+                <p className="text-xs text-muted-foreground truncate">{roleLabel}</p>
               </div>
               <button
                 type="button"

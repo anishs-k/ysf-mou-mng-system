@@ -95,6 +95,7 @@ test("login with valid credentials returns the user and a session cookie", async
     userId: user.id,
     username: user.username,
     role: "ADMIN",
+    zoneId: null,
   });
   const header = response.headers.getSetCookie().join("; ");
   assert.match(header, new RegExp(`^${SESSION_COOKIE_NAME}=`));
@@ -112,6 +113,7 @@ test("AC5 /api/auth/me returns the logged-in user's role", async () => {
     userId: user.id,
     username: "viewer",
     role: "VIEWER",
+    zoneId: null,
   });
 });
 

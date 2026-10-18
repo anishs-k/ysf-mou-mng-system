@@ -1,100 +1,85 @@
 /**
- * Purpose: The Edit Agreement screen. A zone -> company -> plant -> scheme cascade
- * (each select appears once the previous one is chosen) and OK open the agreement:
- * summary strip, reason for amendment with mandatory proof upload, previous/new value
- * tabs with a review diff, and the prototype's proof-missing and success modals.
+ * Purpose: The Edit Agreement screen (ADMIN only; AppShell guards the route). A
+ * zone -> company -> plant -> scheme cascade of real ids (each select appears once
+ * the previous one is chosen) and OK open the agreement: a summary strip from the
+ * MoU's commercial detail and history version, the SPEC-10 reason gate (proof
+ * required only for Communication from HR) that fetches the edit token as soon as
+ * the reason and any required proof are chosen, the previous/new value tabs
+ * (screens/editAgreement), a review diff, Save Draft (kept in this browser only,
+ * per MoU and version), and Save & Submit, which applies the edit as a new version.
+ * Keeps the prototype's proof and success modals.
  */
 
-import { useRef, useState } from "react";
+import {
+  EDIT_AGREEMENT_REASON_LABELS,
+  EDIT_AGREEMENT_REASON_OPTIONS,
+  computeAgreementDiff,
+  validateCommercialDetails,
+  validatePayrollDetails,
+} from "@mou/domain";
+import type { CommercialDetailErrors, EditAgreementReason, PayrollDetailErrors } from "@mou/domain";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { SCHEMES } from "../data/addCompanyOptions.ts";
-import { ZONE_COMPANIES } from "../data/companies.ts";
-import { MOUS, ZONE_NAMES } from "../data/mous.ts";
-import type { MouRecord } from "../data/mous.ts";
+import { applyEdit, fetchAgreementHistory, fetchEnums, fetchMouCommercial, requestEditToken } from "../api/client.ts";
+import type {
+  CommercialItemOption,
+  EditTokenResponse,
+  EditableCommercial,
+  EditablePayroll,
+  EnumOption,
+  MouCommercialDetail,
+  PayrollItemOption,
+} from "../api/client.ts";
+import { useCascadingSelectors } from "../hooks/useCascadingSelectors.ts";
+import { PENDING_FIGURE, displayStatus, formatCalendarDate, schemeLabel, todayIso } from "../ui/format.ts";
 import { Field } from "../ui/form.tsx";
+import type { SelectOption } from "../ui/form.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Badge, Button, Card, SectionTitle } from "../ui/primitives.tsx";
 import { BRAND, statusTone } from "../ui/theme.ts";
-
-const REASONS = ["Communication from HR", "Addendum in Agreement", "Change in Statutory Compliance"] as const;
-type Reason = (typeof REASONS)[number];
+import { CommercialTab, CompanyDetailsTab, PayrollTab, ReviewTab } from "./editAgreement/EditTabs.tsx";
 
 const TABS = ["Company Details", "Commercial Details", "Payroll Details", "Review Changes"] as const;
 type Tab = (typeof TABS)[number];
-type FieldTab = Exclude<Tab, "Review Changes">;
 
-interface EditableField {
-  readonly label: string;
-  readonly previous: string;
-}
-
-/** The prototype opens the first MoU row of the chosen company, whatever zone/plant/scheme was picked. */
-function agreementOf(company: string): MouRecord | undefined {
-  return MOUS.find((mou) => mou.company === company);
-}
-
-/** MoUs run 24 months, so the start date is the expiry date two years earlier. */
-function startDateOf(expires: string): string {
-  return expires.replace(/(\d{4})$/, (year) => String(Number(year) - 2));
-}
-
-function fieldsOf(record: MouRecord): Readonly<Record<FieldTab, readonly EditableField[]>> {
-  return {
-    "Company Details": [
-      { label: "Company Name", previous: record.company },
-      { label: "Zone", previous: record.zone },
-      { label: "Plant", previous: record.plant },
-      { label: "MoU Code", previous: record.code },
-      { label: "Status", previous: record.status },
-      { label: "Expiry Date", previous: record.expires },
-    ],
-    "Commercial Details": [
-      { label: "Scheme", previous: record.scheme },
-      { label: "MoU Start Date", previous: startDateOf(record.expires) },
-      { label: "MoU End Date", previous: record.expires },
-      { label: "Tenure (months)", previous: "24" },
-      { label: "Attendance Cycle", previous: "Monthly" },
-      { label: "Admin Charges", previous: "₹450/month" },
-    ],
-    "Payroll Details": [
-      { label: "Attendance Bonus", previous: "₹500/month" },
-      { label: "Conveyance", previous: "₹300/month" },
-      { label: "HRA", previous: "₹800/month" },
-      { label: "PF Deduction", previous: "12%" },
-      { label: "ESI Deduction", previous: "0.75%" },
-    ],
-  };
-}
+const LOAD_ERROR = "Could not load this agreement. Please try again.";
+const FIX_ERRORS = "Some values are not valid. Fix the highlighted fields before reviewing.";
+const NO_CHANGES = "No changes have been made yet.";
 
 const SECONDARY_BUTTON =
   "inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg bg-secondary text-primary border-border hover:bg-blue-100";
 const GHOST_BUTTON =
   "inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg bg-transparent text-muted-foreground border-transparent hover:bg-muted hover:text-foreground";
+const ALERT_CLASS = "rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]";
 
 interface AgreementSelectProps {
+  readonly id: string;
   readonly label: string;
   readonly widthClass: string;
-  readonly options: readonly string[];
+  readonly options: readonly SelectOption[];
   readonly value: string;
   readonly onChange: (value: string) => void;
 }
 
 /** This screen's selects omit `text-foreground`, unlike the shared SelectInput. */
-function AgreementSelect({ label, widthClass, options, value, onChange }: AgreementSelectProps) {
+function AgreementSelect({ id, label, widthClass, options, value, onChange }: AgreementSelectProps) {
   return (
-    <Field label={label} required className={widthClass}>
+    <Field label={label} htmlFor={id} required className={widthClass}>
       <div className="relative">
         <select
+          id={id}
           value={value}
           onChange={(event: ChangeEvent<HTMLSelectElement>) => onChange(event.target.value)}
           className="w-full h-10 pl-3 pr-8 border border-border rounded-lg text-sm bg-white appearance-none focus:outline-none focus:ring-2 focus:ring-ring"
         >
           <option value="">Select…</option>
-          {options.map((option, index) => (
-            <option key={index}>{option}</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
           ))}
         </select>
         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
@@ -118,57 +103,274 @@ function ModalFrame({ children }: { readonly children: ReactNode }) {
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">{children}</div>;
 }
 
-interface AgreementEditorProps {
-  readonly record: MouRecord;
+/** The agreement's names, taken from the cascade lists it was chosen from. */
+interface AgreementNames {
+  readonly company: string;
+  readonly zone: string;
+  readonly plant: string;
 }
 
-function AgreementEditor({ record }: AgreementEditorProps) {
+interface Loaded {
+  readonly detail: MouCommercialDetail;
+  readonly version: number;
+  readonly charges: readonly CommercialItemOption[];
+  readonly payrollItems: readonly PayrollItemOption[];
+  readonly itemTypes: readonly EnumOption[];
+}
+
+function hasErrors(errors: object): boolean {
+  return Object.keys(errors).length > 0;
+}
+
+/**
+ * Save Draft has no API: the unsubmitted edits live in this browser only. A draft
+ * is tied to the version it was edited from, so once the MoU has moved on its
+ * baseline is stale and it is discarded rather than replayed over newer values.
+ */
+interface EditDraft {
+  readonly version: number;
+  readonly commercial: EditableCommercial;
+  readonly payroll: EditablePayroll;
+}
+
+const draftKey = (mouId: string): string => `mou-edit-draft:${mouId}`;
+
+function loadDraft(mouId: string, version: number): EditDraft | null {
+  try {
+    const raw = window.localStorage.getItem(draftKey(mouId));
+    if (raw === null) return null;
+    const draft = JSON.parse(raw) as EditDraft;
+    if (draft.version === version) return draft;
+    window.localStorage.removeItem(draftKey(mouId));
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(mouId: string, draft: EditDraft): boolean {
+  try {
+    window.localStorage.setItem(draftKey(mouId), JSON.stringify(draft));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearDraft(mouId: string): void {
+  try {
+    window.localStorage.removeItem(draftKey(mouId));
+  } catch {
+    // Storage is unavailable, so there is no draft to clear.
+  }
+}
+
+function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly names: AgreementNames }) {
   const navigate = useNavigate();
   const proofInput = useRef<HTMLInputElement>(null);
-  const [reason, setReason] = useState<Reason | null>(null);
-  const [proof, setProof] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [error, setError] = useState("");
+  const [reason, setReason] = useState<EditAgreementReason | null>(null);
+  const [proof, setProof] = useState<File | null>(null);
+  const [requesting, setRequesting] = useState(false);
+  const [edit, setEdit] = useState<EditTokenResponse | null>(null);
+  const [commercial, setCommercial] = useState<EditableCommercial | null>(null);
+  const [payroll, setPayroll] = useState<EditablePayroll | null>(null);
+  const [commercialErrors, setCommercialErrors] = useState<CommercialDetailErrors>({});
+  const [payrollErrors, setPayrollErrors] = useState<PayrollDetailErrors>({});
   const [tab, setTab] = useState<Tab>("Company Details");
-  const [values, setValues] = useState<Readonly<Record<string, string>>>({});
+  const [applying, setApplying] = useState(false);
+  const [applied, setApplied] = useState<{ readonly version: number; readonly on: string } | null>(null);
   const [modal, setModal] = useState<"none" | "proof" | "success">("none");
+  const [draftSaved, setDraftSaved] = useState(false);
+  /** The version the values being edited came from; a token for it keeps them. */
+  const editedVersion = useRef<number | null>(null);
+  const latestRequest = useRef(0);
 
-  const fields = fieldsOf(record);
-  const changes = (Object.values(fields) as readonly (readonly EditableField[])[])
-    .flat()
-    .filter((field) => (values[field.label] ?? "") !== "");
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([fetchMouCommercial(mouId), fetchAgreementHistory(mouId), fetchEnums()])
+      .then(([detail, history, enums]) => {
+        if (cancelled) return;
+        const byOrder = <T extends { readonly itemType: string | null; readonly displayOrder: number }>(items: readonly T[]) =>
+          items.filter((item) => item.itemType !== null).sort((a, b) => a.displayOrder - b.displayOrder);
+        setLoaded({
+          detail,
+          version: history.currentVersion,
+          charges: byOrder(enums.commercialItems),
+          payrollItems: byOrder(enums.payrollItems),
+          itemTypes: enums.itemTypes,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setError(LOAD_ERROR);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mouId]);
 
-  const submit = () => setModal(reason !== null && proof === null ? "proof" : "success");
+  const proofRequired = reason === "COMMUNICATION_FROM_HR";
+  const reasonLabel = reason === null ? PENDING_FIGURE : EDIT_AGREEMENT_REASON_LABELS[reason];
+  const changes =
+    edit !== null && commercial !== null && payroll !== null
+      ? computeAgreementDiff({ commercial: edit.commercial, payroll: edit.payroll }, { commercial, payroll }).filter((row) => row.changed)
+      : [];
+
+  // The reason gate with no Start Editing step: once the reason (and, for
+  // Communication from HR, its proof) is chosen, the edit token is fetched in the
+  // background. Changing either fetches a fresh token so the one applied always
+  // matches what is on screen; edits already made on the same version survive it.
+  const unlock = (nextReason: EditAgreementReason, nextProof: File | null) => {
+    // Only the latest request may update the screen; an earlier one is stale.
+    const request = ++latestRequest.current;
+    if (nextReason === "COMMUNICATION_FROM_HR" && nextProof === null) {
+      setEdit(null);
+      setRequesting(false);
+      return;
+    }
+    setRequesting(true);
+    setError("");
+    requestEditToken(mouId, nextReason, "", nextProof)
+      .then((response) => {
+        if (request !== latestRequest.current) return;
+        if (editedVersion.current !== response.version) {
+          const draft = loadDraft(mouId, response.version);
+          setCommercial(draft?.commercial ?? response.commercial);
+          setPayroll(draft?.payroll ?? response.payroll);
+          setDraftSaved(draft !== null);
+          editedVersion.current = response.version;
+        }
+        setEdit(response);
+      })
+      .catch((requestError: unknown) => {
+        if (request === latestRequest.current) {
+          setError(requestError instanceof Error ? requestError.message : "Could not start the edit.");
+        }
+      })
+      .finally(() => {
+        if (request === latestRequest.current) setRequesting(false);
+      });
+  };
+
+  const chooseReason = (value: EditAgreementReason) => {
+    if (value === reason) return;
+    setReason(value);
+    unlock(value, proof);
+  };
+
+  const chooseProof = (file: File | null) => {
+    setProof(file);
+    if (reason !== null) unlock(reason, file);
+  };
+
+  const editCommercial = (value: EditableCommercial) => {
+    setCommercial(value);
+    setDraftSaved(false);
+  };
+  const editPayroll = (value: EditablePayroll) => {
+    setPayroll(value);
+    setDraftSaved(false);
+  };
+
+  const keepDraft = () => {
+    if (edit === null || commercial === null || payroll === null) return;
+    if (saveDraft(mouId, { version: edit.version, commercial, payroll })) setDraftSaved(true);
+    else setError("Could not save the draft in this browser.");
+  };
+
+  /** Runs the domain rules; on failure shows the first tab with an error. */
+  const validate = (): boolean => {
+    if (commercial === null || payroll === null) return false;
+    const commercialResult = validateCommercialDetails(commercial, todayIso());
+    const payrollResult = validatePayrollDetails(payroll);
+    setCommercialErrors(commercialResult.errors);
+    setPayrollErrors(payrollResult.errors);
+    if (hasErrors(commercialResult.errors)) setTab("Commercial Details");
+    else if (hasErrors(payrollResult.errors)) setTab("Payroll Details");
+    const valid = !hasErrors(commercialResult.errors) && !hasErrors(payrollResult.errors);
+    setError(valid ? "" : FIX_ERRORS);
+    return valid;
+  };
+
+  const openTab = (name: Tab) => {
+    if (name === "Review Changes" && edit !== null && !validate()) return;
+    setTab(name);
+  };
+
+  const submit = () => {
+    if (proofRequired && proof === null) {
+      setModal("proof");
+      return;
+    }
+    if (edit === null || commercial === null || payroll === null || !validate()) return;
+    if (changes.length === 0) {
+      setError(NO_CHANGES);
+      return;
+    }
+    setApplying(true);
+    applyEdit(mouId, edit.token, edit.version, commercial, payroll)
+      .then((result) => {
+        if (result.ok) {
+          clearDraft(mouId);
+          setApplied({ version: result.version, on: formatCalendarDate(todayIso()) });
+          setModal("success");
+        } else {
+          setError(result.status === 409 ? `${result.message}. Reopen the agreement and try again.` : result.message);
+        }
+      })
+      .catch(() => setError("Could not save the agreement. Please try again."))
+      .finally(() => setApplying(false));
+  };
+
+  if (loaded === null) {
+    return error === "" ? null : (
+      <div role="alert" className={ALERT_CLASS}>
+        {error}
+      </div>
+    );
+  }
+
+  const status = displayStatus(loaded.detail.status, loaded.detail.endDate);
+  const locked = edit === null || commercial === null || payroll === null;
 
   return (
     <>
       <Card className="p-4">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div data-testid="agreement-summary" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           {[
-            ["Company Name", record.company],
-            ["Plant", record.plant],
-            ["Zone", record.zone],
-            ["Agreement Code", record.code],
-            ["Current Version", "V1.0"],
+            ["Company Name", names.company],
+            ["Plant", names.plant],
+            ["Zone", names.zone],
+            ["Agreement Code", loaded.detail.generatedCode],
+            ["Current Version", `V${loaded.version}`],
           ].map(([label, value]) => (
             <SummaryItem key={label} label={label ?? ""}>
               <p className="text-xs font-semibold text-foreground truncate">{value}</p>
             </SummaryItem>
           ))}
           <SummaryItem label="Status">
-            <Badge text={record.status} tone={statusTone(record.status)} />
+            <Badge text={status} tone={statusTone(status)} />
           </SummaryItem>
         </div>
       </Card>
 
+      {error !== "" && (
+        <div role="alert" className={ALERT_CLASS}>
+          {error}
+        </div>
+      )}
+
       <Card className="p-5">
         <SectionTitle>Reason for Amendment</SectionTitle>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {REASONS.map((option) => {
-            const active = option === reason;
+          {EDIT_AGREEMENT_REASON_OPTIONS.map((option) => {
+            const active = option.value === reason;
             return (
               <button
-                key={option}
+                key={option.value}
                 type="button"
-                onClick={() => setReason(option)}
+                onClick={() => chooseReason(option.value)}
                 className={`flex items-center gap-2 p-3 rounded-lg border text-sm font-semibold text-left transition-all ${
                   active ? "border-[#1B5FAE] bg-[#E8F0FB] text-[#1B5FAE]" : "border-border bg-white text-muted-foreground hover:bg-muted"
                 }`}
@@ -180,7 +382,7 @@ function AgreementEditor({ record }: AgreementEditorProps) {
                 >
                   {active && <span className="w-1.5 h-1.5 rounded-full bg-white block" />}
                 </span>
-                {option}
+                {option.label}
               </button>
             );
           })}
@@ -188,14 +390,15 @@ function AgreementEditor({ record }: AgreementEditorProps) {
         {reason !== null && (
           <div className="mt-4">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Upload Supporting Proof <span className="text-red-500">*</span>
+              Upload Supporting Proof {proofRequired ? <span className="text-red-500">*</span> : "(optional)"}
             </p>
             <input
               ref={proofInput}
+              data-testid="proof-input"
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
+              accept="application/pdf,image/png,image/jpeg"
               className="hidden"
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setProof(event.target.files?.[0]?.name ?? null)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => chooseProof(event.target.files?.[0] ?? null)}
             />
             {proof === null ? (
               <button
@@ -213,11 +416,12 @@ function AgreementEditor({ record }: AgreementEditorProps) {
                 <span className="text-green-600">
                   <Icon name="file" className="w-4 h-4" />
                 </span>
-                <span className="text-sm font-semibold text-green-900 truncate flex-1">{proof}</span>
+                <span className="text-sm font-semibold text-green-900 truncate flex-1">{proof.name}</span>
                 <button
                   type="button"
+                  aria-label="Remove proof"
                   onClick={() => {
-                    setProof(null);
+                    chooseProof(null);
                     if (proofInput.current !== null) proofInput.current.value = "";
                   }}
                   className="text-muted-foreground hover:text-red-500 transition-colors"
@@ -236,7 +440,7 @@ function AgreementEditor({ record }: AgreementEditorProps) {
             <button
               key={name}
               type="button"
-              onClick={() => setTab(name)}
+              onClick={() => openTab(name)}
               className="px-5 py-2.5 text-sm font-semibold whitespace-nowrap transition-all border-b-2 -mb-px"
               style={name === tab ? { borderColor: BRAND.orange, color: BRAND.orange } : { borderColor: "transparent", color: "#5A7AA8" }}
             >
@@ -245,79 +449,67 @@ function AgreementEditor({ record }: AgreementEditorProps) {
           ))}
         </div>
         <div className="p-5">
-          {tab === "Review Changes" ? (
-            <div>
-              {changes.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">No changes have been made yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-4">
-                    {["Field", "Previous", "New Value"].map((heading) => (
-                      <p key={heading} className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                        {heading}
-                      </p>
-                    ))}
-                  </div>
-                  {changes.map((field) => (
-                    <div key={field.label} className="grid grid-cols-3 gap-4 items-start py-2 border-b border-border last:border-0 text-sm">
-                      <p className="font-semibold text-foreground text-xs">{field.label}</p>
-                      <p className="mono text-muted-foreground line-through text-xs">{field.previous}</p>
-                      <p className="mono font-bold text-xs" style={{ color: BRAND.blue }}>
-                        {values[field.label]}
-                      </p>
-                    </div>
-                  ))}
-                  {reason !== null && (
-                    <div className="mt-2 pt-3 border-t border-border flex items-center gap-2 text-xs">
-                      <span className="font-semibold text-muted-foreground uppercase tracking-wider">Reason:</span>
-                      <Badge text={reason} tone="info" />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+          {tab === "Company Details" ? (
+            <CompanyDetailsTab
+              info={{
+                company: names.company,
+                zone: names.zone,
+                plant: names.plant,
+                code: loaded.detail.generatedCode,
+                status,
+                endDate: loaded.detail.endDate,
+              }}
+            />
+          ) : locked ? (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              {requesting
+                ? "Unlocking these fields…"
+                : proofRequired && proof === null
+                  ? "Upload the supporting proof to unlock these fields."
+                  : "Choose a reason for the amendment to unlock these fields."}
+            </p>
+          ) : tab === "Commercial Details" ? (
+            <CommercialTab
+              scheme={edit.payroll.scheme}
+              previous={edit.commercial}
+              value={commercial}
+              errors={commercialErrors}
+              charges={loaded.charges}
+              itemTypes={loaded.itemTypes}
+              onChange={editCommercial}
+            />
+          ) : tab === "Payroll Details" ? (
+            <PayrollTab
+              previous={edit.payroll}
+              value={payroll}
+              errors={payrollErrors}
+              items={loaded.payrollItems}
+              itemTypes={loaded.itemTypes}
+              onChange={editPayroll}
+            />
           ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-4">
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Previous Value</p>
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">New Value</p>
-              </div>
-              {fields[tab].map((field) => (
-                <div key={field.label} className="grid grid-cols-2 gap-4 items-center py-2 border-b border-border last:border-0">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{field.label}</p>
-                    <p className="text-sm font-semibold text-foreground mono bg-muted/60 px-2.5 py-1.5 rounded-lg">{field.previous}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">{field.label}</p>
-                    <input
-                      placeholder={`Enter new ${field.label.toLowerCase()}`}
-                      value={values[field.label] ?? ""}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                        setValues((current) => ({ ...current, [field.label]: event.target.value }))
-                      }
-                      className="w-full h-9 px-2.5 border border-border rounded-lg text-sm bg-white text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ReviewTab changes={changes} reasonLabel={reasonLabel} />
           )}
         </div>
       </Card>
 
       <div className="flex items-center justify-between pt-2 pb-4">
         <div className="flex gap-2">
-          <button type="button" className={`${SECONDARY_BUTTON} px-3 py-1.5 text-xs`}>
-            Save Draft
+          <button
+            type="button"
+            disabled={locked}
+            onClick={keepDraft}
+            className={`${SECONDARY_BUTTON} px-3 py-1.5 text-xs ${locked ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            {draftSaved ? "Draft Saved" : "Save Draft"}
           </button>
           <button type="button" onClick={() => navigate("/")} className={`${GHOST_BUTTON} px-3 py-1.5 text-xs`}>
             Cancel
           </button>
         </div>
-        <Button variant="accent" onClick={submit}>
+        <Button variant="accent" disabled={reason === null || requesting || applying} onClick={submit}>
           <Icon name="check" className="w-4 h-4" strokeWidth={2.5} />
-          Save & Submit
+          {applying ? "Saving…" : "Save & Submit"}
         </Button>
       </div>
 
@@ -333,7 +525,7 @@ function AgreementEditor({ record }: AgreementEditorProps) {
                 Proof Not Uploaded
               </h3>
               <p className="text-xs text-muted-foreground mb-5">
-                Supporting proof is mandatory for <strong>{reason}</strong>.
+                Supporting proof is mandatory for <strong>{reasonLabel}</strong>.
               </p>
               <Button
                 className="w-full justify-center"
@@ -349,7 +541,7 @@ function AgreementEditor({ record }: AgreementEditorProps) {
         </ModalFrame>
       )}
 
-      {modal === "success" && (
+      {modal === "success" && applied !== null && (
         <ModalFrame>
           <div className="glass-modal rounded-2xl w-full max-w-sm overflow-hidden">
             <div className="h-1.5" style={{ background: `linear-gradient(to right, ${BRAND.blue}, ${BRAND.green})` }} />
@@ -362,9 +554,9 @@ function AgreementEditor({ record }: AgreementEditorProps) {
               </h3>
               <div className="grid grid-cols-3 gap-3 mt-5 mb-6 text-left">
                 {[
-                  ["Agreement Version", "V2.0"],
-                  ["Reason", reason ?? "Addendum in Agreement"],
-                  ["Effective Date", new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })],
+                  ["Agreement Version", `V${applied.version}`],
+                  ["Reason", reasonLabel],
+                  ["Effective Date", applied.on],
                 ].map(([label, value]) => (
                   <div key={label} className="bg-muted/60 rounded-lg p-2.5">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
@@ -373,7 +565,11 @@ function AgreementEditor({ record }: AgreementEditorProps) {
                 ))}
               </div>
               <div className="flex gap-3">
-                <button type="button" onClick={() => setModal("none")} className={`${SECONDARY_BUTTON} px-4 py-2 text-sm flex-1 justify-center`}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/agreements/history?mouId=${mouId}`)}
+                  className={`${SECONDARY_BUTTON} px-4 py-2 text-sm flex-1 justify-center`}
+                >
                   View Agreement
                 </button>
                 <Button className="flex-1 justify-center" onClick={() => navigate("/")}>
@@ -388,33 +584,43 @@ function AgreementEditor({ record }: AgreementEditorProps) {
   );
 }
 
-interface Selection {
-  readonly zone: string;
-  readonly company: string;
-  readonly plant: string;
-  readonly scheme: string;
-}
-
-const EMPTY_SELECTION: Selection = { zone: "", company: "", plant: "", scheme: "" };
-
 export function EditAgreementScreen() {
   const navigate = useNavigate();
-  const [selection, setSelection] = useState<Selection>(EMPTY_SELECTION);
-  const [opened, setOpened] = useState<{ readonly record: MouRecord; readonly key: number } | null>(null);
-  const { zone, company, plant, scheme } = selection;
-  const record = company === "" ? undefined : agreementOf(company);
+  const [error, setError] = useState("");
+  const [opened, setOpened] = useState<{ readonly mouId: string; readonly names: AgreementNames; readonly key: number } | null>(null);
+  const cascade = useCascadingSelectors({ onError: setError });
+  const { zones, zoneId, companies, companyId, plants, plantId, mous, mouId } = cascade;
 
-  // Choosing any select clears the ones after it and closes the opened agreement.
-  const choose = (next: Selection) => {
-    setSelection(next);
+  // Choosing any select clears the ones after it (the hook) and closes the opened agreement.
+  const choose = (change: () => unknown) => {
     setOpened(null);
+    setError("");
+    void change();
+  };
+
+  const open = () => {
+    const nameOf = <T,>(items: readonly T[], match: (item: T) => boolean, name: (item: T) => string) => {
+      const found = items.find(match);
+      return found === undefined ? PENDING_FIGURE : name(found);
+    };
+    setOpened({
+      mouId,
+      key: Date.now(),
+      names: {
+        company: nameOf(companies, (company) => company.id === companyId, (company) => company.name),
+        zone: nameOf(zones, (zone) => zone.id === zoneId, (zone) => zone.name),
+        plant: nameOf(plants, (plant) => plant.id === plantId, (plant) => plant.plantName),
+      },
+    });
   };
 
   return (
     <ScreenFrame
       title="Edit Agreement"
       subtitle="Amend or update an existing MoU record"
-      contentClassName="p-4 md:p-6 max-w-5xl mx-auto space-y-4 md:space-y-5"
+      // Shrink-to-fit like Figma until an agreement opens; then full width, so the
+      // layout no longer narrows on tabs whose rows happen to be short.
+      contentClassName={`p-4 md:p-6 ${opened === null ? "" : "w-full"} max-w-5xl mx-auto space-y-4 md:space-y-5`}
     >
       <nav className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
         <button type="button" onClick={() => navigate("/")} className="hover:underline" style={{ color: BRAND.blue }}>
@@ -430,50 +636,61 @@ export function EditAgreementScreen() {
         <span style={{ color: BRAND.navy }}>Edit Agreement</span>
       </nav>
 
+      {error !== "" && (
+        <div role="alert" className={ALERT_CLASS}>
+          {error}
+        </div>
+      )}
+
       <Card className="p-5">
         <SectionTitle>Select Agreement</SectionTitle>
         <div className="flex flex-wrap gap-3 items-end">
           <AgreementSelect
+            id="edit-zone"
             label="Zone"
             widthClass="min-w-[140px]"
-            options={ZONE_NAMES}
-            value={zone}
-            onChange={(value) => choose({ ...EMPTY_SELECTION, zone: value })}
+            options={zones.map((zone) => ({ value: zone.id, label: zone.name }))}
+            value={zoneId}
+            onChange={(value) => choose(() => cascade.handleZoneChange(value))}
           />
-          {zone !== "" && (
+          {zoneId !== "" && (
             <AgreementSelect
+              id="edit-company"
               label="Company"
               widthClass="min-w-[180px]"
-              options={ZONE_COMPANIES[zone] ?? []}
-              value={company}
-              onChange={(value) => choose({ ...EMPTY_SELECTION, zone, company: value })}
+              options={companies.map((company) => ({ value: company.id, label: company.name }))}
+              value={companyId}
+              onChange={(value) => choose(() => cascade.handleCompanyChange(value))}
             />
           )}
-          {record !== undefined && (
+          {companyId !== "" && (
             <AgreementSelect
+              id="edit-plant"
               label="Plant"
               widthClass="min-w-[150px]"
-              options={[record.plant === "" ? record.company : record.plant]}
-              value={plant}
-              onChange={(value) => choose({ zone, company, plant: value, scheme: "" })}
+              options={plants.map((plant) => ({ value: plant.id, label: plant.plantName }))}
+              value={plantId}
+              onChange={(value) => choose(() => cascade.handlePlantChange(value))}
             />
           )}
-          {plant !== "" && (
+          {plantId !== "" && mous.length > 0 && (
             <AgreementSelect
+              id="edit-scheme"
               label="Scheme"
               widthClass="min-w-[140px]"
-              options={SCHEMES}
-              value={scheme}
-              onChange={(value) => choose({ zone, company, plant, scheme: value })}
+              options={mous.map((mou) => ({ value: mou.mouId, label: schemeLabel(mou.scheme) }))}
+              value={mouId}
+              onChange={(value) => choose(() => cascade.setMouId(value))}
             />
           )}
-          {scheme !== "" && record !== undefined && (
-            <Button onClick={() => setOpened({ record, key: Date.now() })}>OK</Button>
-          )}
+          {mouId !== "" && <Button onClick={open}>OK</Button>}
         </div>
+        {plantId !== "" && mous.length === 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">No MoUs are recorded for this company plant.</p>
+        )}
       </Card>
 
-      {opened !== null && <AgreementEditor key={opened.key} record={opened.record} />}
+      {opened !== null && <AgreementEditor key={opened.key} mouId={opened.mouId} names={opened.names} />}
     </ScreenFrame>
   );
 }

@@ -7,6 +7,7 @@
  * performance requirement needed no new migration. Section 1's "is_current"
  * wording is SPEC-01's pre-D4 vocabulary for what this schema calls
  * `mou.is_active` (D4/D8's known gap, tracked in implementation_plan.md).
+ * Every query takes a SPEC-19 ZoneScope; the default `null` covers every zone.
  */
 
 import { SCHEMES } from "@mou/domain";
@@ -15,6 +16,7 @@ import { deriveStatus } from "@mou/domain";
 import { and, eq } from "drizzle-orm";
 import type { Pool } from "pg";
 
+import type { ZoneScope } from "../auth/zone-scope.ts";
 import type { Database } from "./client.ts";
 import { company, companyPlant, mou } from "./schema.ts";
 
@@ -36,7 +38,11 @@ export interface ZoneSummaryRow {
 }
 
 /** Section 2.1: one row per active zone, aggregated with FILTER clauses so a single query does the work. */
-export async function fetchZoneSummary(pool: Pool, filters: ZoneDashboardFilters): Promise<ZoneSummaryRow[]> {
+export async function fetchZoneSummary(
+  pool: Pool,
+  filters: ZoneDashboardFilters,
+  scope: ZoneScope = null,
+): Promise<ZoneSummaryRow[]> {
   const scheme = filters.scheme ?? null;
   const status = filters.status ?? null;
   const { rows } = await pool.query<{
@@ -78,9 +84,10 @@ export async function fetchZoneSummary(pool: Pool, filters: ZoneDashboardFilters
      LEFT JOIN company_plant cp ON cp.company_id = c.id AND cp.is_active
      LEFT JOIN scoped_mou sm ON sm.company_id = c.id
      WHERE z.is_active
+       AND ($3::uuid IS NULL OR z.id = $3)
      GROUP BY z.id, z.name
      ORDER BY z.name`,
-    [scheme, status],
+    [scheme, status, scope],
   );
 
   return rows.map((row) => ({
@@ -111,7 +118,11 @@ export interface SchemeMatrix {
 }
 
 /** Section 2.2: zone x scheme counts of current MOUs, with row/column totals. */
-export async function fetchSchemeMatrix(pool: Pool, filters: ZoneDashboardFilters): Promise<SchemeMatrix> {
+export async function fetchSchemeMatrix(
+  pool: Pool,
+  filters: ZoneDashboardFilters,
+  scope: ZoneScope = null,
+): Promise<SchemeMatrix> {
   const scheme = filters.scheme ?? null;
   const status = filters.status ?? null;
   const { rows } = await pool.query<{ zone_id: string; zone_name: string; scheme: string; count: string }>(
@@ -139,9 +150,10 @@ export async function fetchSchemeMatrix(pool: Pool, filters: ZoneDashboardFilter
      LEFT JOIN company c ON c.zone_id = z.id AND c.is_active
      LEFT JOIN scoped_mou sm ON sm.company_id = c.id
      WHERE z.is_active
+       AND ($3::uuid IS NULL OR z.id = $3)
      GROUP BY z.id, z.name, sm.scheme
      ORDER BY z.name`,
-    [scheme, status],
+    [scheme, status, scope],
   );
 
   const byZone = new Map<string, { zoneName: string; counts: Record<string, number> }>();
@@ -193,8 +205,12 @@ export async function fetchZoneDrillDown(
   today: string,
   zoneId: string,
   filters: ZoneDashboardFilters,
+  scope: ZoneScope = null,
 ): Promise<ZoneDrillDownRow[]> {
   const conditions = [eq(company.zoneId, zoneId), eq(company.isActive, true), eq(mou.isActive, true)];
+  if (scope !== null) {
+    conditions.push(eq(company.zoneId, scope));
+  }
   if (filters.scheme !== undefined) {
     conditions.push(eq(mou.scheme, filters.scheme));
   }

@@ -135,3 +135,44 @@ test("two Other rows with the same label are both rejected", () => {
   assert.ok(result.errors.otherItems?.[0]?.label);
   assert.ok(result.errors.otherItems?.[1]?.label);
 });
+
+// --- Optional per-category details (qualification, stipend rate) ------------------
+
+test("a record without traineeCategoryDetails stays valid (backward compatible)", () => {
+  assert.deepEqual(validate({ traineeCategoryDetails: undefined }).errors, {});
+});
+
+test("details for an existing category with a qualification and stipend rate are accepted", () => {
+  const result = validate({
+    traineeCategoryDetails: [{ categoryName: "category a", qualification: "ITI", stipendRate: "12000.50" }],
+  });
+  assert.deepEqual(result.errors, {});
+});
+
+test("blank qualification and stipend rate are treated as not given", () => {
+  const result = validate({
+    traineeCategoryDetails: [{ categoryName: "Category A", qualification: "", stipendRate: "" }],
+  });
+  assert.deepEqual(result.errors, {});
+});
+
+test("a malformed stipend rate is rejected with the shared money rule", () => {
+  const result = validate({
+    traineeCategoryDetails: [{ categoryName: "Category A", stipendRate: "12.345" }],
+  });
+  assert.ok(result.errors.traineeCategoryDetails?.[0]?.stipendRate);
+});
+
+test("a qualification longer than 150 characters is rejected", () => {
+  const result = validate({
+    traineeCategoryDetails: [{ categoryName: "Category A", qualification: "x".repeat(151) }],
+  });
+  assert.ok(result.errors.traineeCategoryDetails?.[0]?.qualification);
+});
+
+test("details naming a category that is not in traineeCategories are rejected", () => {
+  const result = validate({
+    traineeCategoryDetails: [{ categoryName: "Category Z", qualification: "ITI" }],
+  });
+  assert.ok(result.errors.traineeCategoryDetails?.[0]?.categoryName);
+});

@@ -1260,3 +1260,117 @@ test("SPEC-04 a final save that loses a GST race answers 409, not a generic 500"
   const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
   assert.equal(rows[0].c, 1);
 });
+
+// ---------------------------------------------------------------------------
+// SPEC-16 D107/D108 — optional per-charge period/basis and per-category
+// qualification/stipend rate on the final save
+// ---------------------------------------------------------------------------
+
+test("an optional chargeMeta persists each charge's period and basis", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page2: {
+      ...payload.page2,
+      charges: { ADMIN_CHARGES: "100", INSURANCE: "50" },
+      chargeMeta: {
+        ADMIN_CHARGES: { period: "MONTHLY", basis: "PER_TRAINEE_PER_MONTH" },
+        INSURANCE: { period: "", basis: "" },
+      },
+    },
+  }));
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 201);
+  const { companyId } = (await submitResponse.json()) as { companyId: string };
+  const mouId = await mouIdForCompany(companyId);
+
+  const { rows } = await pool.query<{
+    item_key: string;
+    period: string | null;
+    basis: string | null;
+  }>(
+    `SELECT item_key, period, basis FROM commercial_item WHERE mou_id = $1 ORDER BY item_key`,
+    [mouId],
+  );
+  assert.deepEqual(rows, [
+    { item_key: "ADMIN_CHARGES", period: "MONTHLY", basis: "PER_TRAINEE_PER_MONTH" },
+    { item_key: "INSURANCE", period: null, basis: null },
+  ]);
+});
+
+test("an unknown period code in chargeMeta blocks the save with a Page 2 error", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page2: {
+      ...payload.page2,
+      charges: { ADMIN_CHARGES: "100" },
+      chargeMeta: { ADMIN_CHARGES: { period: "WEEKLY" } },
+    },
+  }));
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 422);
+  const body = (await submitResponse.json()) as {
+    errors?: { chargeMeta?: Record<string, { period?: string }> };
+  };
+  assert.ok(body.errors?.chargeMeta?.["ADMIN_CHARGES"]?.period);
+
+  const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  assert.equal(rows[0].c, 0);
+});
+
+test("optional traineeCategoryDetails persist qualification and stipend rate", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page3: {
+      ...payload.page3,
+      traineeCategories: ["Category A", "Category B"],
+      traineeCategoryDetails: [
+        { categoryName: "category a", qualification: "ITI Fitter", stipendRate: "12000.5" },
+      ],
+    },
+  }));
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 201);
+  const { companyId } = (await submitResponse.json()) as { companyId: string };
+  const configId = await payrollConfigIdForMou(await mouIdForCompany(companyId));
+
+  const { rows } = await pool.query<{
+    category_name: string;
+    qualification: string | null;
+    stipend_rate: string | null;
+  }>(
+    `SELECT category_name, qualification, stipend_rate FROM trainee_category WHERE payroll_config_id = $1 ORDER BY category_name`,
+    [configId],
+  );
+  assert.deepEqual(rows, [
+    { category_name: "Category A", qualification: "ITI Fitter", stipend_rate: "12000.50" },
+    { category_name: "Category B", qualification: null, stipend_rate: null },
+  ]);
+});
+
+test("a malformed stipend rate in traineeCategoryDetails blocks the save with a Page 3 error", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page3: {
+      ...payload.page3,
+      traineeCategoryDetails: [{ categoryName: "Category A", stipendRate: "-5" }],
+    },
+  }));
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 422);
+  const body = (await submitResponse.json()) as {
+    errors?: { traineeCategoryDetails?: Array<{ stipendRate?: string } | null> };
+  };
+  assert.ok(body.errors?.traineeCategoryDetails?.[0]?.stipendRate);
+});

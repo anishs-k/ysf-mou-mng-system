@@ -23,6 +23,7 @@
 
 import { sql, type SQL } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -42,6 +43,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 import {
+  APPROVAL_STATUSES,
   COMMERCIAL_BASES,
   COMMERCIAL_ITEM_KEYS,
   COMMERCIAL_PERIODS,
@@ -80,14 +82,25 @@ export const user = pgTable(
   "user",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    username: varchar("username", { length: 50 }).notNull().unique(),
+    /** SPEC-20 D123: 255, because a signed-up user's username is their email. */
+    username: varchar("username", { length: 255 }).notNull().unique(),
     email: varchar("email", { length: 255 }).notNull().unique(),
     passwordHash: text("password_hash").notNull(),
     role: varchar("role", { length: 20 }).notNull(),
+    /** SPEC-19 D117: the one zone this user may see; NULL means every zone. */
+    zoneId: uuid("zone_id").references(() => zone.id, { onDelete: "restrict" }),
+    /** SPEC-20: only APPROVED users may sign in; the migration backfilled existing rows (D122). */
+    approvalStatus: varchar("approval_status", { length: 10 }).notNull().default("PENDING"),
+    fullName: varchar("full_name", { length: 150 }),
+    approvalDecidedBy: uuid("approval_decided_by").references((): AnyPgColumn => user.id, { onDelete: "restrict" }),
+    approvalDecidedAt: timestamp("approval_decided_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [check("user_role_chk", enumCheck("user_role_chk", "role", USER_ROLES))],
+  (t) => [
+    check("user_role_chk", enumCheck("user_role_chk", "role", USER_ROLES)),
+    check("user_approval_status_chk", enumCheck("user_approval_status_chk", "approval_status", APPROVAL_STATUSES)),
+  ],
 );
 
 /**
@@ -393,20 +406,31 @@ export const payrollItem = pgTable(
   ],
 );
 
-/** Section 5.9. Files are stored outside the web root; only the path is kept here. */
-export const mouDocument = pgTable("mou_document", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  mouId: uuid("mou_id")
-    .notNull()
-    .references(() => mou.id, { onDelete: "restrict" }),
-  filePath: text("file_path").notNull(),
-  originalFilename: varchar("original_filename", { length: 255 }).notNull(),
-  fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
-  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
-  uploadedBy: uuid("uploaded_by")
-    .notNull()
-    .references(() => user.id, { onDelete: "restrict" }),
-});
+/**
+ * Section 5.9. Files are stored outside the web root; only the path is kept here.
+ * The Upload MoU screen also captures the document's own date, validity and
+ * reference number - all optional, so rows uploaded before them stay valid.
+ */
+export const mouDocument = pgTable(
+  "mou_document",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mouId: uuid("mou_id")
+      .notNull()
+      .references(() => mou.id, { onDelete: "restrict" }),
+    filePath: text("file_path").notNull(),
+    originalFilename: varchar("original_filename", { length: 255 }).notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    documentDate: date("document_date"),
+    validUntil: date("valid_until"),
+    referenceNumber: varchar("reference_number", { length: 100 }),
+  },
+  () => [check("mou_document_valid_until_chk", sql.raw("valid_until >= document_date"))],
+);
 
 /** Section 5.10. Append-only - no UPDATE or DELETE path exists at any role. */
 export const agreementHistory = pgTable(

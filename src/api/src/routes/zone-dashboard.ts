@@ -11,6 +11,7 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
 import { requireSession } from "../auth/middleware.ts";
+import { zoneScopeOf } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { businessToday } from "../db/mou-view.ts";
 import {
@@ -62,9 +63,10 @@ export function createZoneDashboardRouter(db: Database, pool: Pool): Router {
         return;
       }
 
+      const scope = zoneScopeOf(request);
       const [summary, matrix] = await Promise.all([
-        fetchZoneSummary(pool, filters),
-        fetchSchemeMatrix(pool, filters),
+        fetchZoneSummary(pool, filters, scope),
+        fetchSchemeMatrix(pool, filters, scope),
       ]);
 
       const totals = summary.reduce(
@@ -111,7 +113,7 @@ export function createZoneDashboardRouter(db: Database, pool: Pool): Router {
       }
 
       const today = await businessToday(pool);
-      const rows = await fetchZoneDrillDown(db, today, zoneId, filters);
+      const rows = await fetchZoneDrillDown(db, today, zoneId, filters, zoneScopeOf(request));
       response.json(rows);
     },
   );

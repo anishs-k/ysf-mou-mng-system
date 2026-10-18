@@ -1,8 +1,8 @@
 /**
  * Purpose: Playwright configuration for the visual-parity suite that compares the
  * static clone in @mou/web against the Figma prototype pixel by pixel. Kept apart
- * from playwright.config.ts because it needs no API, no database and no global
- * setup - only the web dev server. Baseline screenshots of the prototype live in
+ * from playwright.config.ts because it needs no global setup and never wipes the
+ * database; it boots the API only because sign-in is checked there. Baseline screenshots of the prototype live in
  * tests/testdata/figma-baseline and are (re)captured with `npm run test:visual:baseline`.
  *
  * VISUAL_BROWSER_CHANNEL lets a machine whose bundled Chromium is missing reuse an
@@ -13,6 +13,7 @@
 import { defineConfig } from "@playwright/test";
 
 const WEB_URL = "http://localhost:5173";
+const API_HEALTH_URL = "http://127.0.0.1:3001/api/zones";
 const channel = process.env["VISUAL_BROWSER_CHANNEL"];
 
 export default defineConfig({
@@ -31,11 +32,20 @@ export default defineConfig({
     deviceScaleFactor: 1,
     ...(channel === undefined ? {} : { channel }),
   },
-  webServer: {
-    command: "npm run dev --workspace=@mou/web",
-    url: WEB_URL,
-    reuseExistingServer: process.env["CI"] === undefined,
-    timeout: 120_000,
-    stdout: "pipe",
-  },
+  webServer: [
+    {
+      command: "npm run dev --workspace=@mou/api",
+      url: API_HEALTH_URL,
+      reuseExistingServer: process.env["CI"] === undefined,
+      timeout: 120_000,
+      stdout: "pipe",
+    },
+    {
+      command: "npm run dev --workspace=@mou/web",
+      url: WEB_URL,
+      reuseExistingServer: process.env["CI"] === undefined,
+      timeout: 120_000,
+      stdout: "pipe",
+    },
+  ],
 });

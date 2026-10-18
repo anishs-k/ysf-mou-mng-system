@@ -21,10 +21,12 @@ import {
   validatePayrollDetails,
 } from "@mou/domain";
 import type {
+  ChargeMeta,
   CommercialDetails,
   OtherChargeRow,
   PayrollDetails,
   PayrollItemAnswer,
+  TraineeCategoryDetail,
 } from "@mou/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Router } from "express";
@@ -33,9 +35,15 @@ import multer from "multer";
 import type { Pool } from "pg";
 
 import { requireAuth, requireSession } from "../auth/middleware.ts";
+import { OUT_OF_ZONE_MESSAGE, emptyList, requireInScope, zoneAllowed, zoneScopeOf } from "../auth/zone-scope.ts";
 import { allocateCompanyCode } from "../db/company-code-repository.ts";
 import type { Database } from "../db/client.ts";
-import { readJsonField, UUID_PATTERN } from "./request-parse.ts";
+import {
+  asArray,
+  asRecord,
+  readJsonField,
+  UUID_PATTERN,
+} from "./request-parse.ts";
 import {
   company,
   companyDraft,
@@ -108,6 +116,12 @@ function firstRow<T>(rows: T[]): T {
   return row;
 }
 
+/** An optional text field: trimmed, and blank stored as NULL. */
+function blankToNull(value: string | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 /** PostgreSQL SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = "23505";
 
@@ -163,30 +177,34 @@ function describeUniqueConflict(error: unknown): string | undefined {
 
 export function createCompaniesRouter(db: Database, pool: Pool): Router {
   const router = Router();
+  const requireAuthSession = requireSession(pool);
 
   // --------------------------------------------------------------------------
-  // Existing SPEC-01 route — unchanged
+  // Existing SPEC-01 route — SPEC-19 adds the session and the zone scope
   // --------------------------------------------------------------------------
-  router.get("/companies/:id/plants", async (request, response) => {
-    const id = String(request.params["id"] ?? "");
-    if (!UUID_PATTERN.test(id)) {
-      response.status(400).json({ error: "id must be a UUID" });
-      return;
-    }
+  router.get(
+    "/companies/:id/plants",
+    requireAuthSession,
+    requireInScope(pool, "company", "id", emptyList),
+    async (request, response) => {
+      const id = String(request.params["id"] ?? "");
+      if (!UUID_PATTERN.test(id)) {
+        response.status(400).json({ error: "id must be a UUID" });
+        return;
+      }
 
-    const plants = await db
-      .select({ id: companyPlant.id, plantName: companyPlant.plantName })
-      .from(companyPlant)
-      .where(eq(companyPlant.companyId, id));
+      const plants = await db
+        .select({ id: companyPlant.id, plantName: companyPlant.plantName })
+        .from(companyPlant)
+        .where(eq(companyPlant.companyId, id));
 
-    response.json(plants);
-  });
+      response.json(plants);
+    },
+  );
 
   // --------------------------------------------------------------------------
   // SPEC-03 draft routes — require session
   // --------------------------------------------------------------------------
-
-  const requireAuthSession = requireSession(pool);
 
   /** POST /api/companies/draft — create or update the current user's draft. */
   router.post(
@@ -446,6 +464,12 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
 
       const { errors, warnings } = validateCompanyDetails(details);
 
+      // SPEC-19 section 4.4: a zonal user may only onboard into their own zone.
+      const requestedZone = String(details["zoneId"] ?? "").trim();
+      if (errors["zoneId"] === undefined && requestedZone !== "" && !zoneAllowed(zoneScopeOf(request), requestedZone)) {
+        errors["zoneId"] = OUT_OF_ZONE_MESSAGE;
+      }
+
       // GST uniqueness — only worth a query once the format itself is sound.
       const gstNumber = String(details["gstNumber"] ?? "").trim();
       if (errors["gstNumber"] === undefined && gstNumber !== "") {
@@ -596,6 +620,10 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         response.status(422).json({ error: "Invalid zone" });
         return;
       }
+      if (!zoneAllowed(zoneScopeOf(request), zoneId)) {
+        response.status(422).json({ error: "Page 1 is not valid", errors: { zoneId: OUT_OF_ZONE_MESSAGE } });
+        return;
+      }
 
       // SPEC-04 section 4: Page 1 must be complete and valid before a single row
       // is written. gst_number is UNIQUE, so defaulting a missing GST to "" let
@@ -636,6 +664,18 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         amount: String(row["amount"] ?? ""),
         itemType: String(row["itemType"] ?? ""),
       }));
+      // Optional per-charge period/basis (SPEC-16 D108); a draft written before
+      // this field existed simply has none.
+      const chargeMeta: Record<string, ChargeMeta> = {};
+      for (const [key, value] of Object.entries(
+        asRecord(readJsonField<unknown>(page2, "chargeMeta")),
+      )) {
+        const meta = asRecord(value);
+        chargeMeta[key] = {
+          period: String(meta["period"] ?? ""),
+          basis: String(meta["basis"] ?? ""),
+        };
+      }
       const mouDocumentMeta = readJsonField<{
         originalFilename?: unknown;
         fileSizeBytes?: unknown;
@@ -653,6 +693,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         stipendDate: String(readJsonField<unknown>(page2, "stipendDate") ?? ""),
         charges,
         otherItems,
+        chargeMeta,
         hasMouDocument: mouDocumentMeta !== undefined,
       };
 
@@ -697,6 +738,17 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
       const traineeCategories = traineeCategoriesRaw.map((value) =>
         String(value ?? ""),
       );
+      // Optional per-category qualification / stipend rate (SPEC-16 D107).
+      const traineeCategoryDetails: TraineeCategoryDetail[] = asArray(
+        readJsonField<unknown>(page3, "traineeCategoryDetails"),
+      ).map((value) => {
+        const detail = asRecord(value);
+        return {
+          categoryName: String(detail["categoryName"] ?? ""),
+          qualification: String(detail["qualification"] ?? ""),
+          stipendRate: String(detail["stipendRate"] ?? ""),
+        };
+      });
       const payrollItemsRaw =
         readJsonField<Record<string, Record<string, unknown>>>(
           page3,
@@ -726,6 +778,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
       const payrollDetails: PayrollDetails = {
         scheme,
         traineeCategories,
+        traineeCategoryDetails,
         items: payrollItemAnswers,
         otherItems: payrollOtherItems,
       };
@@ -827,6 +880,8 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
               itemKey: key,
               amount: raw,
               itemType: COMMERCIAL_ITEM_BY_KEY[key].itemType ?? "DEDUCTION",
+              period: blankToNull(chargeMeta[key]?.period),
+              basis: blankToNull(chargeMeta[key]?.basis),
             });
           }
           for (const row of otherItems) {
@@ -857,12 +912,24 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
           const configId = firstRow(configRow).id;
 
           // 6. Insert trainee categories - already validated above (AC5/AC6:
-          // at least one, unique case-insensitively).
+          // at least one, unique case-insensitively), each with its optional
+          // details matched by name.
+          const detailByName = new Map(
+            traineeCategoryDetails.map((detail) => [
+              detail.categoryName.trim().toLowerCase(),
+              detail,
+            ]),
+          );
           await tx.insert(traineeCategory).values(
-            traineeCategories.map((categoryName) => ({
-              payrollConfigId: configId,
-              categoryName: categoryName.trim(),
-            })),
+            traineeCategories.map((categoryName) => {
+              const detail = detailByName.get(categoryName.trim().toLowerCase());
+              return {
+                payrollConfigId: configId,
+                categoryName: categoryName.trim(),
+                qualification: blankToNull(detail?.qualification),
+                stipendRate: blankToNull(detail?.stipendRate),
+              };
+            }),
           );
 
           // 7. Insert payroll items - exactly one row per fixed key, always

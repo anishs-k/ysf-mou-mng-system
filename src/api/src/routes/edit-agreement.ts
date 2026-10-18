@@ -36,6 +36,7 @@ import {
   requireRole,
   requireSession,
 } from "../auth/middleware.ts";
+import { notFoundError, requireInScope } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import {
   deriveCommercialItemRows,
@@ -95,6 +96,7 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
     "/mous/:mouId/edit-request",
     requireAuthSession,
     requireAdmin,
+    requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     (request: Request, response: Response, next: NextFunction) => {
       proofUpload.single("proof")(request, response, (error: unknown) => {
         if (error === undefined || error === null) {
@@ -212,6 +214,7 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
     "/mous/:mouId",
     requireAuthSession,
     requireAdmin,
+    requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
       const mouId = String(request.params["mouId"] ?? "");

@@ -23,6 +23,7 @@ import {
   insertCommercialItem,
   insertCompany,
   insertMou,
+  insertMouEndingIn,
   insertPlant,
   insertUserWithPassword,
   insertZone,
@@ -400,4 +401,230 @@ test("an export whose file has been deleted from disk answers 404, not a crash",
   assert.equal(response.status, 404);
   const body = (await response.json()) as { error: string };
   assert.equal(body.error, "Export file missing");
+});
+
+// ---------------------------------------------------------------------------
+// List-screen additions: optional by/q, scheme, EXPIRING, start-date range,
+// pageSize, YYYY-MM-DD dates and the HR contact on every row.
+// ---------------------------------------------------------------------------
+
+interface ListRow {
+  mouId: string;
+  companyId: string;
+  companyName: string;
+  scheme: string;
+  mouStartDate: string;
+  endDate: string;
+  status: string;
+  hrContactName: string;
+  hrContactNumber: string;
+}
+
+interface ListBody {
+  rows: ListRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+async function search(
+  cookie: string,
+  query: string,
+): Promise<{ status: number; body: ListBody }> {
+  const response = await fetch(`${baseUrl}/api/search${query}`, {
+    headers: { Cookie: cookie },
+  });
+  return { status: response.status, body: (await response.json()) as ListBody };
+}
+
+let seedSequence = 0;
+
+/** One company in its own zone with one plant and one MoU. */
+async function seedCompanyWithMou(
+  companyName: string,
+  options: { scheme?: string; startDate?: string } = {},
+): Promise<{ companyId: string; mouId: string }> {
+  seedSequence += 1;
+  const zoneId = await insertZone(pool, `Z${seedSequence}`, `Zone ${seedSequence}`);
+  const creator = await insertUserWithPassword(pool, {
+    username: `seed${seedSequence}`,
+    password: "pass",
+  });
+  const companyId = await insertCompany(pool, zoneId, creator.id, {
+    companyName,
+  });
+  const plantId = await insertPlant(pool, companyId);
+  const mouId = await insertMou(pool, companyId, plantId, {
+    scheme: options.scheme ?? "WILP",
+    startDate: options.startDate ?? "2026-01-01",
+  });
+  return { companyId, mouId };
+}
+
+test("search with no filters lists every active MoU, paginated", async () => {
+  await seedCompanyWithMou("Alpha Co");
+  await seedCompanyWithMou("Beta Co");
+  await seedCompanyWithMou("Gamma Co");
+  const cookie = await viewerCookie();
+
+  const all = await search(cookie, "");
+  assert.equal(all.status, 200);
+  assert.equal(all.body.total, 3);
+  assert.equal(all.body.pageSize, 25);
+
+  const paged = await search(cookie, "?pageSize=2&page=2");
+  assert.equal(paged.status, 200);
+  assert.equal(paged.body.total, 3);
+  assert.equal(paged.body.pageSize, 2);
+  assert.deepEqual(
+    paged.body.rows.map((row) => row.companyName),
+    ["Gamma Co"],
+  );
+});
+
+test("search rows carry YYYY-MM-DD dates, companyId and the HR contact", async () => {
+  const { companyId } = await seedCompanyWithMou("Dated Co", {
+    startDate: "2026-03-15",
+  });
+  const cookie = await viewerCookie();
+
+  const { body } = await search(cookie, "");
+  const row = body.rows[0];
+  assert.ok(row !== undefined);
+  assert.equal(row.mouStartDate, "2026-03-15");
+  assert.equal(row.endDate, "2027-03-14");
+  assert.equal(row.companyId, companyId);
+  assert.equal(row.hrContactName, "HR Name");
+  assert.equal(row.hrContactNumber, "9876543210");
+});
+
+test("the scheme filter combines with a company query", async () => {
+  const zoneId = await insertZone(pool);
+  const creator = await insertUserWithPassword(pool, {
+    username: "schemecreator",
+    password: "pass",
+  });
+  const companyId = await insertCompany(pool, zoneId, creator.id, {
+    companyName: "Combo Works",
+  });
+  const plantId = await insertPlant(pool, companyId);
+  await insertMou(pool, companyId, plantId, { scheme: "WILP" });
+  await insertMou(pool, companyId, plantId, { scheme: "NAPS" });
+  await seedCompanyWithMou("Unrelated Co", { scheme: "NAPS" });
+  const cookie = await viewerCookie();
+
+  const { status, body } = await search(
+    cookie,
+    "?by=company&q=Combo&scheme=NAPS",
+  );
+  assert.equal(status, 200);
+  assert.equal(body.total, 1);
+  assert.equal(body.rows[0]?.scheme, "NAPS");
+  assert.equal(body.rows[0]?.companyName, "Combo Works");
+
+  assert.equal((await search(cookie, "?scheme=NOT_A_SCHEME")).status, 422);
+});
+
+test("status=EXPIRING selects MoUs ending within the dashboard's 90-day window; rows keep their derived status", async () => {
+  const zoneId = await insertZone(pool);
+  const creator = await insertUserWithPassword(pool, {
+    username: "expcreator",
+    password: "pass",
+  });
+  const companyId = await insertCompany(pool, zoneId, creator.id, {
+    companyName: "Expiry Co",
+  });
+  const plantId = await insertPlant(pool, companyId);
+  const soon = await insertMouEndingIn(pool, companyId, plantId, 10, {
+    scheme: "WILP",
+  });
+  const edge = await insertMouEndingIn(pool, companyId, plantId, 90, {
+    scheme: "NAPS",
+  });
+  await insertMouEndingIn(pool, companyId, plantId, 91, { scheme: "NATS" });
+  await insertMouEndingIn(pool, companyId, plantId, -1, { scheme: "FLEXI" });
+  const cookie = await viewerCookie();
+
+  const { status, body } = await search(cookie, "?status=EXPIRING");
+  assert.equal(status, 200);
+  assert.deepEqual(
+    body.rows.map((row) => row.mouId).sort(),
+    [soon, edge].sort(),
+  );
+  assert.ok(body.rows.every((row) => row.status === "ACTIVE"));
+
+  // Same definition as the Dashboard "Expiring Soon" KPI, so the numbers agree.
+  const summary = await fetch(`${baseUrl}/api/dashboard/summary`, {
+    headers: { Cookie: cookie },
+  });
+  const kpis = (await summary.json()) as { expiringSoon: number };
+  assert.equal(kpis.expiringSoon, body.total);
+});
+
+test("startFrom/startTo filter on the MoU start date, inclusive", async () => {
+  await seedCompanyWithMou("Jan Co", { startDate: "2026-01-01" });
+  await seedCompanyWithMou("Feb Co", { startDate: "2026-02-15" });
+  await seedCompanyWithMou("Mar Co", { startDate: "2026-03-31" });
+  const cookie = await viewerCookie();
+
+  const { status, body } = await search(
+    cookie,
+    "?startFrom=2026-02-15&startTo=2026-03-31",
+  );
+  assert.equal(status, 200);
+  assert.deepEqual(
+    body.rows.map((row) => row.companyName),
+    ["Feb Co", "Mar Co"],
+  );
+
+  assert.equal((await search(cookie, "?startFrom=2026-02-30")).status, 422);
+  assert.equal(
+    (await search(cookie, "?startFrom=2026-03-01&startTo=2026-02-01")).status,
+    422,
+  );
+});
+
+test("an out-of-range pageSize is rejected", async () => {
+  const cookie = await viewerCookie();
+  assert.equal((await search(cookie, "?pageSize=101")).status, 400);
+});
+
+test("the Expiry Report is the Excel export with status=EXPIRING, combinable with scheme", async () => {
+  const zoneId = await insertZone(pool);
+  const creator = await insertUserWithPassword(pool, {
+    username: "reportcreator",
+    password: "pass",
+  });
+  const companyId = await insertCompany(pool, zoneId, creator.id, {
+    companyName: "Report Co",
+  });
+  const plantId = await insertPlant(pool, companyId);
+  await insertMouEndingIn(pool, companyId, plantId, 5, { scheme: "WILP" });
+  await insertMouEndingIn(pool, companyId, plantId, 5, { scheme: "NAPS" });
+  await insertMouEndingIn(pool, companyId, plantId, 200, { scheme: "NATS" });
+  const cookie = await viewerCookie();
+
+  const exportResponse = await fetch(
+    `${baseUrl}/api/export/excel?status=EXPIRING&scheme=WILP`,
+    { headers: { Cookie: cookie } },
+  );
+  assert.equal(exportResponse.status, 202);
+  const { jobId } = (await exportResponse.json()) as { jobId: string };
+  const buffer = await downloadReadyExport(jobId, cookie);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as never);
+  const mousSheet = workbook.getWorksheet("MOUs");
+  assert.ok(mousSheet !== undefined);
+  assert.equal(mousSheet.rowCount, 2); // header + the one WILP MoU ending in 5 days
+
+  // Real date cells, now that the shared query returns YYYY-MM-DD text.
+  const headers = mousSheet.getRow(1).values as unknown[];
+  const startCol = headers.findIndex((v) => v === "MOU Start Date");
+  const startValue = mousSheet.getRow(2).getCell(startCol).value;
+  assert.ok(startValue instanceof Date && !Number.isNaN(startValue.getTime()));
+
+  const badFilter = await fetch(`${baseUrl}/api/export/excel?startTo=nope`, {
+    headers: { Cookie: cookie },
+  });
+  assert.equal(badFilter.status, 422);
 });

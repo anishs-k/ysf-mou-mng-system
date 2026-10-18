@@ -42,6 +42,24 @@ export const SCREENS: readonly Screen[] = [
 /** Screens implemented so far; every screen of the prototype is cloned. */
 export const CLONED_SCREENS: ReadonlySet<string> = new Set(SCREENS.map((screen) => screen.name));
 
+/**
+ * Screens whose figures now come from the database, so they can no longer match
+ * the prototype's fixed numbers pixel for pixel. Their behaviour is covered by
+ * the src/ui/*-api.spec.ts UI tests instead.
+ */
+export const DATA_DRIVEN_SCREENS: ReadonlySet<string> = new Set([
+  "login",
+  "dashboard",
+  "add-new-company",
+  "zone-dashboard",
+  "mou-expiry-alert",
+  "upload-mou",
+  "edit-agreement",
+  "existing-company",
+  "agreement-history",
+  "export",
+]);
+
 export async function freezeClock(page: Page): Promise<void> {
   await page.clock.setFixedTime(FROZEN_TIME);
 }

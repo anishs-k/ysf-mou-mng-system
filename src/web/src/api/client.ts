@@ -16,17 +16,42 @@ export interface AuthUser {
   readonly userId: string;
   readonly username: string;
   readonly role: UserRole;
+  /** SPEC-19: the zone this user is restricted to; null means every zone. */
+  readonly zoneId: string | null;
 }
 
 export type LoginResult =
   | { readonly ok: true; readonly user: AuthUser }
   | { readonly ok: false; readonly message: string };
 
+// TEMP: data-API kill switch. While true, only auth endpoints reach the server;
+// every other call gets a fake 503 so screens show what they render without DB
+// data. Set to false to restore normal behaviour.
+const DATA_APIS_DISABLED = false;
+const ALWAYS_ALLOWED_PREFIXES = ["/api/auth/"];
+
+// TEMP: data-API kill switch. Every outgoing call funnels through here.
+function apiFetch(path: string, init: RequestInit): Promise<Response> {
+  if (
+    DATA_APIS_DISABLED &&
+    !ALWAYS_ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix))
+  ) {
+    console.warn(`[data-API kill switch] blocked ${init.method ?? "GET"} ${path}`);
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({ error: "Data APIs are temporarily disabled" }),
+        { status: 503, headers: { "content-type": "application/json" } },
+      ),
+    );
+  }
+  return fetch(`${API_BASE_URL}${path}`, init);
+}
+
 async function request(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  return fetch(`${API_BASE_URL}${path}`, {
+  return apiFetch(path, {
     ...init,
     credentials: "include",
     headers: { "content-type": "application/json", ...init.headers },
@@ -77,6 +102,80 @@ export async function logout(): Promise<void> {
   await request("/api/auth/logout", { method: "POST" });
 }
 
+/** SPEC-20 D127: active zones for the anonymous sign-up form. */
+export async function fetchSignUpZones(): Promise<readonly { id: string; name: string }[]> {
+  const response = await request("/api/public/zones");
+  if (!response.ok) {
+    throw new Error(`GET /api/public/zones failed with status ${response.status}`);
+  }
+  return (await response.json()) as { id: string; name: string }[];
+}
+
+export interface SignUpDetails {
+  readonly email: string;
+  readonly password: string;
+  readonly fullName: string;
+  readonly zoneId: string;
+}
+
+export type SignUpResult =
+  | { readonly ok: true; readonly message: string }
+  | { readonly ok: false; readonly message: string; readonly errors: Readonly<Record<string, string>> };
+
+/** POST /api/auth/signup — SPEC-20 section 3. Field errors come back keyed by field. */
+export async function signUp(details: SignUpDetails): Promise<SignUpResult> {
+  const response = await request("/api/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(details),
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    message?: string;
+    error?: string;
+    errors?: Record<string, string>;
+    retryAfterSeconds?: number;
+  };
+  if (response.ok) {
+    return { ok: true, message: body.message ?? "Sign-up received." };
+  }
+  if (body.retryAfterSeconds !== undefined) {
+    const minutes = Math.max(1, Math.ceil(body.retryAfterSeconds / 60));
+    return { ok: false, message: `Too many sign-up requests. Try again in ${minutes} minute(s).`, errors: {} };
+  }
+  return { ok: false, message: body.error ?? "Could not submit the sign-up.", errors: body.errors ?? {} };
+}
+
+export interface PendingUser {
+  readonly userId: string;
+  readonly email: string;
+  readonly fullName: string | null;
+  readonly zoneId: string | null;
+  readonly zoneName: string | null;
+  readonly requestedAt: string;
+}
+
+/** GET /api/admin/users/pending — SPEC-20 section 5.1, super admin only. */
+export async function fetchPendingUsers(): Promise<readonly PendingUser[]> {
+  const response = await request("/api/admin/users/pending");
+  if (!response.ok) {
+    throw new Error(`GET /api/admin/users/pending failed with status ${response.status}`);
+  }
+  return (await response.json()) as PendingUser[];
+}
+
+export type ApprovalDecision = { readonly decision: "APPROVE"; readonly role: "DATA_ENTRY" | "VIEWER" } | { readonly decision: "REJECT" };
+
+/** POST /api/admin/users/:userId/decision — SPEC-20 section 5.2. Rejects with the API's message. */
+export async function decideUser(userId: string, decision: ApprovalDecision): Promise<void> {
+  const response = await request(`/api/admin/users/${userId}/decision`, {
+    method: "POST",
+    body: JSON.stringify(decision),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Deciding the request failed with status ${response.status}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SPEC-03 wizard draft endpoints
 // ---------------------------------------------------------------------------
@@ -91,6 +190,31 @@ export interface Draft {
   readonly currentPage: number;
 }
 
+/**
+ * A refused request that kept the server's answer: its `error` message, the HTTP
+ * status, and - for a 422 on final save - the per-field `errors` of the page that
+ * failed, so the wizard can mark those fields instead of showing a bare status.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly errors: Readonly<Record<string, unknown>> | undefined;
+
+  constructor(message: string, status: number, errors?: Readonly<Record<string, unknown>>) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.errors = errors;
+  }
+}
+
+async function apiError(response: Response, fallback: string): Promise<ApiError> {
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: string;
+    errors?: Record<string, unknown>;
+  };
+  return new ApiError(body.error ?? fallback, response.status, body.errors);
+}
+
 export async function saveDraft(
   payload: Draft["payload"],
   currentPage: number,
@@ -100,7 +224,8 @@ export async function saveDraft(
     body: JSON.stringify({ payload, currentPage }),
   });
   if (!response.ok) {
-    throw new Error(
+    throw await apiError(
+      response,
       `POST /api/companies/draft failed with status ${response.status}`,
     );
   }
@@ -139,7 +264,8 @@ export async function submitCompany(
     body: JSON.stringify({ draftId }),
   });
   if (!response.ok) {
-    throw new Error(
+    throw await apiError(
+      response,
       `POST /api/companies failed with status ${response.status}`,
     );
   }
@@ -188,6 +314,11 @@ export interface EnumsResponse {
   readonly schemes: readonly EnumOption[];
   readonly commercialItems: readonly CommercialItemOption[];
   readonly payrollItems: readonly PayrollItemOption[];
+  /** SPEC-16 D107 / D108 lists, served by the same endpoint. */
+  readonly sectors: readonly EnumOption[];
+  readonly commercialPeriods: readonly EnumOption[];
+  readonly commercialBases: readonly EnumOption[];
+  readonly tenureUnits: readonly EnumOption[];
 }
 
 export interface ZoneOption {
@@ -285,8 +416,9 @@ export async function uploadMouDocument(
   const body = new FormData();
   body.append("file", file);
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/companies/draft/${draftId}/mou-document`,
+  // TEMP: data-API kill switch (was fetch with `${API_BASE_URL}` prefix).
+  const response = await apiFetch(
+    `/api/companies/draft/${draftId}/mou-document`,
     {
       method: "POST",
       credentials: "include",
@@ -330,12 +462,29 @@ export async function fetchZoneCompanies(
 export interface CompanyOverview {
   readonly id: string;
   readonly companyName: string;
+  /** Enum codes - shown through the @mou/domain *_LABELS maps. */
+  readonly companyType: string;
+  readonly sector: string;
+  readonly registrationType: string;
+  readonly tanNumber: string;
   readonly gstNumber: string;
   readonly zoneId: string;
+  readonly zoneName: string;
+  readonly addressLine1: string;
+  readonly addressLine2: string | null;
+  readonly city: string;
+  readonly pinCode: string;
+  readonly district: string;
+  readonly state: string;
+  readonly contactType: string;
   readonly hrContactName: string;
   readonly hrContactNumber: string;
   readonly financeHeadContactName: string;
   readonly financeHeadContactNumber: string;
+  readonly officialEmail: string;
+  readonly purchaseName: string | null;
+  readonly purchaseNumber: string | null;
+  readonly purchaseEmail: string | null;
   readonly plants: readonly {
     readonly id: string;
     readonly plantName: string;
@@ -352,6 +501,31 @@ export async function fetchCompanyOverview(
     );
   }
   return (await response.json()) as CompanyOverview;
+}
+
+/** One of a company's MoUs, active or superseded (isActive false). */
+export interface CompanyAgreementRow {
+  readonly mouId: string;
+  readonly generatedCode: string;
+  readonly scheme: string;
+  readonly plantName: string | null;
+  readonly mouStartDate: string;
+  readonly endDate: string;
+  readonly status: "ACTIVE" | "EXPIRED" | "NEW";
+  readonly isActive: boolean;
+}
+
+/** Every MoU the company has held, newest start date first. */
+export async function fetchCompanyAgreements(
+  companyId: string,
+): Promise<readonly CompanyAgreementRow[]> {
+  const response = await request(`/api/companies/${companyId}/agreements`);
+  if (!response.ok) {
+    throw new Error(
+      `GET /api/companies/${companyId}/agreements failed with status ${response.status}`,
+    );
+  }
+  return (await response.json()) as readonly CompanyAgreementRow[];
 }
 
 export interface CompanyMouOption {
@@ -378,6 +552,9 @@ export interface MouChargeRow {
   readonly itemKey: string;
   readonly label: string;
   readonly amount: string | null;
+  /** SPEC-16 D108 period / basis codes; null when not given. */
+  readonly period: string | null;
+  readonly basis: string | null;
 }
 
 export interface MouOtherItemRow {
@@ -388,6 +565,8 @@ export interface MouOtherItemRow {
 
 export interface MouCommercialDetail {
   readonly mouId: string;
+  /** SPEC-16 D109: the generated code belongs to the MOU. */
+  readonly generatedCode: string;
   readonly companyId: string;
   readonly companyPlantId: string | null;
   readonly scheme: string;
@@ -455,8 +634,14 @@ export function mouPrintUrl(mouId: string): string {
 // SPEC-08 MOU Expiry Alerts
 // ---------------------------------------------------------------------------
 
+/**
+ * One row per MoU, listed live from its end date. `alertId` is null until a
+ * mou_alert row exists for the MoU; acknowledging such a row goes through
+ * acknowledgeMouAlerts(mouId) instead of acknowledgeAlert(alertId).
+ */
 export interface AlertRow {
-  readonly alertId: string;
+  readonly alertId: string | null;
+  readonly mouId: string;
   readonly companyId: string;
   readonly companyName: string;
   readonly generatedCode: string;
@@ -528,6 +713,18 @@ export async function acknowledgeAlert(alertId: string): Promise<void> {
   }
 }
 
+/** Acknowledges a MoU's expiry alert when no mou_alert row exists for it yet. */
+export async function acknowledgeMouAlerts(mouId: string): Promise<void> {
+  const response = await request(`/api/mous/${mouId}/alerts/acknowledge`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `POST /api/mous/${mouId}/alerts/acknowledge failed with status ${response.status}`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // SPEC-09 Upload MOU PDF (standalone)
 // ---------------------------------------------------------------------------
@@ -549,12 +746,35 @@ export async function fetchCompanyPlants(
   return (await response.json()) as readonly CompanyPlantOption[];
 }
 
+/** The optional details captured with a document; each is omitted when blank. */
+export interface MouDocumentDetails {
+  /** YYYY-MM-DD */
+  readonly documentDate?: string;
+  /** YYYY-MM-DD */
+  readonly validUntil?: string;
+  readonly referenceNumber?: string;
+}
+
 export interface MouDocumentRow {
   readonly id: string;
   readonly originalFilename: string;
   readonly fileSizeBytes: number;
   readonly uploadedAt: string;
   readonly uploadedByUsername: string;
+  /** Absent from servers that predate the document-details fields. */
+  readonly documentDate?: string | null;
+  readonly validUntil?: string | null;
+  readonly referenceNumber?: string | null;
+}
+
+/** The 201 body of POST /api/mous/:mouId/document. */
+export interface UploadedMouDocument {
+  readonly id: string;
+  readonly originalFilename: string;
+  readonly fileSizeBytes: number;
+  readonly documentDate?: string | null;
+  readonly validUntil?: string | null;
+  readonly referenceNumber?: string | null;
 }
 
 export async function fetchMouDocuments(
@@ -577,11 +797,18 @@ export async function fetchMouDocuments(
 export async function uploadMouDocumentToMou(
   mouId: string,
   file: File,
-): Promise<void> {
+  details: MouDocumentDetails = {},
+): Promise<UploadedMouDocument> {
   const body = new FormData();
   body.append("file", file);
+  for (const [field, value] of Object.entries(details)) {
+    if (typeof value === "string" && value.trim() !== "") {
+      body.append(field, value.trim());
+    }
+  }
 
-  const response = await fetch(`${API_BASE_URL}/api/mous/${mouId}/document`, {
+  // TEMP: data-API kill switch (was fetch with `${API_BASE_URL}` prefix).
+  const response = await apiFetch(`/api/mous/${mouId}/document`, {
     method: "POST",
     credentials: "include",
     body,
@@ -595,6 +822,7 @@ export async function uploadMouDocumentToMou(
       errorBody.error ?? `Upload failed with status ${response.status}`,
     );
   }
+  return (await response.json()) as UploadedMouDocument;
 }
 
 /** A plain link href, not a fetch - opened in a new tab so the browser handles the PDF. */
@@ -663,8 +891,9 @@ export async function requestEditToken(
     body.append("proof", proof);
   }
 
-  const response = await fetch(
-    `${API_BASE_URL}/api/mous/${mouId}/edit-request`,
+  // TEMP: data-API kill switch (was fetch with `${API_BASE_URL}` prefix).
+  const response = await apiFetch(
+    `/api/mous/${mouId}/edit-request`,
     {
       method: "POST",
       credentials: "include",
@@ -912,11 +1141,19 @@ export async function fetchZoneDrillDown(
 // SPEC-13 Search, Export Excel, Export PDF
 // ---------------------------------------------------------------------------
 
+/** Every filter is optional; none at all selects every active MoU. */
 export interface SearchFilters {
   readonly by?: "company" | "plant" | "scheme";
+  /** Required with `by`; 2+ characters for company / plant. */
   readonly q?: string;
   readonly zoneId?: string;
+  /** ACTIVE | EXPIRED | NEW, or EXPIRING (end date within the next 90 days). */
   readonly status?: string;
+  /** A scheme code, combinable with `by`. */
+  readonly scheme?: string;
+  /** Inclusive YYYY-MM-DD bounds on the MoU start date. */
+  readonly startFrom?: string;
+  readonly startTo?: string;
 }
 
 export interface SearchRow {
@@ -931,6 +1168,12 @@ export interface SearchRow {
   readonly mouStartDate: string;
   readonly endDate: string;
   readonly status: "ACTIVE" | "EXPIRED" | "NEW";
+  readonly hrContactName: string;
+  readonly hrContactNumber: string;
+  readonly tenureValue: number;
+  readonly tenureUnit: string;
+  readonly attendanceCycle: string;
+  readonly stipendDate: number | null;
 }
 
 export interface SearchResponse {
@@ -955,12 +1198,14 @@ function searchFilterQuery(
   return query === "" ? "" : `?${query}`;
 }
 
+/** `pageSize` omitted uses the API default (25); at most 100. */
 export async function fetchSearch(
   filters: SearchFilters,
   page = 1,
+  pageSize?: number,
 ): Promise<SearchResponse> {
   const response = await request(
-    `/api/search${searchFilterQuery(filters, { page })}`,
+    `/api/search${searchFilterQuery(filters, { page, pageSize })}`,
   );
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {
@@ -976,6 +1221,8 @@ export async function fetchSearch(
 export interface ExportJobStatus {
   readonly jobId: string;
   readonly status: "pending" | "ready" | "failed";
+  /** Only GET /api/export/jobs/:jobId reports it. */
+  readonly kind?: "excel" | "pdf";
   readonly downloadUrl?: string;
 }
 
@@ -986,8 +1233,12 @@ export async function startExcelExport(
     `/api/export/excel${searchFilterQuery(filters)}`,
   );
   if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
     throw new Error(
-      `GET /api/export/excel failed with status ${response.status}`,
+      body.error ??
+        `GET /api/export/excel failed with status ${response.status}`,
     );
   }
   return (await response.json()) as ExportJobStatus;

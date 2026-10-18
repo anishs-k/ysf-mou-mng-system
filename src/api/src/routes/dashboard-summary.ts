@@ -11,6 +11,7 @@ import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
 import { requireSession } from "../auth/middleware.ts";
+import { zoneScopeOf } from "../auth/zone-scope.ts";
 import { fetchDashboardSummary, fetchRecentActivity } from "../db/dashboard-summary.ts";
 
 const DEFAULT_LIMIT = 10;
@@ -30,15 +31,15 @@ export function createDashboardSummaryRouter(pool: Pool): Router {
   const requireAuthSession = requireSession(pool);
 
   /** GET /api/dashboard/summary — SPEC-14 D84/D85. */
-  router.get("/dashboard/summary", requireAuthSession, async (_request: Request, response: Response) => {
-    const summary = await fetchDashboardSummary(pool);
+  router.get("/dashboard/summary", requireAuthSession, async (request: Request, response: Response) => {
+    const summary = await fetchDashboardSummary(pool, zoneScopeOf(request));
     response.json(summary);
   });
 
   /** GET /api/dashboard/recent-activity?limit= — SPEC-14 D86. */
   router.get("/dashboard/recent-activity", requireAuthSession, async (request: Request, response: Response) => {
     const limit = readLimit(request);
-    const rows = await fetchRecentActivity(pool, limit);
+    const rows = await fetchRecentActivity(pool, limit, zoneScopeOf(request));
     response.json(rows);
   });
 

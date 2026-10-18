@@ -57,6 +57,27 @@
       "when": 1789275583255,
       "tag": "0007_spec16_code_move",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792218011087,
+      "tag": "0008_mou_document_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792305065264,
+      "tag": "0009_spec19_user_zone",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792307077999,
+      "tag": "0010_spec20_signup_approval",
+      "breakpoints": true
     }
   ]
 }

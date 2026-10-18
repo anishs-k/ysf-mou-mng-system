@@ -30,6 +30,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import { requireSession } from "../auth/middleware.ts";
+import { notFoundError, requireInScope } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { fetchEditablePayload } from "../db/mou-edit.ts";
 import { agreementHistory, mou, user } from "../db/schema.ts";
@@ -109,6 +110,7 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/history",
     requireAuthSession,
+    requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
       if (!isUuid(mouId)) {
@@ -170,6 +172,7 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/history/current",
     requireAuthSession,
+    requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
       if (!isUuid(mouId)) {
@@ -205,6 +208,7 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/history/compare",
     requireAuthSession,
+    requireInScope(pool, "mou", "mouId", notFoundError("One of the requested versions was not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
       if (!isUuid(mouId)) {
@@ -282,6 +286,7 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/history/:historyId",
     requireAuthSession,
+    requireInScope(pool, "mou", "mouId", notFoundError("History entry not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
       const historyId = String(request.params["historyId"] ?? "");
@@ -339,6 +344,7 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/history/:historyId/proof",
     requireAuthSession,
+    requireInScope(pool, "mou", "mouId", notFoundError("No proof file for this version")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
       const historyId = String(request.params["historyId"] ?? "");

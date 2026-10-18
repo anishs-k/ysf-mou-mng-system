@@ -7,7 +7,8 @@
  * Unlike the wizard, which promotes a single draft temp file, uploading here
  * always adds a new row (section 3.1) - the most recently uploaded document
  * is what SPEC-07's commercial page shows as current, but earlier ones stay
- * downloadable.
+ * downloadable. An upload may also carry optional documentDate / validUntil /
+ * referenceNumber form fields, captured by the Upload MoU screen.
  */
 
 import { desc, eq } from "drizzle-orm";
@@ -22,6 +23,7 @@ import {
   requireRole,
   requireSession,
 } from "../auth/middleware.ts";
+import { emptyList, notFoundError, requireInScope } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { mou, mouDocument, user } from "../db/schema.ts";
 import { readFileOrThrowMissing } from "../upload/file-errors.ts";
@@ -31,10 +33,52 @@ import {
   validatePdfBuffer,
   writeMouDocument,
 } from "../upload/mou-document-storage.ts";
-import { isUuid } from "./request-parse.ts";
+import { asRecord, isIsoDate, isUuid } from "./request-parse.ts";
 
 /** SPEC-09 section 3: the same 10 MB cap as the wizard's upload. */
 const MAX_MOU_DOCUMENT_BYTES = 10 * 1024 * 1024;
+
+const MAX_REFERENCE_NUMBER_LENGTH = 100;
+
+interface DocumentMetadata {
+  readonly documentDate: string | null;
+  readonly validUntil: string | null;
+  readonly referenceNumber: string | null;
+}
+
+/** Reads the optional multipart text fields; a blank field means "not given". */
+function readDocumentMetadata(
+  body: unknown,
+): { metadata: DocumentMetadata } | { error: string } {
+  const fields = asRecord(body);
+  const text = (name: string): string | null => {
+    const value = fields[name];
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed === "" ? null : trimmed;
+  };
+  const documentDate = text("documentDate");
+  const validUntil = text("validUntil");
+  const referenceNumber = text("referenceNumber");
+
+  if (documentDate !== null && !isIsoDate(documentDate)) {
+    return { error: "documentDate must be a YYYY-MM-DD date" };
+  }
+  if (validUntil !== null && !isIsoDate(validUntil)) {
+    return { error: "validUntil must be a YYYY-MM-DD date" };
+  }
+  if (documentDate !== null && validUntil !== null && validUntil < documentDate) {
+    return { error: "validUntil must not be before documentDate" };
+  }
+  if (
+    referenceNumber !== null &&
+    referenceNumber.length > MAX_REFERENCE_NUMBER_LENGTH
+  ) {
+    return {
+      error: `referenceNumber must be at most ${MAX_REFERENCE_NUMBER_LENGTH} characters`,
+    };
+  }
+  return { metadata: { documentDate, validUntil, referenceNumber } };
+}
 
 const documentUpload = multer({
   storage: multer.memoryStorage(),
@@ -50,6 +94,7 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/documents",
     requireAuthSession,
+    requireInScope(pool, "mou", "mouId", emptyList),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
       if (!isUuid(mouId)) {
@@ -64,6 +109,9 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
           fileSizeBytes: mouDocument.fileSizeBytes,
           uploadedAt: mouDocument.uploadedAt,
           uploadedByUsername: user.username,
+          documentDate: mouDocument.documentDate,
+          validUntil: mouDocument.validUntil,
+          referenceNumber: mouDocument.referenceNumber,
         })
         .from(mouDocument)
         .innerJoin(user, eq(user.id, mouDocument.uploadedBy))
@@ -79,6 +127,8 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
     "/mous/:mouId/document",
     requireAuthSession,
     requireAuthoring,
+    // Before the upload is parsed, so no file from another zone's request is read.
+    requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     (request: Request, response: Response, next: NextFunction) => {
       documentUpload.single("file")(request, response, (error: unknown) => {
         if (error === undefined || error === null) {
@@ -118,6 +168,14 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
         return;
       }
 
+      // Checked before anything is written, so a bad field leaves no file behind.
+      const parsedMetadata = readDocumentMetadata(request.body);
+      if ("error" in parsedMetadata) {
+        response.status(422).json({ error: parsedMetadata.error });
+        return;
+      }
+      const { metadata } = parsedMetadata;
+
       // AC5: the mimetype is the browser's own claim, checked first only to
       // fail fast; the %PDF header on the actual bytes is what a renamed
       // .docx cannot fake.
@@ -143,11 +201,12 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
         originalFilename,
         fileSizeBytes: file.size,
         uploadedBy: auth.userId,
+        ...metadata,
       });
 
       response
         .status(201)
-        .json({ id, originalFilename, fileSizeBytes: file.size });
+        .json({ id, originalFilename, fileSizeBytes: file.size, ...metadata });
     },
   );
 
@@ -155,6 +214,7 @@ export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
   router.get(
     "/documents/:documentId",
     requireAuthSession,
+    requireInScope(pool, "document", "documentId", notFoundError("Document not found")),
     async (request: Request, response: Response) => {
       const documentId = String(request.params["documentId"] ?? "");
       if (!isUuid(documentId)) {

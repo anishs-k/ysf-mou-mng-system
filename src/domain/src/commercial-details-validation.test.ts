@@ -163,3 +163,47 @@ test("AC9 no MOU PDF blocks Next", () => {
 test("a present MOU PDF passes", () => {
   assert.equal(validate({ hasMouDocument: true }).errors.mouDocument, undefined);
 });
+
+// --- Per-charge period and basis (optional chargeMeta) ------------------------------
+
+test("a record without chargeMeta stays valid (backward compatible)", () => {
+  assert.equal(validate({ chargeMeta: undefined }).errors.chargeMeta, undefined);
+});
+
+test("a known period and basis on a charge are accepted", () => {
+  const result = validate({
+    charges: { ADMIN_CHARGES: "100" },
+    chargeMeta: { ADMIN_CHARGES: { period: "MONTHLY", basis: "PER_TRAINEE_PER_MONTH" } },
+  });
+  assert.deepEqual(result.errors, {});
+});
+
+test("a blank period or basis is treated as not given", () => {
+  const result = validate({
+    charges: { ADMIN_CHARGES: "100" },
+    chargeMeta: { ADMIN_CHARGES: { period: "", basis: " " } },
+  });
+  assert.equal(result.errors.chargeMeta, undefined);
+});
+
+test("an unknown period code is rejected on that charge", () => {
+  const result = validate({
+    charges: { ADMIN_CHARGES: "100" },
+    chargeMeta: { ADMIN_CHARGES: { period: "WEEKLY" } },
+  });
+  assert.ok(result.errors.chargeMeta?.["ADMIN_CHARGES"]?.period);
+  assert.equal(result.errors.chargeMeta?.["ADMIN_CHARGES"]?.basis, undefined);
+});
+
+test("an unknown basis code is rejected on that charge", () => {
+  const result = validate({
+    charges: { ADMIN_CHARGES: "100" },
+    chargeMeta: { ADMIN_CHARGES: { basis: "PER_HOUR" } },
+  });
+  assert.ok(result.errors.chargeMeta?.["ADMIN_CHARGES"]?.basis);
+});
+
+test("chargeMeta for a key that is not a fixed charge is rejected", () => {
+  const result = validate({ chargeMeta: { NOT_A_CHARGE: { period: "MONTHLY" } } });
+  assert.ok(result.errors.chargeMeta?.["NOT_A_CHARGE"]);
+});

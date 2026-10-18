@@ -247,7 +247,7 @@ export function AlertsPage() {
                 <tbody>
                   {alerts.map((alert) => (
                     <tr
-                      key={alert.alertId}
+                      key={alert.mouId}
                       className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors"
                     >
                       <td className="px-4 py-3 font-semibold text-foreground text-xs">{alert.companyName}</td>
@@ -295,7 +295,7 @@ export function AlertsPage() {
                           {canAcknowledge && alert.acknowledgedAt === null && (
                             <button
                               type="button"
-                              onClick={() => void handleAcknowledge(alert.alertId)}
+                              onClick={() => alert.alertId !== null && void handleAcknowledge(alert.alertId)}
                               className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:underline hover:text-foreground"
                             >
                               Ack

@@ -22,6 +22,7 @@ import { PAYROLL_FIXED_ITEM_KEYS } from "./payroll-items.ts";
 import { validateAmountString } from "./money.ts";
 
 const MAX_CATEGORY_LENGTH = 100;
+const MAX_QUALIFICATION_LENGTH = 150;
 
 /** isApplicable undefined means "not yet answered" - distinct from an explicit No. */
 export interface PayrollItemAnswer {
@@ -29,10 +30,28 @@ export interface PayrollItemAnswer {
   readonly amount: string;
 }
 
+/**
+ * SPEC-16 D107: the optional descriptive fields of one trainee category card,
+ * matched to a `traineeCategories` entry by name (case-insensitive).
+ */
+export interface TraineeCategoryDetail {
+  readonly categoryName: string;
+  readonly qualification?: string;
+  readonly stipendRate?: string;
+}
+
+export interface TraineeCategoryDetailErrors {
+  readonly categoryName?: string;
+  readonly qualification?: string;
+  readonly stipendRate?: string;
+}
+
 /** The SPEC-06 section 3 fields: scheme, trainee categories, and the 23 payroll items. */
 export interface PayrollDetails {
   readonly scheme: string;
   readonly traineeCategories: readonly string[];
+  /** Optional; absent keeps payloads written before SPEC-16 D107 valid unchanged. */
+  readonly traineeCategoryDetails?: readonly TraineeCategoryDetail[];
   /** Keyed by the 22 fixed PayrollItemKeys. */
   readonly items: Readonly<Record<string, PayrollItemAnswer>>;
   readonly otherItems: readonly OtherChargeRow[];
@@ -44,6 +63,8 @@ export interface PayrollDetailErrors {
   readonly traineeCategories?: string;
   /** Parallel to the input traineeCategories array. */
   readonly traineeCategoryRows?: readonly (string | undefined)[];
+  /** Parallel to the input traineeCategoryDetails array. */
+  readonly traineeCategoryDetails?: readonly (TraineeCategoryDetailErrors | undefined)[];
   readonly items?: Readonly<Record<string, string>>;
   readonly otherItems?: readonly (OtherChargeRowErrors | undefined)[];
 }
@@ -90,11 +111,36 @@ function validateCategoryRows(categories: readonly string[]): (string | undefine
   return rowErrors;
 }
 
+function validateCategoryDetails(
+  details: readonly TraineeCategoryDetail[],
+  categories: readonly string[],
+): (TraineeCategoryDetailErrors | undefined)[] {
+  const names = new Set(categories.map((category) => category.trim().toLowerCase()));
+  return details.map((detail) => {
+    const rowErrors: { categoryName?: string; qualification?: string; stipendRate?: string } = {};
+    if (!names.has(detail.categoryName.trim().toLowerCase())) {
+      rowErrors.categoryName = "Not one of the trainee categories";
+    }
+    if ((detail.qualification ?? "").trim().length > MAX_QUALIFICATION_LENGTH) {
+      rowErrors.qualification = `Enter at most ${MAX_QUALIFICATION_LENGTH} characters`;
+    }
+    const stipendRate = (detail.stipendRate ?? "").trim();
+    if (stipendRate !== "") {
+      const amountError = validateAmountString(stipendRate);
+      if (amountError !== undefined) {
+        rowErrors.stipendRate = amountError;
+      }
+    }
+    return Object.keys(rowErrors).length > 0 ? rowErrors : undefined;
+  });
+}
+
 export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollDetailValidation {
   const errors: {
     scheme?: string;
     traineeCategories?: string;
     traineeCategoryRows?: readonly (string | undefined)[];
+    traineeCategoryDetails?: readonly (TraineeCategoryDetailErrors | undefined)[];
     items?: Record<string, string>;
     otherItems?: readonly (OtherChargeRowErrors | undefined)[];
   } = {};
@@ -116,6 +162,11 @@ export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollD
     if (categoryRowErrors.some((rowError) => rowError !== undefined)) {
       errors.traineeCategoryRows = categoryRowErrors;
     }
+  }
+
+  const categoryDetailErrors = validateCategoryDetails(input.traineeCategoryDetails ?? [], traineeCategories);
+  if (categoryDetailErrors.some((rowErrors) => rowErrors !== undefined)) {
+    errors.traineeCategoryDetails = categoryDetailErrors;
   }
 
   // --- The 22 fixed payroll items --------------------------------------------------

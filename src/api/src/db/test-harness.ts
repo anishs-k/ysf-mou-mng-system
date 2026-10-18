@@ -26,10 +26,28 @@ function withDatabaseName(connectionString: string, database: string): string {
   return parsed.toString();
 }
 
-/** TEST_DATABASE_URL wins; otherwise the DATABASE_URL database gets a _test suffix. */
+/**
+ * User, host, port and database - what decides whether two URLs reach the same
+ * data. The user matters on a shared pooler (Supabase), where two projects share
+ * host, port and database name and differ only in `postgres.<project-ref>`.
+ */
+function databaseIdentity(connectionString: string): string {
+  const parsed = new URL(connectionString);
+  return `${decodeURIComponent(parsed.username)}@${parsed.hostname.toLowerCase()}:${parsed.port || "5432"}/${databaseNameOf(connectionString)}`;
+}
+
+/**
+ * TEST_DATABASE_URL wins; otherwise the DATABASE_URL database gets a _test suffix.
+ * resetDatabase() truncates every table, so a TEST_DATABASE_URL that points back
+ * at the DATABASE_URL database is refused rather than allowed to wipe it.
+ */
 export function testDatabaseUrl(): string {
   const explicit = process.env["TEST_DATABASE_URL"];
   if (explicit !== undefined && explicit !== "") {
+    const base = process.env["DATABASE_URL"];
+    if (base !== undefined && base !== "" && databaseIdentity(base) === databaseIdentity(explicit)) {
+      throw new Error("TEST_DATABASE_URL points at the DATABASE_URL database; the tests would truncate it. Use a separate database.");
+    }
     return explicit;
   }
   const base = process.env["DATABASE_URL"];
@@ -110,8 +128,8 @@ export async function insertZone(pool: Pool, code = "WEST", name = "West"): Prom
 
 export async function insertUser(pool: Pool, username = "admin"): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO "user" (username, email, password_hash, role)
-     VALUES ($1, $2, 'not-a-real-hash', 'ADMIN') RETURNING id`,
+    `INSERT INTO "user" (username, email, password_hash, role, approval_status)
+     VALUES ($1, $2, 'not-a-real-hash', 'ADMIN', 'APPROVED') RETURNING id`,
     [username, `${username}@example.com`],
   );
   return firstRow(rows).id;
@@ -132,20 +150,26 @@ export async function insertUserWithPassword(
     readonly password?: string;
     readonly role?: UserRole;
     readonly isActive?: boolean;
+    /** SPEC-19: the zone the user is restricted to; omitted means every zone. */
+    readonly zoneId?: string;
+    /** SPEC-20: fixtures are trusted users, so APPROVED unless a test says otherwise. */
+    readonly approvalStatus?: "PENDING" | "APPROVED" | "REJECTED";
   } = {},
 ): Promise<CredentialedUser> {
   const username = options.username ?? "admin";
   const password = options.password ?? "correct-password";
   const role = options.role ?? "ADMIN";
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO "user" (username, email, password_hash, role, is_active)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    `INSERT INTO "user" (username, email, password_hash, role, is_active, zone_id, approval_status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
     [
       username,
       `${username}@example.com`,
       await hashPassword(password),
       role,
       options.isActive ?? true,
+      options.zoneId ?? null,
+      options.approvalStatus ?? "APPROVED",
     ],
   );
   return { id: firstRow(rows).id, username, password, role };
@@ -278,6 +302,8 @@ export interface CommercialItemFixtureOptions {
   readonly customLabel?: string;
   readonly amount?: string;
   readonly itemType?: string;
+  readonly period?: string;
+  readonly basis?: string;
 }
 
 /** Used by SPEC-07/11/13 tests that read commercial_item rows back through a view. */
@@ -288,9 +314,17 @@ export async function insertCommercialItem(
   options: CommercialItemFixtureOptions = {},
 ): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO commercial_item (mou_id, item_key, custom_label, amount, item_type)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [mouId, itemKey, options.customLabel ?? null, options.amount ?? null, options.itemType ?? "DEDUCTION"],
+    `INSERT INTO commercial_item (mou_id, item_key, custom_label, amount, item_type, period, basis)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [
+      mouId,
+      itemKey,
+      options.customLabel ?? null,
+      options.amount ?? null,
+      options.itemType ?? "DEDUCTION",
+      options.period ?? null,
+      options.basis ?? null,
+    ],
   );
   return firstRow(rows).id;
 }

@@ -9,7 +9,7 @@
 
 import { expect, test } from "@playwright/test";
 
-import { CLONED_SCREENS, SCREENS, freezeClock, scrollContentToEnd, signIn } from "./pages";
+import { CLONED_SCREENS, DATA_DRIVEN_SCREENS, SCREENS, freezeClock, scrollContentToEnd, signIn } from "./pages";
 
 /** Overridable (VISUAL_MAX_DIFF=0) to print the exact differing-pixel count of every screen. */
 const MAX_DIFF_PIXEL_RATIO = Number(process.env["VISUAL_MAX_DIFF"] ?? "0.01");
@@ -17,6 +17,7 @@ const MAX_DIFF_PIXEL_RATIO = Number(process.env["VISUAL_MAX_DIFF"] ?? "0.01");
 for (const screen of SCREENS) {
   test(`${screen.name} matches the prototype`, async ({ page }) => {
     test.skip(!CLONED_SCREENS.has(screen.name), "not cloned yet");
+    test.skip(DATA_DRIVEN_SCREENS.has(screen.name), "figures come from the API, not the prototype");
     await freezeClock(page);
     await page.goto("/login");
     if (screen.name !== "login") {

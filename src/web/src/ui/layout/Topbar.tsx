@@ -1,9 +1,14 @@
 /**
  * Purpose: The glass header at the top of every signed-in screen: the screen's
  * title and subtitle, the mobile menu button, a search box and the notification
- * bell with its unread dot.
+ * bell, which opens the alerts screen and shows its dot only while
+ * GET /api/alerts/count reports MoUs nearing expiry.
  */
 
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import { fetchAlertsCount } from "../../api/client.ts";
 import { Icon } from "../Icon.tsx";
 import { BRAND } from "../theme.ts";
 
@@ -14,6 +19,22 @@ interface TopbarProps {
 }
 
 export function Topbar({ title, subtitle, onOpenMenu }: TopbarProps) {
+  const navigate = useNavigate();
+  const [alertCount, setAlertCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAlertsCount()
+      .then((count) => {
+        if (!cancelled) setAlertCount(count);
+      })
+      // No count means no dot; the bell itself still works.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <header
       className="flex items-center justify-between px-4 md:px-6 glass-topbar shrink-0 gap-3"
@@ -47,10 +68,19 @@ export function Topbar({ title, subtitle, onOpenMenu }: TopbarProps) {
         </div>
         <button
           type="button"
+          aria-label="Expiry alerts"
+          title="Expiry alerts"
+          onClick={() => navigate("/alerts")}
           className="relative w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-all"
         >
           <Icon name="bell" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full border border-white" style={{ background: BRAND.orange }} />
+          {alertCount > 0 && (
+            <span
+              data-testid="alerts-dot"
+              className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full border border-white"
+              style={{ background: BRAND.orange }}
+            />
+          )}
         </button>
       </div>
     </header>

@@ -593,3 +593,31 @@ detail, evidence and the phase plan in
   allocation cannot reuse a number. Worth remembering: "migration generated
   and hand-checked" has to include running it against a database that already
   has data, not only against the empty database CI builds.
+
+## SPEC-19 — Zone-Based Data Access
+
+Restricts a user tied to a zone to that zone's records everywhere — lists,
+single-record routes, exports and record creation. Full rules and acceptance
+criteria in `docs/specifications/SPEC-19-zone-based-access.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D117 | How a zonal user is modelled | **Nullable `user.zone_id`**, orthogonal to the unchanged `ADMIN` / `DATA_ENTRY` / `VIEWER` roles. NULL = all zones | Keeps every existing `requireRole` check and Q7 intact; "what you may do" and "which data you may see" stay independent, so a zonal ADMIN and a zonal VIEWER both exist. New `SUPER_ADMIN` / `ZONAL_USER` roles would have merged the two and lost the edit/view distinction |
+| D118 | Where identity lives | **Server-side session (SPEC-02) kept**; `resolveSession` reads `zone_id` on every request | A zone or role change applies on the next request and logout still kills the session. A JWT would carry a stale zone until expiry and need a revocation list |
+| D119 | Out-of-zone single record | **Same 404 as a non-existent id** | A 403 confirms the id exists, which is itself a cross-zone leak |
+| D120 | Export jobs | Status and download **only for the job's creator**, for every user | The file was built under its creator's scope; handing it to another user would bypass that scope |
+| D121 | Previously anonymous routes | `/zones`, `/zones/:zoneId/companies`, `/companies/:id/plants` **now require a session** | They returned company names to anyone; zone isolation cannot hold beside an anonymous company list. `/public/stats` (D116) stays anonymous — four coarse counts, no names |
+
+## SPEC-20 — Self Sign-Up with Admin Approval
+
+People request their own account; a super admin approves it with a role or
+rejects it. Full rules in `docs/specifications/SPEC-20-signup-approval.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D122 | Existing users when `approval_status` arrives | Migration backfills **`APPROVED`**; only later rows default to `PENDING`. Trusted creation paths insert `APPROVED` explicitly | A plain `DEFAULT 'PENDING'` would have locked out the only ADMIN and with it the whole app |
+| D123 | Username of a signed-up user | **The email itself**, lower-cased; `user.username` widened 50 → 255 to match `email` | Sign-up asks for no username; one identifier is simpler and login already accepts either |
+| D124 | Duplicate email at sign-up | **409 "already registered"** | Client chose clear UX over hiding which emails exist. Login itself still never reveals that |
+| D125 | Abuse of the anonymous sign-up route | **5 per client IP, then 15-minute block**, reusing the `login_attempt` lockout table under `signup-ip:<ip>` | No new table; survives restarts like the login lockout. Behind a reverse proxy the socket IP is the proxy's, so `trust proxy` must be configured before production |
+| D126 | Who approves, and which roles | **Super admin only** (ADMIN with NULL zone). Approval grants `DATA_ENTRY` or `VIEWER`, never `ADMIN` | Approval is a gate on strangers; granting admin rights belongs to a deliberate, separate act (`user:create`) |
+| D127 | Zone list for the anonymous sign-up form | New **`GET /api/public/zones`** returning only `{ id, name }` of active zones; `/api/zones` keeps its session (D121) | A sign-up form must offer zones before anyone is signed in. Zone names are not sensitive, but keeping the anonymous list separate and minimal means `/api/zones` can keep its SPEC-19 scoping and no company data is ever reachable anonymously |

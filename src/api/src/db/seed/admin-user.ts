@@ -34,8 +34,8 @@ export async function seedAdminUser(pool: Pool, input: AdminSeedInput): Promise<
 
   if (row === undefined) {
     await pool.query(
-      `INSERT INTO "user" (username, email, password_hash, role, is_active)
-       VALUES ($1, $2, $3, 'ADMIN', true)`,
+      `INSERT INTO "user" (username, email, password_hash, role, is_active, approval_status)
+       VALUES ($1, $2, $3, 'ADMIN', true, 'APPROVED')`,
       [input.username, input.email, passwordHash],
     );
     return "created";

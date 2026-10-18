@@ -40,12 +40,13 @@ export default async function globalSetup(): Promise<void> {
 
     for (const account of E2E_ACCOUNTS) {
       await pool.query(
-        `INSERT INTO "user" (username, email, password_hash, role, is_active)
-         VALUES ($1, $2, $3, $4, true)
+        `INSERT INTO "user" (username, email, password_hash, role, is_active, approval_status)
+         VALUES ($1, $2, $3, $4, true, 'APPROVED')
          ON CONFLICT (username) DO UPDATE
             SET password_hash = EXCLUDED.password_hash,
                 role = EXCLUDED.role,
-                is_active = true`,
+                is_active = true,
+                approval_status = 'APPROVED'`,
         [account.username, `${account.username}@example.com`, passwordHash, account.role],
       );
     }

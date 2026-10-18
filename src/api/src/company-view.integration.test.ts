@@ -249,6 +249,122 @@ test("SPEC-07 every read endpoint is reachable by a VIEWER (no role restriction)
   }
 });
 
+test("overview also returns the full Page 1 identity, address, zone name and purchase contact", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool, "WEST", "West");
+  const user = await insertUserWithPassword(pool, { username: "creator11", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id, { sector: "AUTOMOBILE" });
+  await pool.query(
+    `UPDATE company SET purchase_name = 'Buyer', purchase_number = '9000000000', purchase_email = 'buy@example.com' WHERE id = $1`,
+    [companyId],
+  );
+
+  const response = await fetch(`${baseUrl}/api/companies/${companyId}/overview`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as Record<string, unknown>;
+  assert.equal(body["companyType"], "PRIVATE_SECTOR");
+  assert.equal(body["registrationType"], "COMPANY");
+  assert.equal(body["tanNumber"], "TANP12345C");
+  assert.equal(body["sector"], "AUTOMOBILE");
+  assert.equal(body["addressLine1"], "1 Test Road");
+  assert.equal(body["addressLine2"], null);
+  assert.equal(body["city"], "Pune");
+  assert.equal(body["pinCode"], "411001");
+  assert.equal(body["district"], "Pune");
+  assert.equal(body["state"], "Maharashtra");
+  assert.equal(body["zoneName"], "West");
+  assert.equal(body["contactType"], "MOBILE");
+  assert.match(String(body["officialEmail"]), /@example\.com$/);
+  assert.equal(body["purchaseName"], "Buyer");
+  assert.equal(body["purchaseNumber"], "9000000000");
+  assert.equal(body["purchaseEmail"], "buy@example.com");
+});
+
+test("agreements lists every MoU of the company, active and inactive, newest start first", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator12", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const plantId = await insertPlant(pool, companyId, "Nashik Plant");
+  const oldMou = await insertMou(pool, companyId, plantId, {
+    scheme: "WILP",
+    startDate: "2020-01-01",
+    isActive: false,
+    generatedCode: "MOU-WILP-2020-0001",
+  });
+  const futureMou = await insertMou(pool, companyId, plantId, { scheme: "NAPS", startDate: "2099-01-01" });
+  const otherCompany = await insertCompany(pool, zoneId, user.id);
+  await insertMou(pool, otherCompany, null, { scheme: "WILP" });
+
+  const response = await fetch(`${baseUrl}/api/companies/${companyId}/agreements`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as Array<{
+    mouId: string;
+    generatedCode: string;
+    scheme: string;
+    plantName: string | null;
+    mouStartDate: string;
+    endDate: string;
+    status: string;
+    isActive: boolean;
+  }>;
+  assert.deepEqual(
+    body.map((row) => row.mouId),
+    [futureMou, oldMou],
+  );
+  assert.deepEqual(body[1], {
+    mouId: oldMou,
+    generatedCode: "MOU-WILP-2020-0001",
+    scheme: "WILP",
+    plantName: "Nashik Plant",
+    mouStartDate: "2020-01-01",
+    endDate: "2020-12-31",
+    status: "EXPIRED",
+    isActive: false,
+  });
+  assert.equal(body[0]?.status, "NEW");
+  assert.equal(body[0]?.isActive, true);
+});
+
+test("agreements answers 400 for a bad id, 404 for an unknown company, 401 without a session", async () => {
+  const cookie = await viewerCookie();
+  assert.equal((await fetch(`${baseUrl}/api/companies/nope/agreements`, { headers: { Cookie: cookie } })).status, 400);
+  assert.equal(
+    (
+      await fetch(`${baseUrl}/api/companies/123e4567-e89b-12d3-a456-426614174000/agreements`, {
+        headers: { Cookie: cookie },
+      })
+    ).status,
+    404,
+  );
+  assert.equal((await fetch(`${baseUrl}/api/companies/123e4567-e89b-12d3-a456-426614174000/agreements`)).status, 401);
+});
+
+test("commercial detail carries each charge's period and basis codes, null when unset", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator13", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const plantId = await insertPlant(pool, companyId);
+  const mouId = await insertMou(pool, companyId, plantId);
+  await insertCommercialItem(pool, mouId, "ADMIN_CHARGES", {
+    amount: "100.00",
+    period: "MONTHLY",
+    basis: "PER_TRAINEE_PER_MONTH",
+  });
+
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/commercial`, { headers: { Cookie: cookie } });
+  const body = (await response.json()) as {
+    charges: Array<{ itemKey: string; period: string | null; basis: string | null }>;
+  };
+  const admin = body.charges.find((c) => c.itemKey === "ADMIN_CHARGES");
+  const insurance = body.charges.find((c) => c.itemKey === "INSURANCE");
+  assert.equal(admin?.period, "MONTHLY");
+  assert.equal(admin?.basis, "PER_TRAINEE_PER_MONTH");
+  assert.equal(insurance?.period, null);
+  assert.equal(insurance?.basis, null);
+});
+
 test("an unauthenticated request is refused", async () => {
   const zoneId = await insertZone(pool);
   const user = await insertUserWithPassword(pool, { username: "creator10", password: "pass" });

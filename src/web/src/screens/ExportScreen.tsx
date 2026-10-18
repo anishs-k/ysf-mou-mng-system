@@ -1,24 +1,27 @@
 /**
- * Purpose: The Export Data screen - zone/scheme/company/status/date filters with a
- * live "N records match" count, an Export button that downloads the matching rows
- * as MoU_Export.csv, and the three report cards. Like the prototype, the date
- * fields are captured but do not narrow the sample, and the card buttons are inert.
+ * Purpose: The Export Data screen - zone / scheme / company (2+ characters) /
+ * status / start-date filters with a live "N records match" count from GET
+ * /api/search, "Export Filtered Data" as a server Excel export of the same
+ * filters, and the report cards: MoU Summary (Excel, no filters), Expiry (Excel,
+ * status EXPIRING), an all-zones PDF report, and the bulk-documents ZIP, which
+ * has no API yet and is shown disabled.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { SCHEMES } from "../data/addCompanyOptions.ts";
-import { EXPORT_COMPANY_OPTIONS, EXPORT_RECORDS, EXPORT_REPORTS, EXPORT_STATUS_OPTIONS } from "../data/exportData.ts";
-import type { ExportRecord } from "../data/exportData.ts";
-import { ZONE_NAMES } from "../data/mous.ts";
+import { fetchSearch, startExcelExport, startPdfExport } from "../api/client.ts";
+import type { ExportJobStatus, SearchFilters } from "../api/client.ts";
+import { useExportDownload } from "../hooks/useExportDownload.ts";
+import { SCHEME_FILTER_OPTIONS, STATUS_FILTER_OPTIONS, useZoneOptions } from "../hooks/useSearchFilterOptions.ts";
 import { Field, SelectInput, TextInput } from "../ui/form.tsx";
+import { PENDING_FIGURE } from "../ui/format.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Badge, Button, Card, SectionTitle } from "../ui/primitives.tsx";
 import { BRAND } from "../ui/theme.ts";
 
 interface Filters {
-  readonly zone: string;
+  readonly zoneId: string;
   readonly scheme: string;
   readonly company: string;
   readonly status: string;
@@ -26,42 +29,97 @@ interface Filters {
   readonly to: string;
 }
 
-/** Lets Excel read the CSV as UTF-8, as the prototype's file does. */
-const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
-
-const NO_FILTERS: Filters = { zone: "", scheme: "", company: "", status: "", from: "", to: "" };
-
-/** An empty choice or an "All …" option leaves that filter open. */
-function accepts(choice: string, value: string): boolean {
-  return choice === "" || choice.startsWith("All") || choice === value;
+interface Report {
+  readonly key: string;
+  readonly title: string;
+  readonly caption: string;
+  readonly format: string;
+  /** Absent for a report the API cannot produce yet. */
+  readonly start?: () => Promise<ExportJobStatus>;
 }
 
-function matches(record: ExportRecord, filters: Filters): boolean {
-  return (
-    accepts(filters.zone, record.zone) &&
-    accepts(filters.scheme, record.scheme) &&
-    accepts(filters.company, record.company) &&
-    accepts(filters.status, record.status)
-  );
+const NO_FILTERS: Filters = { zoneId: "", scheme: "", company: "", status: "", from: "", to: "" };
+/** The API rejects a shorter company query; typing pauses this long before counting. */
+const MIN_QUERY_LENGTH = 2;
+const COUNT_DEBOUNCE_MS = 300;
+const FILTERED_KEY = "filtered";
+const RANGE_ERROR = "The From Date must not be after the To Date.";
+const COUNT_ERROR = "Could not count the matching records. Please refresh the page.";
+
+const REPORTS: readonly Report[] = [
+  {
+    key: "summary",
+    title: "MoU Summary Report",
+    caption: "All company MoU records with status",
+    format: "Excel (.xlsx)",
+    start: () => startExcelExport({}),
+  },
+  {
+    key: "expiry",
+    title: "Expiry Report",
+    caption: "Companies with upcoming expirations",
+    format: "Excel (.xlsx)",
+    start: () => startExcelExport({ status: "EXPIRING" }),
+  },
+  {
+    key: "pdf",
+    title: "PDF Report",
+    caption: "Zone-wise MoU summary across all zones",
+    format: "PDF (.pdf)",
+    start: () => startPdfExport({ scope: "all_zones" }),
+  },
+  { key: "zip", title: "MoU Documents Bulk", caption: "Bulk PDF download of signed MoUs", format: "ZIP (.zip)" },
+];
+
+function toSearchFilters(filters: Filters): SearchFilters {
+  const q = filters.company.trim();
+  const byCompany: SearchFilters = q.length >= MIN_QUERY_LENGTH ? { by: "company", q } : {};
+  return {
+    ...byCompany,
+    zoneId: filters.zoneId,
+    scheme: filters.scheme,
+    status: filters.status,
+    startFrom: filters.from,
+    startTo: filters.to,
+  };
 }
 
-function downloadCsv(records: readonly ExportRecord[]): void {
-  const quote = (value: string) => `"${value.replace(/"/g, '""')}"`;
-  const header = ["Company", "Zone", "Scheme", "MoU Code", "Start Date", "End Date", "Status"];
-  const rows = records.map((r) => [r.company, r.zone, r.scheme, r.code, r.start, r.end, r.status]);
-  const csv = [header, ...rows].map((row) => row.map(quote).join(",")).join("\n");
-  const url = URL.createObjectURL(new Blob([BYTE_ORDER_MARK + csv], { type: "text/csv;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "MoU_Export.csv";
-  link.click();
-  URL.revokeObjectURL(url);
+function rangeIsValid(filters: Filters): boolean {
+  return filters.from === "" || filters.to === "" || filters.from <= filters.to;
 }
 
 export function ExportScreen() {
+  const zones = useZoneOptions();
+  const exporter = useExportDownload();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
-  const matching = useMemo(() => EXPORT_RECORDS.filter((record) => matches(record, filters)), [filters]);
+  const [counted, setCounted] = useState<{ readonly filters: Filters; readonly total: number } | null>(null);
+  const [countError, setCountError] = useState("");
   const set = (key: keyof Filters) => (value: string) => setFilters((current) => ({ ...current, [key]: value }));
+
+  useEffect(() => {
+    if (!rangeIsValid(filters)) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchSearch(toSearchFilters(filters), 1, 1)
+        .then((response) => {
+          if (cancelled) return;
+          setCounted({ filters, total: response.total });
+          setCountError("");
+        })
+        .catch(() => {
+          if (!cancelled) setCountError(COUNT_ERROR);
+        });
+    }, COUNT_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [filters]);
+
+  const validRange = rangeIsValid(filters);
+  const total = validRange && counted !== null && counted.filters === filters ? String(counted.total) : PENDING_FIGURE;
+  const message = !validRange ? RANGE_ERROR : countError !== "" ? countError : exporter.error;
+  const busy = exporter.busyKey !== null;
 
   return (
     <ScreenFrame
@@ -69,54 +127,71 @@ export function ExportScreen() {
       subtitle="Download MoU reports in various formats"
       contentClassName="p-4 md:p-6 max-w-3xl mx-auto space-y-4 md:space-y-5"
     >
+      {message !== "" && (
+        <div role="alert" className="rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]">
+          {message}
+        </div>
+      )}
       <Card className="p-6">
         <SectionTitle>Export Filters</SectionTitle>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <Field label="Zone">
-            <SelectInput options={["All Zones", ...ZONE_NAMES]} value={filters.zone} onChange={set("zone")} />
+          <Field label="Zone" htmlFor="exportZone">
+            <SelectInput id="exportZone" placeholder="All Zones" options={zones} value={filters.zoneId} onChange={set("zoneId")} />
           </Field>
-          <Field label="Scheme">
-            <SelectInput options={["All Schemes", ...SCHEMES]} value={filters.scheme} onChange={set("scheme")} />
+          <Field label="Scheme" htmlFor="exportScheme">
+            <SelectInput id="exportScheme" placeholder="All Schemes" options={SCHEME_FILTER_OPTIONS} value={filters.scheme} onChange={set("scheme")} />
           </Field>
-          <Field label="Company">
-            <SelectInput options={["All Companies", ...EXPORT_COMPANY_OPTIONS]} value={filters.company} onChange={set("company")} />
+          <Field label="Company" htmlFor="exportCompany">
+            <TextInput id="exportCompany" placeholder="All Companies" value={filters.company} onChange={set("company")} />
           </Field>
-          <Field label="Status">
-            <SelectInput options={EXPORT_STATUS_OPTIONS} value={filters.status} onChange={set("status")} />
+          <Field label="Status" htmlFor="exportStatus">
+            <SelectInput id="exportStatus" placeholder="All" options={STATUS_FILTER_OPTIONS} value={filters.status} onChange={set("status")} />
           </Field>
-          <Field label="From Date">
-            <TextInput type="date" value={filters.from} onChange={set("from")} />
+          <Field label="From Date" htmlFor="exportFrom">
+            <TextInput id="exportFrom" type="date" value={filters.from} onChange={set("from")} />
           </Field>
-          <Field label="To Date">
-            <TextInput type="date" value={filters.to} onChange={set("to")} />
+          <Field label="To Date" htmlFor="exportTo">
+            <TextInput id="exportTo" type="date" value={filters.to} onChange={set("to")} />
           </Field>
         </div>
         <div className="flex items-center justify-between mt-5 pt-4 border-t border-border">
-          <p className="text-xs text-muted-foreground">{matching.length} records match current filters</p>
-          <Button variant="accent" onClick={() => downloadCsv(matching)}>
+          <p className="text-xs text-muted-foreground">{total} records match current filters</p>
+          <Button
+            variant="accent"
+            disabled={busy || !validRange}
+            onClick={() => void exporter.run(FILTERED_KEY, () => startExcelExport(toSearchFilters(filters)))}
+          >
             <Icon name="download" />
-            Export Filtered Data
+            {exporter.busyKey === FILTERED_KEY ? "Preparing export…" : "Export Filtered Data"}
           </Button>
         </div>
       </Card>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        {EXPORT_REPORTS.map((report) => (
-          <Card key={report.title} className="p-5 hover:shadow-md transition-shadow">
-            <div className="flex items-start justify-between mb-3">
-              <div style={{ color: BRAND.blue }}>
-                <Icon name="download" />
+        {REPORTS.map((report) => {
+          const start = report.start;
+          return (
+            <Card key={report.key} className="p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div style={{ color: BRAND.blue }}>
+                  <Icon name="download" />
+                </div>
+                <Badge text={report.format} />
               </div>
-              <Badge text={report.format} />
-            </div>
-            <h4 className="font-bold text-sm text-foreground mb-1">{report.title}</h4>
-            <p className="text-xs text-muted-foreground mb-4">{report.caption}</p>
-            <Button size="sm" className="w-full justify-center">
-              <Icon name="download" />
-              Download
-            </Button>
-          </Card>
-        ))}
+              <h4 className="font-bold text-sm text-foreground mb-1">{report.title}</h4>
+              <p className="text-xs text-muted-foreground mb-4">{start === undefined ? `${report.caption} · Not available yet` : report.caption}</p>
+              <Button
+                size="sm"
+                className="w-full justify-center"
+                disabled={start === undefined || busy}
+                onClick={start === undefined ? undefined : () => void exporter.run(report.key, start)}
+              >
+                <Icon name="download" />
+                {exporter.busyKey === report.key ? "Preparing…" : "Download"}
+              </Button>
+            </Card>
+          );
+        })}
       </div>
     </ScreenFrame>
   );

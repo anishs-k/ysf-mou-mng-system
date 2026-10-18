@@ -1,30 +1,25 @@
 /**
- * Purpose: The clone's sign-in contract - the fixed demo credential check, the
- * context SessionProvider fills, and the useSession() hook screens read it with.
- * Like the prototype it talks to no server.
+ * Purpose: The clone's sign-in contract - the context SessionProvider fills from
+ * @mou/api (POST /api/auth/login, GET /api/auth/me) and the useSession() hook
+ * screens read it with. The session itself is the API's httpOnly cookie; this
+ * only mirrors who it belongs to.
  */
 
 import { createContext, useContext } from "react";
 
-const DEMO_USERNAME = "admin";
-const DEMO_PASSWORD = "Admin@123";
+import type { AuthUser } from "../api/client.ts";
 
 export interface Session {
+  /** True while GET /api/auth/me has not answered yet, so no screen redirects early. */
+  readonly checking: boolean;
+  readonly user: AuthUser | null;
   readonly signedIn: boolean;
-  readonly signIn: () => void;
-  readonly signOut: () => void;
+  /** Resolves to the error message the login card shows, or null when accepted. */
+  readonly signIn: (username: string, password: string) => Promise<string | null>;
+  readonly signOut: () => Promise<void>;
 }
 
 export const SessionContext = createContext<Session | null>(null);
-
-/** Returns the error message the login card shows, or null when accepted. */
-export function checkCredentials(username: string, password: string): string | null {
-  if (!username.trim() || !password) return "Please enter both username and password.";
-  if (username.trim() !== DEMO_USERNAME || password !== DEMO_PASSWORD) {
-    return "Invalid username or password. Please try again.";
-  }
-  return null;
-}
 
 export function useSession(): Session {
   const session = useContext(SessionContext);
