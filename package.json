@@ -13,7 +13,7 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "build:api": "npm run build --workspace=@mou/domain && npm run build --workspace=@mou/api",
+    "build:api": "npm run build --workspace=@mou/domain && npm run build --workspace=@mou/web && npm run build --workspace=@mou/api",
     "build:web": "npm run build --workspace=@mou/domain && npm run build --workspace=@mou/web",
     "start": "npm run start:api",
     "start:api": "node src/api/dist/db/migrate.js && node src/api/dist/db/seed/index.js && node src/api/dist/index.js",

@@ -8,9 +8,11 @@
 
 import type { UserRole } from "@mou/domain";
 
+const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string | undefined) ??
-  "http://localhost:3001";
+  rawApiUrl && rawApiUrl.trim() !== ""
+    ? rawApiUrl
+    : (import.meta.env.PROD ? "" : "http://localhost:3001");
 
 export interface AuthUser {
   readonly userId: string;

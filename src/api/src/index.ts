@@ -8,6 +8,7 @@
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
 
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -91,6 +92,20 @@ export function createApp(pool: Pool): Express {
     createAlertsRouter(pool),
     createAdminUsersRouter(db, pool),
   );
+
+  const webDistPath = fs.existsSync(path.resolve(process.cwd(), "src/web/dist"))
+    ? path.resolve(process.cwd(), "src/web/dist")
+    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../web/dist");
+
+  if (fs.existsSync(webDistPath)) {
+    app.use(express.static(webDistPath));
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api")) {
+        return next();
+      }
+      res.sendFile(path.join(webDistPath, "index.html"));
+    });
+  }
 
   return app;
 }
