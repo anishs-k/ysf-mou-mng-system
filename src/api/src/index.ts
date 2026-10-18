@@ -43,12 +43,32 @@ export function createApp(pool: Pool): Express {
   const db = createDatabase(pool);
   const app = express();
 
+  const rawWebOrigin = process.env["WEB_ORIGIN"] ?? DEFAULT_WEB_ORIGIN;
+  const configuredOrigins = rawWebOrigin
+    .split(",")
+    .map((o) => o.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+
   // The web app has its own origin in development (Vite on 5173) and shares the
   // origin behind nginx in production, so the allowed origin is configurable.
   // credentials:true is what lets the session cookie travel.
   app.use(
     cors({
-      origin: process.env["WEB_ORIGIN"] ?? DEFAULT_WEB_ORIGIN,
+      origin: (requestOrigin, callback) => {
+        if (!requestOrigin) {
+          callback(null, true);
+          return;
+        }
+        const normalized = requestOrigin.replace(/\/$/, "");
+        if (
+          configuredOrigins.includes(normalized) ||
+          configuredOrigins.includes("*")
+        ) {
+          callback(null, true);
+          return;
+        }
+        callback(null, false);
+      },
       credentials: true,
     }),
   );
