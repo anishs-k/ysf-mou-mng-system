@@ -1,12 +1,12 @@
 /**
- * Purpose: Entry point for `npm run user:create` (SPEC-19 section 7). There is no
- * user-management screen, so this creates one login with a role and, optionally,
- * the zone it is restricted to (omitting --zone makes an all-zone user). The
- * password comes from NEW_USER_PASSWORD rather than an argument so it never lands
- * in shell history. It refuses to overwrite an existing username. An operator-made
- * account is trusted, so it is APPROVED at once (SPEC-20 D122).
+ * Purpose: Entry point for `npm run user:create` (SPEC-19 section 7, SPEC-21
+ * section 7) - the operator's way to bootstrap the first super admin, since the
+ * User Management screen needs one to exist. Creates one login with a role and,
+ * optionally, the zones it is restricted to (--zone takes comma-separated codes;
+ * omitting it makes an all-zone user). The password comes from NEW_USER_PASSWORD
+ * so it never lands in shell history. An existing username is refused.
  *
- *   NEW_USER_PASSWORD=... npm run user:create -- --username pune.viewer --role VIEWER --zone PUNE
+ *   NEW_USER_PASSWORD=... npm run user:create -- --username pune.west --role VIEWER --zone PUNE,MUMBAI
  */
 
 import { parseArgs } from "node:util";
@@ -36,20 +36,23 @@ async function main(): Promise<void> {
   const username = values.username?.trim().toLowerCase() ?? "";
   const role = values.role?.trim().toUpperCase() ?? "";
   if (username === "" || !(USER_ROLES as readonly string[]).includes(role)) {
-    throw new Error(`Usage: --username <name> --role ${USER_ROLES.join("|")} [--zone <ZONE_CODE>] [--email <email>]`);
+    throw new Error(`Usage: --username <name> --role ${USER_ROLES.join("|")} [--zone <ZONE_CODE,...>] [--email <email>]`);
   }
   const password = requireEnv("NEW_USER_PASSWORD");
 
   const pool = new Pool({ connectionString: requireEnv("DATABASE_URL") });
   try {
-    let zoneId: string | null = null;
-    if (values.zone !== undefined) {
-      const zoneCode = values.zone.trim().toUpperCase();
+    const zoneCodes = (values.zone ?? "")
+      .split(",")
+      .map((code) => code.trim().toUpperCase())
+      .filter((code) => code !== "");
+    const zoneIds: string[] = [];
+    for (const zoneCode of new Set(zoneCodes)) {
       const { rows } = await pool.query<{ id: string }>(`SELECT id FROM zone WHERE code = $1`, [zoneCode]);
       if (rows[0] === undefined) {
         throw new Error(`No zone with code ${zoneCode}`);
       }
-      zoneId = rows[0].id;
+      zoneIds.push(rows[0].id);
     }
 
     const existing = await pool.query(`SELECT 1 FROM "user" WHERE lower(username) = $1`, [username]);
@@ -57,12 +60,24 @@ async function main(): Promise<void> {
       throw new Error(`User ${username} already exists`);
     }
 
-    await pool.query(
-      `INSERT INTO "user" (username, email, password_hash, role, zone_id, is_active, approval_status)
-       VALUES ($1, $2, $3, $4, $5, true, 'APPROVED')`,
-      [username, values.email ?? `${username}@localhost`, await hashPassword(password), role, zoneId],
-    );
-    console.log(`Created ${role} ${username} (${zoneId === null ? "all zones" : `zone ${values.zone}`}).`);
+    const passwordHash = await hashPassword(password);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rows } = await client.query<{ id: string }>(
+        `INSERT INTO "user" (username, email, password_hash, role, is_active, all_zones)
+         VALUES ($1, $2, $3, $4, true, $5) RETURNING id`,
+        [username, values.email ?? `${username}@localhost`, passwordHash, role, zoneIds.length === 0],
+      );
+      await client.query(`INSERT INTO user_zone (user_id, zone_id) SELECT $1, unnest($2::uuid[])`, [rows[0]?.id, zoneIds]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    console.log(`Created ${role} ${username} (${zoneIds.length === 0 ? "all zones" : `zones ${zoneCodes.join(", ")}`}).`);
   } finally {
     await pool.end();
   }

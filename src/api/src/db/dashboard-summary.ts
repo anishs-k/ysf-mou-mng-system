@@ -39,7 +39,7 @@ export async function fetchDashboardSummary(pool: Pool, scope: ZoneScope): Promi
   // A draft belongs to the zone its Page 1 names (SPEC-19 section 4.1).
   const { rows } = await pool.query<{ count: string }>(
     `SELECT COUNT(*)::int AS count FROM company_draft
-      WHERE $1::text IS NULL OR payload->'page1'->>'zoneId' = $1::text`,
+      WHERE $1::text[] IS NULL OR payload->'page1'->>'zoneId' = ANY($1::text[])`,
     [scope],
   );
   const pendingReview = Number(rows[0]?.count ?? 0);
@@ -101,7 +101,7 @@ export async function fetchRecentActivity(pool: Pool, limit: number, scope: Zone
             LEFT JOIN first_mou fm ON fm.company_id = c.id
             LEFT JOIN company_plant cp ON cp.id = fm.company_plant_id
             WHERE c.is_active
-              AND ($2::uuid IS NULL OR c.zone_id = $2)
+              AND ($2::uuid[] IS NULL OR c.zone_id = ANY($2::uuid[]))
           ),
           mou_edit_events AS (
             SELECT
@@ -122,7 +122,7 @@ export async function fetchRecentActivity(pool: Pool, limit: number, scope: Zone
             JOIN company c ON c.id = m.company_id
             JOIN zone z ON z.id = c.zone_id
             LEFT JOIN company_plant cp ON cp.id = m.company_plant_id
-            WHERE $2::uuid IS NULL OR c.zone_id = $2
+            WHERE $2::uuid[] IS NULL OR c.zone_id = ANY($2::uuid[])
           )
      SELECT * FROM company_events
      UNION ALL

@@ -128,8 +128,8 @@ export async function insertZone(pool: Pool, code = "WEST", name = "West"): Prom
 
 export async function insertUser(pool: Pool, username = "admin"): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO "user" (username, email, password_hash, role, approval_status)
-     VALUES ($1, $2, 'not-a-real-hash', 'ADMIN', 'APPROVED') RETURNING id`,
+    `INSERT INTO "user" (username, email, password_hash, role, all_zones)
+     VALUES ($1, $2, 'not-a-real-hash', 'ADMIN', true) RETURNING id`,
     [username, `${username}@example.com`],
   );
   return firstRow(rows).id;
@@ -150,29 +150,36 @@ export async function insertUserWithPassword(
     readonly password?: string;
     readonly role?: UserRole;
     readonly isActive?: boolean;
-    /** SPEC-19: the zone the user is restricted to; omitted means every zone. */
+    /** SPEC-19: a single zone the user is restricted to - shorthand for `zoneIds: [zoneId]`. */
     readonly zoneId?: string;
-    /** SPEC-20: fixtures are trusted users, so APPROVED unless a test says otherwise. */
-    readonly approvalStatus?: "PENDING" | "APPROVED" | "REJECTED";
+    /** SPEC-21: the zones the user is restricted to. Neither option means every zone. */
+    readonly zoneIds?: readonly string[];
   } = {},
 ): Promise<CredentialedUser> {
   const username = options.username ?? "admin";
   const password = options.password ?? "correct-password";
   const role = options.role ?? "ADMIN";
+  const zoneIds = options.zoneIds ?? (options.zoneId === undefined ? [] : [options.zoneId]);
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO "user" (username, email, password_hash, role, is_active, zone_id, approval_status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    `INSERT INTO "user" (username, email, password_hash, role, is_active, all_zones)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
     [
       username,
       `${username}@example.com`,
       await hashPassword(password),
       role,
       options.isActive ?? true,
-      options.zoneId ?? null,
-      options.approvalStatus ?? "APPROVED",
+      zoneIds.length === 0,
     ],
   );
-  return { id: firstRow(rows).id, username, password, role };
+  const id = firstRow(rows).id;
+  if (zoneIds.length > 0) {
+    await pool.query(
+      `INSERT INTO user_zone (user_id, zone_id) SELECT $1, unnest($2::uuid[])`,
+      [id, zoneIds],
+    );
+  }
+  return { id, username, password, role };
 }
 
 let companySequence = 0;

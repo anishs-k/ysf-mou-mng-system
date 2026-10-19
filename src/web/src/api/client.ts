@@ -18,8 +18,10 @@ export interface AuthUser {
   readonly userId: string;
   readonly username: string;
   readonly role: UserRole;
-  /** SPEC-19: the zone this user is restricted to; null means every zone. */
-  readonly zoneId: string | null;
+  /** SPEC-21: true = every zone (zoneIds is then empty). */
+  readonly allZones: boolean;
+  /** SPEC-21: the zones a zonal user may see - one or several. */
+  readonly zoneIds: readonly string[];
 }
 
 export type LoginResult =
@@ -104,77 +106,67 @@ export async function logout(): Promise<void> {
   await request("/api/auth/logout", { method: "POST" });
 }
 
-/** SPEC-20 D127: active zones for the anonymous sign-up form. */
-export async function fetchSignUpZones(): Promise<readonly { id: string; name: string }[]> {
-  const response = await request("/api/public/zones");
-  if (!response.ok) {
-    throw new Error(`GET /api/public/zones failed with status ${response.status}`);
-  }
-  return (await response.json()) as { id: string; name: string }[];
-}
+// ---------------------------------------------------------------------------
+// SPEC-21 user management (super admin only)
+// ---------------------------------------------------------------------------
 
-export interface SignUpDetails {
-  readonly email: string;
-  readonly password: string;
-  readonly fullName: string;
-  readonly zoneId: string;
-}
-
-export type SignUpResult =
-  | { readonly ok: true; readonly message: string }
-  | { readonly ok: false; readonly message: string; readonly errors: Readonly<Record<string, string>> };
-
-/** POST /api/auth/signup — SPEC-20 section 3. Field errors come back keyed by field. */
-export async function signUp(details: SignUpDetails): Promise<SignUpResult> {
-  const response = await request("/api/auth/signup", {
-    method: "POST",
-    body: JSON.stringify(details),
-  });
-  const body = (await response.json().catch(() => ({}))) as {
-    message?: string;
-    error?: string;
-    errors?: Record<string, string>;
-    retryAfterSeconds?: number;
-  };
-  if (response.ok) {
-    return { ok: true, message: body.message ?? "Sign-up received." };
-  }
-  if (body.retryAfterSeconds !== undefined) {
-    const minutes = Math.max(1, Math.ceil(body.retryAfterSeconds / 60));
-    return { ok: false, message: `Too many sign-up requests. Try again in ${minutes} minute(s).`, errors: {} };
-  }
-  return { ok: false, message: body.error ?? "Could not submit the sign-up.", errors: body.errors ?? {} };
-}
-
-export interface PendingUser {
+export interface ManagedUser {
   readonly userId: string;
+  readonly username: string;
   readonly email: string;
   readonly fullName: string | null;
-  readonly zoneId: string | null;
-  readonly zoneName: string | null;
-  readonly requestedAt: string;
+  readonly role: UserRole;
+  readonly allZones: boolean;
+  readonly zones: readonly { readonly id: string; readonly name: string }[];
+  readonly createdAt: string;
 }
 
-/** GET /api/admin/users/pending — SPEC-20 section 5.1, super admin only. */
-export async function fetchPendingUsers(): Promise<readonly PendingUser[]> {
-  const response = await request("/api/admin/users/pending");
+/** Create sends every field; an edit sends only what changed (blank password = unchanged). */
+export interface UserAccountDetails {
+  readonly username?: string;
+  readonly email?: string;
+  readonly fullName?: string | null;
+  readonly password?: string;
+  readonly role?: UserRole;
+  readonly allZones?: boolean;
+  readonly zoneIds?: readonly string[];
+}
+
+export type UserSaveResult =
+  | { readonly ok: true; readonly user: ManagedUser }
+  | { readonly ok: false; readonly message: string; readonly errors: Readonly<Record<string, string>> };
+
+async function userFailure(response: Response, fallback: string): Promise<{ message: string; errors: Record<string, string> }> {
+  const body = (await response.json().catch(() => ({}))) as { error?: string; errors?: Record<string, string> };
+  return { message: body.error ?? `${fallback} (status ${response.status})`, errors: body.errors ?? {} };
+}
+
+/** GET /api/admin/users — SPEC-21 section 5.2. */
+export async function fetchManagedUsers(): Promise<readonly ManagedUser[]> {
+  const response = await request("/api/admin/users");
   if (!response.ok) {
-    throw new Error(`GET /api/admin/users/pending failed with status ${response.status}`);
+    throw new Error(`GET /api/admin/users failed with status ${response.status}`);
   }
-  return (await response.json()) as PendingUser[];
+  return (await response.json()) as ManagedUser[];
 }
 
-export type ApprovalDecision = { readonly decision: "APPROVE"; readonly role: "DATA_ENTRY" | "VIEWER" } | { readonly decision: "REJECT" };
-
-/** POST /api/admin/users/:userId/decision — SPEC-20 section 5.2. Rejects with the API's message. */
-export async function decideUser(userId: string, decision: ApprovalDecision): Promise<void> {
-  const response = await request(`/api/admin/users/${userId}/decision`, {
-    method: "POST",
-    body: JSON.stringify(decision),
+/** POST /api/admin/users (userId null) or PATCH /api/admin/users/:userId — sections 5.3 and 5.4. */
+export async function saveManagedUser(userId: string | null, details: UserAccountDetails): Promise<UserSaveResult> {
+  const response = await request(userId === null ? "/api/admin/users" : `/api/admin/users/${userId}`, {
+    method: userId === null ? "POST" : "PATCH",
+    body: JSON.stringify(details),
   });
+  if (response.ok) {
+    return { ok: true, user: (await response.json()) as ManagedUser };
+  }
+  return { ok: false, ...(await userFailure(response, "Could not save the user")) };
+}
+
+/** DELETE /api/admin/users/:userId — section 5.5. Rejects with the API's message. */
+export async function deleteManagedUser(userId: string): Promise<void> {
+  const response = await request(`/api/admin/users/${userId}`, { method: "DELETE" });
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `Deciding the request failed with status ${response.status}`);
+    throw new Error((await userFailure(response, "Could not delete the user")).message);
   }
 }
 

@@ -249,14 +249,6 @@ export const USER_ROLE_LABELS: Readonly<Record<UserRole, string>> = {
 
 export const USER_ROLE_OPTIONS = toOptions(USER_ROLES, USER_ROLE_LABELS);
 
-/** SPEC-20: a signed-up account waits as PENDING until a super admin decides it. */
-export const APPROVAL_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
-
-export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
-
-/** The roles an approval may grant (D126) - never ADMIN. */
-export const APPROVABLE_ROLES = ["DATA_ENTRY", "VIEWER"] as const satisfies readonly UserRole[];
-
 /**
  * SPEC-16 D107. The industry sector of a company, captured third on wizard Page 1.
  * Required, so `company.sector` is NOT NULL and existing rows are backfilled with

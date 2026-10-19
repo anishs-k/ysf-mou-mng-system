@@ -5,11 +5,10 @@
  * deactivated record disappears from the lists while remaining reachable by id;
  * history and exports therefore never break. Ordering is applied here so the UI
  * never sorts reference data itself. SPEC-19: both need a session, and a zonal
- * user sees only their own zone and its companies. SPEC-20 D127 adds the one
- * anonymous list - active zone ids and names only - for the sign-up form.
+ * user sees only their assigned zones (SPEC-21: one or several) and their companies.
  */
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { Router } from "express";
 import type { Pool } from "pg";
 
@@ -23,22 +22,12 @@ export function createZonesRouter(db: Database, pool: Pool): Router {
   const router = Router();
   const requireAuthSession = requireSession(pool);
 
-  /** GET /api/public/zones — SPEC-20 D127: no session, and nothing but id and name. */
-  router.get("/public/zones", async (_request, response) => {
-    const zones = await db
-      .select({ id: zone.id, name: zone.name })
-      .from(zone)
-      .where(eq(zone.isActive, true))
-      .orderBy(asc(zone.name));
-    response.json(zones);
-  });
-
   router.get("/zones", requireAuthSession, async (request, response) => {
     const scope = zoneScopeOf(request);
     const zones = await db
       .select({ id: zone.id, code: zone.code, name: zone.name })
       .from(zone)
-      .where(and(eq(zone.isActive, true), scope === null ? undefined : eq(zone.id, scope)))
+      .where(and(eq(zone.isActive, true), scope === null ? undefined : inArray(zone.id, [...scope])))
       .orderBy(asc(zone.name));
 
     response.json(zones);

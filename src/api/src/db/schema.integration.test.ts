@@ -32,7 +32,9 @@ const GENERATED_COLUMN_WRITE = "428C9";
 
 const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   zone: ["id", "code", "name", "is_active"],
-  user: ["id", "username", "email", "password_hash", "role", "is_active", "created_at"],
+  // SPEC-21 D128/D129: zones live in user_zone, and all_zones replaces the NULL zone_id.
+  user: ["id", "username", "email", "password_hash", "role", "is_active", "created_at", "full_name", "all_zones"],
+  user_zone: ["user_id", "zone_id"],
   // SPEC-02 section 2 additions to the schema.
   session: ["id", "user_id", "created_at", "last_seen_at", "expires_at"],
   login_attempt: ["username", "failed_count", "locked_until", "last_attempt_at"],
@@ -222,6 +224,7 @@ const EXPECTED_INDEXES = [
   "mou_alert_mou_threshold_uq",
   "mou_edit_request_mou_idx",
   "export_job_expires_at_idx",
+  "user_zone_zone_idx",
 ];
 
 let pool: Pool;
@@ -548,6 +551,61 @@ test("AC12 deleting a zone that still has companies is refused by RESTRICT", asy
   await insertCompany(pool, zoneId, userId);
 
   await expectSqlState(pool.query(`DELETE FROM zone WHERE id = $1`, [zoneId]), FOREIGN_KEY_VIOLATION);
+});
+
+test("SPEC-21 a user is assigned several zones through user_zone", async () => {
+  const userId = await insertUser(pool);
+  const west = await insertZone(pool, "WEST", "West");
+  const pune = await insertZone(pool, "PUNE", "Pune");
+  await pool.query(`INSERT INTO user_zone (user_id, zone_id) VALUES ($1, $2), ($1, $3)`, [userId, west, pune]);
+
+  const { rows } = await pool.query<{ zone_id: string }>(
+    `SELECT zone_id FROM user_zone WHERE user_id = $1 ORDER BY zone_id`,
+    [userId],
+  );
+  assert.deepEqual(rows.map((row) => row.zone_id), [west, pune].sort());
+});
+
+test("SPEC-21 the same zone cannot be assigned to a user twice", async () => {
+  const userId = await insertUser(pool);
+  const zoneId = await insertZone(pool);
+  await pool.query(`INSERT INTO user_zone (user_id, zone_id) VALUES ($1, $2)`, [userId, zoneId]);
+
+  await expectSqlState(
+    pool.query(`INSERT INTO user_zone (user_id, zone_id) VALUES ($1, $2)`, [userId, zoneId]),
+    UNIQUE_VIOLATION,
+  );
+});
+
+test("SPEC-21 a user_zone row must name an existing zone and user", async () => {
+  const userId = await insertUser(pool);
+  const zoneId = await insertZone(pool);
+  const unknown = "00000000-0000-4000-8000-000000000000";
+
+  await expectSqlState(
+    pool.query(`INSERT INTO user_zone (user_id, zone_id) VALUES ($1, $2)`, [userId, unknown]),
+    FOREIGN_KEY_VIOLATION,
+  );
+  await expectSqlState(
+    pool.query(`INSERT INTO user_zone (user_id, zone_id) VALUES ($1, $2)`, [unknown, zoneId]),
+    FOREIGN_KEY_VIOLATION,
+  );
+});
+
+test("SPEC-21 deleting a zone that is still assigned to a user is refused by RESTRICT", async () => {
+  const userId = await insertUser(pool);
+  const zoneId = await insertZone(pool);
+  await pool.query(`INSERT INTO user_zone (user_id, zone_id) VALUES ($1, $2)`, [userId, zoneId]);
+
+  await expectSqlState(pool.query(`DELETE FROM zone WHERE id = $1`, [zoneId]), FOREIGN_KEY_VIOLATION);
+});
+
+test("SPEC-21 a new user is not all-zone unless that is stated explicitly", async () => {
+  const { rows } = await pool.query<{ all_zones: boolean }>(
+    `INSERT INTO "user" (username, email, password_hash, role)
+     VALUES ('plain', 'plain@example.com', 'not-a-real-hash', 'VIEWER') RETURNING all_zones`,
+  );
+  assert.equal(firstRow(rows).all_zones, false);
 });
 
 test("AC13 business_today() returns the Asia/Kolkata date even in a UTC session", async () => {

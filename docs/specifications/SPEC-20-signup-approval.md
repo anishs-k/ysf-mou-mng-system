@@ -1,5 +1,13 @@
 # SPEC-20 — Self Sign-Up with Admin Approval
 
+> **SUPERSEDED — do not implement.** Replaced in full by
+> [SPEC-21 — Admin User Management](./SPEC-21-admin-user-management.md)
+> (client instruction, 2026-10-19). Self sign-up is **completely removed**:
+> no sign-up page or link, no pending/approval state, no `POST /api/auth/signup`,
+> no `GET /api/public/zones`, no approval routes. Accounts are created only by a
+> super admin. Decisions D122–D127 are retired by D131. This text is kept only
+> as a record of what was built and then removed (SPEC-21 §1.1).
+
 **Depends on:** SPEC-02 (login, session, roles), SPEC-19 (zone scope, super admin).
 **Source:** client instruction, 2026-10-18.
 **Decisions:** D122–D127 in `docs/design/ADR.md`.

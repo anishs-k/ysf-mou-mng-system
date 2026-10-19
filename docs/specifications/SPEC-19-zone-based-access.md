@@ -5,6 +5,14 @@ and every data spec it restricts: SPEC-03–SPEC-13.
 **Source:** client instruction, 2026-10-18 ("strict Zone-Based Role Access / Data Isolation").
 **Decisions:** D117–D121 in `docs/design/ADR.md`.
 
+> **Amended by SPEC-21 (2026-10-19).** A user is no longer tied to *one* zone:
+> `user.zone_id` is replaced by the `user_zone` junction table plus a
+> `user.all_zones` flag, and a zonal user may hold several zones. Read every
+> "the user's zone" below as "any of the user's zones", and "`zone_id` NULL" as
+> "`all_zones` true". `/auth/me` returns `allZones` + `zoneIds` instead of
+> `zoneId`. The rules themselves (filtering, 404-not-403, creator-only exports)
+> are unchanged. See SPEC-21 §2–§4.
+
 ---
 
 ## 1. Scope
@@ -14,8 +22,9 @@ export any record belonging to another zone — through the UI, through a direct
 API call, or by guessing an id. A user not tied to a zone keeps today's
 behaviour and sees every zone.
 
-Out of scope: a user-management screen, users spanning several zones, and
-restricting the anonymous login-page counts (§6).
+Out of scope: restricting the anonymous login-page counts (§6). A
+user-management screen and users spanning several zones were out of scope here
+and are now delivered by SPEC-21.
 
 ---
 

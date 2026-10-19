@@ -1,9 +1,9 @@
 /**
- * Purpose: The signed-out page chrome shared by the login and sign-up screens -
- * background orbs, the portal header, the centred content row and the copyright
- * footer - plus the field label both cards use (their input style is
- * ui/theme.ts's AUTH_INPUT_STYLE). Moved verbatim out of LoginScreen so the login
- * page renders exactly as before and the sign-up page (SPEC-20) cannot drift from it.
+ * Purpose: The signed-out page chrome of the login screen - background orbs, the
+ * portal header, the centred content row and the copyright footer - plus the
+ * card's field label (its input style is ui/theme.ts's AUTH_INPUT_STYLE). Moved
+ * verbatim out of LoginScreen for SPEC-20's sign-up page; SPEC-21 removed that
+ * page, and the login page still renders exactly as before.
  */
 
 import type { ReactNode } from "react";

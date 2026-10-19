@@ -45,7 +45,7 @@ interface TextInputProps {
   readonly id?: string;
   /** Names a control that has no visible label, e.g. a bare filter-bar date. */
   readonly ariaLabel?: string;
-  readonly type?: "text" | "email" | "tel" | "date" | "number";
+  readonly type?: "text" | "email" | "tel" | "date" | "number" | "password";
   readonly placeholder?: string;
   readonly value?: string;
   readonly onChange?: (value: string) => void;

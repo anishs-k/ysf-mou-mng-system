@@ -22,5 +22,5 @@ export function statusTone(status: string): BadgeTone {
   return "default";
 }
 
-/** The input border of the signed-out login and sign-up cards (screens/login/AuthPageFrame.tsx). */
+/** The input border of the signed-out login card (screens/login/AuthPageFrame.tsx). */
 export const AUTH_INPUT_STYLE = { border: "1.5px solid #D8E3F0", fontFamily: "inherit", color: BRAND.navy } as const;

@@ -31,7 +31,7 @@ import {
 } from "./db/test-harness.ts";
 
 const UNKNOWN_ID = "00000000-0000-4000-8000-000000000000";
-const OUT_OF_ZONE = "You can only add companies in your own zone";
+const OUT_OF_ZONE = "You can only add companies in your assigned zones";
 
 let pool: Pool;
 let server: Server | undefined;
@@ -136,18 +136,19 @@ async function json<T>(cookie: string, path: string): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-test("AC1 login and /auth/me report the user's zone, null for an all-zone user", async () => {
+test("AC1 login and /auth/me report the user's zones, allZones for an all-zone user (SPEC-21 section 3)", async () => {
   const zoneId = await insertZone(pool, "ZA", "Alpha");
   const zonal = await insertUserWithPassword(pool, { username: "zonal", password: "pass", zoneId });
   const hq = await insertUserWithPassword(pool, { username: "hq", password: "pass" });
+  const scopeOf = (body: Record<string, unknown>) => ({ allZones: body["allZones"], zoneIds: body["zoneIds"] });
 
   const zonalLogin = await login(zonal.username, zonal.password);
-  assert.equal(zonalLogin.body["zoneId"], zoneId);
-  assert.equal((await json<Record<string, unknown>>(zonalLogin.cookie, "/api/auth/me"))["zoneId"], zoneId);
+  assert.deepEqual(scopeOf(zonalLogin.body), { allZones: false, zoneIds: [zoneId] });
+  assert.deepEqual(scopeOf(await json<Record<string, unknown>>(zonalLogin.cookie, "/api/auth/me")), { allZones: false, zoneIds: [zoneId] });
 
   const hqLogin = await login(hq.username, hq.password);
-  assert.equal(hqLogin.body["zoneId"], null);
-  assert.equal((await json<Record<string, unknown>>(hqLogin.cookie, "/api/auth/me"))["zoneId"], null);
+  assert.deepEqual(scopeOf(hqLogin.body), { allZones: true, zoneIds: [] });
+  assert.deepEqual(scopeOf(await json<Record<string, unknown>>(hqLogin.cookie, "/api/auth/me")), { allZones: true, zoneIds: [] });
 });
 
 test("AC8 the formerly anonymous zone and plant routes now require a session", async () => {
@@ -411,9 +412,56 @@ test("AC9 changing a user's zone changes their very next request", async () => {
   const { a, b, zonal, zonalUserId } = await setup();
   assert.deepEqual((await json<Array<{ id: string }>>(zonal, "/api/zones")).map((zone) => zone.id), [a.zoneId]);
 
-  await pool.query(`UPDATE "user" SET zone_id = $1 WHERE id = $2`, [b.zoneId, zonalUserId]);
+  await pool.query(`UPDATE user_zone SET zone_id = $1 WHERE user_id = $2`, [b.zoneId, zonalUserId]);
   assert.deepEqual((await json<Array<{ id: string }>>(zonal, "/api/zones")).map((zone) => zone.id), [b.zoneId]);
 
-  await pool.query(`UPDATE "user" SET zone_id = NULL WHERE id = $1`, [zonalUserId]);
+  await pool.query(`UPDATE "user" SET all_zones = true WHERE id = $1`, [zonalUserId]);
   assert.equal((await json<unknown[]>(zonal, "/api/zones")).length, 2);
+
+  // SPEC-21 D129: a zonal user left with no zone sees nothing, never everything.
+  await pool.query(`UPDATE "user" SET all_zones = false WHERE id = $1`, [zonalUserId]);
+  await pool.query(`DELETE FROM user_zone WHERE user_id = $1`, [zonalUserId]);
+  assert.deepEqual(await json<unknown[]>(zonal, "/api/zones"), []);
+  assert.equal((await json<{ total: number }>(zonal, "/api/search")).total, 0);
+});
+
+test("SPEC-21 AC4/AC5 a user of two zones sees both and nothing of a third", async () => {
+  const creator = await insertUserWithPassword(pool, { username: "creator", password: "pass" });
+  const a = await insertZoneData("ZA", "Alpha", creator.id);
+  const b = await insertZoneData("ZB", "Beta", creator.id);
+  const c = await insertZoneData("ZC", "Gamma", creator.id);
+  const twoZone = await insertUserWithPassword(pool, { username: "ab.viewer", password: "pass", role: "ADMIN", zoneIds: [a.zoneId, b.zoneId] });
+  const { cookie } = await login(twoZone.username, twoZone.password);
+
+  const zoneIds = (await json<Array<{ id: string }>>(cookie, "/api/zones")).map((zone) => zone.id).sort();
+  assert.deepEqual(zoneIds, [a.zoneId, b.zoneId].sort());
+
+  const search = await json<{ total: number; rows: Array<{ zoneId: string }> }>(cookie, "/api/search");
+  assert.equal(search.total, 2);
+  assert.deepEqual(new Set(search.rows.map((row) => row.zoneId)), new Set([a.zoneId, b.zoneId]));
+
+  const summary = await json<{ totalCompanies: number }>(cookie, "/api/dashboard/summary");
+  assert.equal(summary.totalCompanies, 2);
+  const zoneWise = await json<{ zones: Array<{ zoneId: string }> }>(cookie, "/api/dashboard/zone-wise");
+  assert.deepEqual(new Set(zoneWise.zones.map((row) => row.zoneId)), new Set([a.zoneId, b.zoneId]));
+  assert.equal((await json<{ count: number }>(cookie, "/api/alerts/count")).count, 2);
+
+  for (const own of [a, b]) {
+    assert.equal((await call(cookie, `/api/mous/${own.mouId}/commercial`)).status, 200);
+  }
+  assert.equal((await call(cookie, `/api/mous/${c.mouId}/commercial`)).status, 404);
+  assert.deepEqual(await json<unknown[]>(cookie, `/api/zones/${c.zoneId}/companies`), []);
+
+  const validate = async (zoneId: string) =>
+    (JSON.parse(
+      (
+        await call(cookie, "/api/companies/validate-page1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ details: companyPage1(zoneId) }),
+        })
+      ).text,
+    ) as { errors: Record<string, string> }).errors["zoneId"];
+  assert.equal(await validate(b.zoneId), undefined);
+  assert.equal(await validate(c.zoneId), OUT_OF_ZONE);
 });

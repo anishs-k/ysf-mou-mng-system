@@ -13,7 +13,7 @@
 import { SCHEMES } from "@mou/domain";
 import type { MouStatus, Scheme } from "@mou/domain";
 import { deriveStatus } from "@mou/domain";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Pool } from "pg";
 
 import type { ZoneScope } from "../auth/zone-scope.ts";
@@ -84,7 +84,7 @@ export async function fetchZoneSummary(
      LEFT JOIN company_plant cp ON cp.company_id = c.id AND cp.is_active
      LEFT JOIN scoped_mou sm ON sm.company_id = c.id
      WHERE z.is_active
-       AND ($3::uuid IS NULL OR z.id = $3)
+       AND ($3::uuid[] IS NULL OR z.id = ANY($3::uuid[]))
      GROUP BY z.id, z.name
      ORDER BY z.name`,
     [scheme, status, scope],
@@ -150,7 +150,7 @@ export async function fetchSchemeMatrix(
      LEFT JOIN company c ON c.zone_id = z.id AND c.is_active
      LEFT JOIN scoped_mou sm ON sm.company_id = c.id
      WHERE z.is_active
-       AND ($3::uuid IS NULL OR z.id = $3)
+       AND ($3::uuid[] IS NULL OR z.id = ANY($3::uuid[]))
      GROUP BY z.id, z.name, sm.scheme
      ORDER BY z.name`,
     [scheme, status, scope],
@@ -209,7 +209,7 @@ export async function fetchZoneDrillDown(
 ): Promise<ZoneDrillDownRow[]> {
   const conditions = [eq(company.zoneId, zoneId), eq(company.isActive, true), eq(mou.isActive, true)];
   if (scope !== null) {
-    conditions.push(eq(company.zoneId, scope));
+    conditions.push(inArray(company.zoneId, [...scope]));
   }
   if (filters.scheme !== undefined) {
     conditions.push(eq(mou.scheme, filters.scheme));

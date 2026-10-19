@@ -2,12 +2,13 @@
  * Purpose: The sign-in screen - portal header, the "Empowering Youth Through
  * Skills" hero with four headline figures, and the glass login card. Credentials
  * are checked by @mou/api (see ui/SessionProvider.tsx) and the hero figures come
- * from the unauthenticated GET /api/public/stats. The page chrome is shared with
- * the sign-up screen (login/AuthPageFrame.tsx), which the card links to (SPEC-20).
+ * from the unauthenticated GET /api/public/stats. The page chrome lives in
+ * login/AuthPageFrame.tsx. There is no sign-up link: accounts are created by a
+ * super admin (SPEC-21).
  */
 
 import { useEffect, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 
 import { fetchPublicStats } from "../api/client.ts";
 import type { PublicStats } from "../api/client.ts";
@@ -224,13 +225,6 @@ export function LoginScreen() {
             >
               {submitting ? "Signing in…" : "Sign In →"}
             </button>
-
-            <p className="text-sm text-center mt-4" style={{ color: "#7A90B0" }}>
-              New here?{" "}
-              <Link to="/signup" className="font-semibold hover:underline" style={{ color: BRAND.orange }}>
-                Create an account
-              </Link>
-            </p>
 
             <div className="mt-6 pt-5 border-t text-center" style={{ borderColor: "#EEF2F8" }}>
               <p className="text-xs" style={{ color: "#8A9BB5" }}>

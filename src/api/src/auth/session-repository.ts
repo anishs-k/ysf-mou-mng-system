@@ -3,9 +3,9 @@
  * session, so logging out deletes it and the 30-minute inactivity rule is a sliding
  * expiry - both are real server-side invalidations rather than a cookie the client
  * could simply forget. resolveSession validates and slides in one statement, and
- * refuses a session whose user has since been deactivated or is no longer
- * APPROVED (SPEC-20). The user's role and
- * zone (SPEC-19) are read on every request, so changing either takes effect at once. Raw SQL is used because
+ * refuses a session whose user has since been deactivated or deleted. The user's
+ * role and zone scope (SPEC-19, widened to several zones by SPEC-21) are read on
+ * every request, so changing either takes effect at once. Raw SQL is used because
  * the interval arithmetic and the conditional UPDATE are clearer as SQL than as a
  * query-builder chain, matching the precedent set by company-code-repository.ts.
  */
@@ -23,8 +23,10 @@ export interface AuthenticatedUser {
   readonly userId: string;
   readonly username: string;
   readonly role: UserRole;
-  /** SPEC-19: the zone this user is restricted to; null means every zone. */
-  readonly zoneId: string | null;
+  /** SPEC-21 D129: true = every zone, and zoneIds is empty. */
+  readonly allZones: boolean;
+  /** SPEC-21 D128: the zones a zonal user may see, from user_zone. */
+  readonly zoneIds: readonly string[];
 }
 
 export interface CreatedSession {
@@ -59,7 +61,7 @@ export async function resolveSession(pool: Pool, sessionId: string): Promise<Aut
   if (!UUID_PATTERN.test(sessionId)) {
     return null;
   }
-  const { rows } = await pool.query<{ user_id: string; username: string; role: string; zone_id: string | null }>(
+  const { rows } = await pool.query<{ user_id: string; username: string; role: string; all_zones: boolean; zone_ids: string[] }>(
     `WITH touched AS (
        UPDATE session
           SET last_seen_at = now(),
@@ -68,11 +70,14 @@ export async function resolveSession(pool: Pool, sessionId: string): Promise<Aut
           AND expires_at > now()
           AND EXISTS (
             SELECT 1 FROM "user" u
-             WHERE u.id = session.user_id AND u.is_active AND u.approval_status = 'APPROVED'
+             WHERE u.id = session.user_id AND u.is_active
           )
         RETURNING user_id
      )
-     SELECT u.id AS user_id, u.username, u.role, u.zone_id
+     SELECT u.id AS user_id, u.username, u.role, u.all_zones,
+            CASE WHEN u.all_zones THEN '{}'::text[]
+                 ELSE ARRAY(SELECT uz.zone_id::text FROM user_zone uz WHERE uz.user_id = u.id ORDER BY uz.zone_id)
+            END AS zone_ids
        FROM touched
        JOIN "user" u ON u.id = touched.user_id`,
     [sessionId, SESSION_IDLE_MINUTES],
@@ -82,7 +87,7 @@ export async function resolveSession(pool: Pool, sessionId: string): Promise<Aut
   if (row === undefined || !isUserRole(row.role)) {
     return null;
   }
-  return { userId: row.user_id, username: row.username, role: row.role, zoneId: row.zone_id };
+  return { userId: row.user_id, username: row.username, role: row.role, allZones: row.all_zones, zoneIds: row.zone_ids };
 }
 
 export async function deleteSession(pool: Pool, sessionId: string): Promise<void> {
@@ -90,6 +95,11 @@ export async function deleteSession(pool: Pool, sessionId: string): Promise<void
     return;
   }
   await pool.query(`DELETE FROM session WHERE id = $1`, [sessionId]);
+}
+
+/** SPEC-21 D135: a password change or a delete ends every session of that user. */
+export async function deleteSessionsOfUser(pool: Pool, userId: string): Promise<void> {
+  await pool.query(`DELETE FROM session WHERE user_id = $1`, [userId]);
 }
 
 /** Keeps the table bounded; called on the login path, which is rare and indexed. */

@@ -151,7 +151,7 @@ export async function searchMous(
        AND ($7::text IS NULL OR m.scheme = $7)
        AND ($8::date IS NULL OR m.mou_start_date >= $8)
        AND ($9::date IS NULL OR m.mou_start_date <= $9)
-       AND ($10::uuid IS NULL OR c.zone_id = $10)
+       AND ($10::uuid[] IS NULL OR c.zone_id = ANY($10::uuid[]))
      ORDER BY c.company_name, m.scheme
      LIMIT COALESCE($5::int, 2147483647) OFFSET $6`,
     [zoneId, status, by, q, limit, offset, scheme, startFrom, startTo, scope],

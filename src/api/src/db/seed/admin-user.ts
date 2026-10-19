@@ -34,8 +34,9 @@ export async function seedAdminUser(pool: Pool, input: AdminSeedInput): Promise<
 
   if (row === undefined) {
     await pool.query(
-      `INSERT INTO "user" (username, email, password_hash, role, is_active, approval_status)
-       VALUES ($1, $2, $3, 'ADMIN', true, 'APPROVED')`,
+      // SPEC-21: the seeded ADMIN is the first super admin, so it sees every zone.
+      `INSERT INTO "user" (username, email, password_hash, role, is_active, all_zones)
+       VALUES ($1, $2, $3, 'ADMIN', true, true)`,
       [input.username, input.email, passwordHash],
     );
     return "created";

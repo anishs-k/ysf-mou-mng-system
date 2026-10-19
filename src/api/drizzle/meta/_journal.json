@@ -78,6 +78,20 @@
       "when": 1792307077999,
       "tag": "0010_spec20_signup_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792401337247,
+      "tag": "0011_spec21_user_zones",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792401368703,
+      "tag": "0012_spec21_drop_signup",
+      "breakpoints": true
     }
   ]
 }

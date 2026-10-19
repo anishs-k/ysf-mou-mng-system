@@ -17,3 +17,4 @@ export * from "./company-details-validation.ts";
 export * from "./commercial-details-validation.ts";
 export * from "./payroll-details-validation.ts";
 export * from "./agreement-diff.ts";
+export * from "./user-account-validation.ts";

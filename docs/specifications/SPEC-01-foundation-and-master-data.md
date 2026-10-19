@@ -455,6 +455,11 @@ any insurance column is rejected outright.
 
 Table and seed row only. All authentication logic is SPEC-02.
 
+*Amended by later specs:* `username` is varchar(255) (SPEC-20 D123); `full_name
+varchar(150)` NULL and `all_zones boolean NOT NULL default false` are added, and
+the zones a user may see live in the `user_zone (user_id, zone_id)` junction
+table (SPEC-21 §2). SPEC-19's `zone_id` and SPEC-20's approval columns no longer exist.
+
 ### 5.12 `company_draft`
 | Column | Type | Notes |
 |---|---|---|

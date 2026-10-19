@@ -621,3 +621,20 @@ rejects it. Full rules in `docs/specifications/SPEC-20-signup-approval.md`.
 | D125 | Abuse of the anonymous sign-up route | **5 per client IP, then 15-minute block**, reusing the `login_attempt` lockout table under `signup-ip:<ip>` | No new table; survives restarts like the login lockout. Behind a reverse proxy the socket IP is the proxy's, so `trust proxy` must be configured before production |
 | D126 | Who approves, and which roles | **Super admin only** (ADMIN with NULL zone). Approval grants `DATA_ENTRY` or `VIEWER`, never `ADMIN` | Approval is a gate on strangers; granting admin rights belongs to a deliberate, separate act (`user:create`) |
 | D127 | Zone list for the anonymous sign-up form | New **`GET /api/public/zones`** returning only `{ id, name }` of active zones; `/api/zones` keeps its session (D121) | A sign-up form must offer zones before anyone is signed in. Zone names are not sensitive, but keeping the anonymous list separate and minimal means `/api/zones` can keep its SPEC-19 scoping and no company data is ever reachable anonymously |
+
+## SPEC-21 — Admin User Management (replaces SPEC-20)
+
+Self sign-up is removed; a super admin creates, edits and deletes users, and a
+user may be assigned several zones. Full rules in
+`docs/specifications/SPEC-21-admin-user-management.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D128 | How a user holds several zones | **Junction table `user_zone (user_id, zone_id)`**, PK on the pair, both FKs `ON DELETE RESTRICT`; `user.zone_id` dropped. Supersedes D117's single column | A Postgres `uuid[]` cannot carry a foreign key per element, so it could hold ids of zones that never existed and would break D12's RESTRICT integrity. The table also gives a natural "who can see zone X" index and a plain `= ANY(...)` / `inArray` filter |
+| D129 | How "all zones" is represented | **Explicit `user.all_zones boolean NOT NULL DEFAULT false`**; a super admin is an active ADMIN with `all_zones = true` | "No `user_zone` rows = all zones" would make removing a zonal user's last zone silently widen them to every zone. With the flag, an empty set means *no* zone — the failure is closed, not open |
+| D130 | Existing data when the model changes | Migration 0011 **backfills before** 0012 drops: `all_zones = (zone_id IS NULL)`, one `user_zone` row per set `zone_id` | Every current user keeps exactly the scope they had; the drop can never run on un-copied data |
+| D131 | Self sign-up | **Removed entirely** — routes, screens, approval columns and the `signup-ip` limit. Unapproved sign-ups are **deactivated** by the migration. Retires D122–D127 | Client chose admin provisioning. Deactivating rather than approving means no stranger's request becomes a working login when the status column disappears |
+| D132 | Deleting a user | **Soft delete**: `is_active = false`, sessions deleted, `username`/`email` renamed to `<original>#deleted-<id8>` | `created_by`, `edited_by`, `uploaded_by` reference users with RESTRICT, so a hard delete fails for anyone who ever entered data and would erase who did what (D12). Renaming frees the identifiers for reuse; `#` is not a legal username character, so no clash |
+| D133 | Admin lock-out | A super admin **cannot delete or demote themselves**, and no change may leave **zero active super admins** (checked under row lock in the same transaction) | With sign-up gone there is no way back in except the CLI; the lock stops two admins demoting each other concurrently |
+| D134 | Which roles a super admin may grant | **Any role and scope, including another super admin**. Supersedes D126 | D126 kept admin rights out of an approval queue for strangers; provisioning is itself the deliberate act D126 asked for |
+| D135 | When admin edits take effect | Role / zone / identity: **next request** (D118 kept). Password change or delete: **that user's sessions are deleted** | Scope is already read per request; a reset password must end the sessions opened with the old one |

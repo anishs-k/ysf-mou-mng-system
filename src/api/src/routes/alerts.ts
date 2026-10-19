@@ -96,7 +96,7 @@ export function createAlertsRouter(pool: Pool): Router {
       const scope = zoneScopeOf(request);
       if (scope !== null) {
         params.push(scope);
-        conditions.push(`c.zone_id = $${params.length}`);
+        conditions.push(`c.zone_id = ANY($${params.length}::uuid[])`);
       }
       if (scheme !== undefined) {
         params.push(String(scheme));
@@ -179,7 +179,7 @@ export function createAlertsRouter(pool: Pool): Router {
          JOIN company c ON c.id = m.company_id AND c.is_active
         WHERE m.is_active
           AND m.end_date BETWEEN business_today() AND (business_today() + $1::int)
-          AND ($2::uuid IS NULL OR c.zone_id = $2)`,
+          AND ($2::uuid[] IS NULL OR c.zone_id = ANY($2::uuid[]))`,
         [MAX_WINDOW_DAYS, zoneScopeOf(request)],
       );
       response.json({ count: Number(rows[0]?.count ?? "0") });

@@ -10,7 +10,7 @@ import { USER_ROLE_LABELS } from "@mou/domain";
 import { NavLink } from "react-router-dom";
 
 import logo from "../../assets/logo-ysf.png";
-import { APPROVALS_PATH, canOpenPath } from "../access.ts";
+import { USER_MANAGEMENT_PATH, canOpenPath } from "../access.ts";
 import { Icon } from "../Icon.tsx";
 import type { IconName } from "../Icon.tsx";
 import { useSession } from "../session.ts";
@@ -38,7 +38,7 @@ const NAV_ENTRIES: readonly NavEntry[] = [
   { path: "/export", label: "Export", icon: "download", iconClass: "w-5 h-5" },
   { section: "Operation" },
   { path: "/user-manual", label: "User Manual", icon: "book", iconClass: "w-5 h-5" },
-  { path: APPROVALS_PATH, label: "User Approvals", icon: "check", iconClass: "w-5 h-5", strokeWidth: 2.2 },
+  { path: USER_MANAGEMENT_PATH, label: "User Management", icon: "user", iconClass: "w-5 h-5" },
 ];
 
 /** "e2e-admin" -> "EA", "admin" -> "AD": the first letters of up to two name parts. */

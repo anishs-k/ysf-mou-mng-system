@@ -23,7 +23,6 @@
 
 import { sql, type SQL } from "drizzle-orm";
 import {
-  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -43,7 +42,6 @@ import {
 } from "drizzle-orm/pg-core";
 
 import {
-  APPROVAL_STATUSES,
   COMMERCIAL_BASES,
   COMMERCIAL_ITEM_KEYS,
   COMMERCIAL_PERIODS,
@@ -87,20 +85,37 @@ export const user = pgTable(
     email: varchar("email", { length: 255 }).notNull().unique(),
     passwordHash: text("password_hash").notNull(),
     role: varchar("role", { length: 20 }).notNull(),
-    /** SPEC-19 D117: the one zone this user may see; NULL means every zone. */
-    zoneId: uuid("zone_id").references(() => zone.id, { onDelete: "restrict" }),
-    /** SPEC-20: only APPROVED users may sign in; the migration backfilled existing rows (D122). */
-    approvalStatus: varchar("approval_status", { length: 10 }).notNull().default("PENDING"),
+    /** SPEC-21: shown on the User Management list; optional. */
     fullName: varchar("full_name", { length: 150 }),
-    approvalDecidedBy: uuid("approval_decided_by").references((): AnyPgColumn => user.id, { onDelete: "restrict" }),
-    approvalDecidedAt: timestamp("approval_decided_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * SPEC-21 D129: true = every zone, and user_zone is ignored. An explicit flag
+     * rather than "no user_zone rows", so removing a zonal user's last zone can
+     * never silently widen them to all zones.
+     */
+    allZones: boolean("all_zones").notNull().default(false),
   },
-  (t) => [
-    check("user_role_chk", enumCheck("user_role_chk", "role", USER_ROLES)),
-    check("user_approval_status_chk", enumCheck("user_approval_status_chk", "approval_status", APPROVAL_STATUSES)),
-  ],
+  () => [check("user_role_chk", enumCheck("user_role_chk", "role", USER_ROLES))],
+);
+
+/**
+ * SPEC-21 D128. The zones a zonal user may see - one row per (user, zone), so a
+ * user can be assigned any number of zones and every assignment is a real FK
+ * (a uuid[] column could hold ids of zones that do not exist). Read only when
+ * the user's all_zones is false. The zone_id index serves "who can see zone X".
+ */
+export const userZone = pgTable(
+  "user_zone",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    zoneId: uuid("zone_id")
+      .notNull()
+      .references(() => zone.id, { onDelete: "restrict" }),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.zoneId] }), index("user_zone_zone_idx").on(t.zoneId)],
 );
 
 /**
