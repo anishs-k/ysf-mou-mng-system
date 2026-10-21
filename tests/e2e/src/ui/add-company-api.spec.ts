@@ -5,7 +5,7 @@
  * that missing required fields block "Save & Continue", and that a VIEWER is refused.
  */
 
-import { PAYROLL_ITEMS, formatMoUDisplayCode } from "@mou/domain";
+import { formatMoUDisplayCode } from "@mou/domain";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
@@ -40,19 +40,21 @@ async function fillCompanyDetails(page: Page, companyName: string, suffix: strin
   await page.getByLabel("PIN Code").fill("411001");
   await page.getByLabel("State").fill("Maharashtra");
 
+  // D155 / D156: no Contact Type; separate HR and Finance emails, each confirmed.
   await page.getByLabel("HR Contact Name").fill("Priya Sharma");
   await page.getByLabel("Finance Head Name").fill("Amit Verma");
-  await page.getByRole("radio", { name: "Mobile No" }).click();
   await page.getByLabel("HR Contact Number").fill(`98765${suffix.slice(0, 5)}`);
   await page.getByLabel("Finance Head Contact").fill(`97654${suffix.slice(0, 5)}`);
-  await page.getByLabel(/^Official Email/).fill(`hr${suffix}@example.com`);
-  await page.getByLabel(/^Confirm Official Email/).fill(`hr${suffix}@example.com`);
+  await page.getByLabel(/^HR Email ID/).fill(`hr${suffix}@example.com`);
+  await page.getByLabel(/^Confirm HR Email ID/).fill(`hr${suffix}@example.com`);
+  await page.getByLabel(/^Finance Email ID/).fill(`finance${suffix}@example.com`);
+  await page.getByLabel(/^Confirm Finance Email ID/).fill(`finance${suffix}@example.com`);
 }
 
 async function fillCommercialDetails(page: Page): Promise<void> {
   await page.getByLabel("MoU Start Date").fill(new Date().toISOString().slice(0, 10));
-  await page.getByLabel("MoU Tenure").fill("12");
-  await page.getByLabel("Tenure Unit").selectOption("MONTHS");
+  // D157: the tenure is entered in months, with no unit to choose.
+  await page.getByLabel(/MoU Tenure \(Months\)/).fill("12");
   await expect(page.getByTestId("mou-end-date")).not.toHaveText("Auto-calculated");
 
   await page.locator('input[type="file"]').setInputFiles({
@@ -75,13 +77,7 @@ async function fillPayroll(page: Page): Promise<void> {
   await page.getByLabel("Trainee Category").first().fill("ITI Graduate");
   await page.getByLabel("Qualification").first().fill("ITI");
   await page.getByLabel(/Stipend Rate/).first().fill("12000");
-
-  for (const item of PAYROLL_ITEMS) {
-    if (item.itemType === null) continue;
-    const answers = page.getByRole("radiogroup", { name: item.label, exact: true });
-    await answers.getByRole("radio", { name: item.key === "ATTENDANCE_BONUS" ? "Yes" : "No" }).click();
-  }
-  await page.getByLabel("Attendance Bonus amount").fill("500");
+  // D158: the Payroll step asks only for trainee categories - no payroll items.
 }
 
 test("filling every step and saving creates the company with the code the API reports", async ({ page }) => {
@@ -100,14 +96,15 @@ test("filling every step and saving creates the company with the code the API re
   await fillCommercialDetails(page);
   await page.getByRole("button", NEXT).click();
 
-  await expect(page.getByText("Fixed Payroll Items")).toBeVisible();
+  await expect(page.getByLabel("Trainee Category").first()).toBeVisible();
+  await expect(page.getByText("Fixed Payroll Items")).toHaveCount(0);
+  await expect(page.getByText("Other Payroll Items")).toHaveCount(0);
   await fillPayroll(page);
   await page.getByRole("button", NEXT).click();
 
   await expect(page.getByText("Review — Company Details")).toBeVisible();
   await expect(page.getByText(companyName)).toBeVisible();
   await expect(page.getByText("signed-mou.pdf")).toBeVisible();
-  await expect(page.getByText(/Attendance Bonus: ₹500/)).toBeVisible();
   await page.getByRole("button", { name: /Generate Code & Save/ }).click();
 
   await expect(page.getByRole("heading", { name: "Company Registered!" })).toBeVisible();

@@ -38,8 +38,10 @@ export const EMPTY_PAGE1: Page1Data = {
   contactType: "MOBILE",
   hrContactNumber: "",
   financeHeadContactNumber: "",
-  officialEmail: "",
-  confirmEmail: "",
+  hrEmail: "",
+  confirmHrEmail: "",
+  financeEmail: "",
+  confirmFinanceEmail: "",
 };
 
 interface Page1Props {
@@ -362,22 +364,39 @@ export function Page1({
           placeholder={numberHint}
         />
         <Field
-          id="officialEmail"
-          label="Official HR and Finance Email ID"
+          id="hrEmail"
+          label="HR Email ID"
           type="email"
-          value={data.officialEmail}
-          onChange={(value) => set("officialEmail", value)}
-          error={errors.officialEmail}
+          value={data.hrEmail}
+          onChange={(value) => set("hrEmail", value)}
+          error={errors.hrEmail}
         />
         <Field
-          id="confirmEmail"
-          label="Confirm Email"
+          id="confirmHrEmail"
+          label="Confirm HR Email ID"
           type="email"
-          value={data.confirmEmail}
-          onChange={(value) => set("confirmEmail", value)}
-          error={errors.confirmEmail}
+          value={data.confirmHrEmail}
+          onChange={(value) => set("confirmHrEmail", value)}
+          error={errors.confirmHrEmail}
           // Section 4.1: paste is blocked because the field exists to catch a
           // typing mistake, and pasting the same typo defeats it.
+          onPaste={(event) => event.preventDefault()}
+        />
+        <Field
+          id="financeEmail"
+          label="Finance Email ID"
+          type="email"
+          value={data.financeEmail}
+          onChange={(value) => set("financeEmail", value)}
+          error={errors.financeEmail}
+        />
+        <Field
+          id="confirmFinanceEmail"
+          label="Confirm Finance Email ID"
+          type="email"
+          value={data.confirmFinanceEmail}
+          onChange={(value) => set("confirmFinanceEmail", value)}
+          error={errors.confirmFinanceEmail}
           onPaste={(event) => event.preventDefault()}
         />
       </div>

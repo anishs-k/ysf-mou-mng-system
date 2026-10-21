@@ -6,7 +6,7 @@
  * means no screen has to know the API's base URL or how a failure is shaped.
  */
 
-import type { UserRole } from "@mou/domain";
+import type { PayrollValueKind, UserRole } from "@mou/domain";
 
 const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_BASE_URL =
@@ -292,6 +292,8 @@ export interface PayrollItemOption {
   readonly label: string;
   readonly itemType: string | null;
   readonly displayOrder: number;
+  /** SPEC-23 D143: how the answer is entered and shown - rupees, a percentage, or a status. */
+  readonly valueKind: PayrollValueKind;
 }
 
 /**
@@ -470,12 +472,14 @@ export interface CompanyOverview {
   readonly pinCode: string;
   readonly district: string;
   readonly state: string;
-  readonly contactType: string;
+  /** D156: null when the company was saved after Contact Type stopped being asked. */
+  readonly contactType: string | null;
   readonly hrContactName: string;
   readonly hrContactNumber: string;
   readonly financeHeadContactName: string;
   readonly financeHeadContactNumber: string;
-  readonly officialEmail: string;
+  readonly hrEmail: string;
+  readonly financeEmail: string;
   readonly purchaseName: string | null;
   readonly purchaseNumber: string | null;
   readonly purchaseEmail: string | null;
@@ -594,10 +598,16 @@ export async function fetchMouCommercial(
   return (await response.json()) as MouCommercialDetail;
 }
 
+/**
+ * SPEC-23: `amount` is null for a status item (TDS), whose answer is `isApplicable`.
+ * PF / ESI / TDS are always listed; `isApplicable` null = not recorded (D144).
+ */
 export interface MouPayrollItemRow {
   readonly itemKey: string;
   readonly label: string;
-  readonly amount: string;
+  readonly valueKind: PayrollValueKind;
+  readonly amount: string | null;
+  readonly isApplicable: boolean | null;
 }
 
 export interface MouPayrollDetail {
@@ -622,6 +632,27 @@ export async function fetchMouPayroll(
 /** A plain link href, not a fetch - opened in a new tab so the browser handles the PDF. */
 export function mouPrintUrl(mouId: string): string {
   return `${API_BASE_URL}/api/mous/${mouId}/print`;
+}
+
+/** SPEC-23 §5: the full designed record PDF behind the record's Export PDF button. */
+export interface RecordPdfDownload {
+  readonly blob: Blob;
+  readonly filename: string;
+}
+
+/**
+ * Fetched rather than opened as a link so the download never depends on a pop-up
+ * being allowed; the caller saves the Blob. A failure carries the API's message.
+ */
+export async function downloadMouRecordPdf(mouId: string): Promise<RecordPdfDownload> {
+  const response = await apiFetch(`/api/mous/${mouId}/record.pdf`, { method: "GET", credentials: "include" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Export failed with status ${response.status}`);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "mou-record.pdf";
+  return { blob: await response.blob(), filename };
 }
 
 // ---------------------------------------------------------------------------
@@ -822,6 +853,49 @@ export async function uploadMouDocumentToMou(
 /** A plain link href, not a fetch - opened in a new tab so the browser handles the PDF. */
 export function documentDownloadUrl(documentId: string): string {
   return `${API_BASE_URL}/api/documents/${documentId}`;
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-23 §3: company-level documents (GST / Registration certificates)
+// ---------------------------------------------------------------------------
+
+export interface CompanyDocumentRow {
+  readonly id: string;
+  readonly documentType: string;
+  readonly originalFilename: string;
+  readonly mimeType: string;
+  readonly fileSizeBytes: number;
+  readonly uploadedAt: string;
+  readonly uploadedByUsername: string;
+}
+
+export async function fetchCompanyDocuments(companyId: string): Promise<readonly CompanyDocumentRow[]> {
+  const response = await request(`/api/companies/${companyId}/documents`);
+  if (!response.ok) {
+    throw new Error(`GET /api/companies/${companyId}/documents failed with status ${response.status}`);
+  }
+  return (await response.json()) as readonly CompanyDocumentRow[];
+}
+
+/** Multipart, so not through request() - the browser must set the boundary (as uploadMouDocumentToMou). */
+export async function uploadCompanyDocument(companyId: string, documentType: string, file: File): Promise<void> {
+  const body = new FormData();
+  body.append("documentType", documentType);
+  body.append("file", file);
+  const response = await apiFetch(`/api/companies/${companyId}/documents`, {
+    method: "POST",
+    credentials: "include",
+    body,
+  });
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errorBody.error ?? `Upload failed with status ${response.status}`);
+  }
+}
+
+/** A plain link href, opened in a new tab so the browser shows the PDF or image. */
+export function companyDocumentDownloadUrl(documentId: string): string {
+  return `${API_BASE_URL}/api/company-documents/${documentId}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1192,6 +1266,32 @@ function searchFilterQuery(
   return query === "" ? "" : `?${query}`;
 }
 
+/** SPEC-24: the bulk record PDF of every MoU the list's filters select. */
+export interface RecordsPdfDownload {
+  readonly blob: Blob;
+  readonly filename: string;
+  readonly recordCount: number;
+}
+
+/** Cannot go through request(): the body is a PDF, not JSON. A 422 (no match, bad filter) carries the API's message. */
+export async function downloadRecordsPdf(filters: SearchFilters): Promise<RecordsPdfDownload> {
+  const response = await apiFetch(`/api/export/records.pdf${searchFilterQuery(filters)}`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Export failed with status ${response.status}`);
+  }
+  const disposition = response.headers.get("content-disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? "companies.pdf";
+  return {
+    blob: await response.blob(),
+    filename,
+    recordCount: Number(response.headers.get("x-record-count") ?? "0"),
+  };
+}
+
 /** `pageSize` omitted uses the API default (25); at most 100. */
 export async function fetchSearch(
   filters: SearchFilters,
@@ -1347,4 +1447,80 @@ export async function fetchPublicStats(): Promise<PublicStats> {
     );
   }
   return (await response.json()) as PublicStats;
+}
+
+// ---------------------------------------------------------------------------
+// SPEC-22 Bulk company upload
+// ---------------------------------------------------------------------------
+
+export type BulkTemplateFormat = "xlsx" | "pdf";
+
+/** Fetched rather than linked, so a refusal shows on the page instead of replacing it. */
+export async function downloadBulkTemplate(format: BulkTemplateFormat): Promise<Blob> {
+  const response = await apiFetch(`/api/companies/bulk/template?format=${format}`, { credentials: "include" });
+  if (!response.ok) {
+    throw await apiError(response, `Template download failed with status ${response.status}`);
+  }
+  return response.blob();
+}
+
+export interface BulkRowError {
+  /** The Excel row number. */
+  readonly row: number;
+  readonly column: string;
+  readonly message: string;
+}
+
+export interface BulkCreatedCompany {
+  readonly row: number;
+  readonly companyId: string;
+  readonly companyName: string;
+  readonly generatedCode: string;
+  /** D162: the MoU PDF stored with this row, or null when none was sent. */
+  readonly mouPdf: string | null;
+}
+
+/** D164: a PDF uploaded on its own and attached to an existing company's MoU. */
+export interface BulkAttachedPdf {
+  readonly fileName: string;
+  readonly companyName: string;
+  readonly generatedCode: string;
+}
+
+export type BulkUploadResult =
+  | { readonly ok: true; readonly created: readonly BulkCreatedCompany[]; readonly attached: readonly BulkAttachedPdf[] }
+  | {
+      readonly ok: false;
+      readonly message: string;
+      readonly rowErrors: readonly BulkRowError[];
+      /** D162: problems with whole files - a PDF that names no row, an .xls, a fake PDF. */
+      readonly fileErrors: readonly string[];
+    };
+
+/**
+ * All or nothing (SPEC-22 D139): a 400/409/422 is a normal answer - the file or
+ * its rows need fixing - so it is returned, not thrown. Multipart, so it cannot
+ * use request()'s JSON content-type, as with uploadMouDocument().
+ */
+export async function uploadBulkCompanies(files: readonly File[]): Promise<BulkUploadResult> {
+  // D162: the filled sheet and any MoU PDFs travel together.
+  const body = new FormData();
+  for (const file of files) body.append("files", file);
+  const response = await apiFetch("/api/companies/bulk", { method: "POST", credentials: "include", body });
+  const answer = (await response.json().catch(() => ({}))) as {
+    created?: BulkCreatedCompany[];
+    attached?: BulkAttachedPdf[];
+    error?: string;
+    rowErrors?: BulkRowError[];
+    fileErrors?: string[];
+  };
+  if (response.ok) {
+    return { ok: true, created: answer.created ?? [], attached: answer.attached ?? [] };
+  }
+  return {
+    ok: false,
+    message: answer.error ?? `Upload failed with status ${response.status}`,
+    rowErrors: answer.rowErrors ?? [],
+    fileErrors: answer.fileErrors ?? [],
+  };
 }

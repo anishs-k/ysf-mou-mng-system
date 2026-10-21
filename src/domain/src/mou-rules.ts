@@ -7,9 +7,16 @@
  * (2026-01-31 + 1 month is 2026-02-28, not 2026-03-03 as JavaScript's own month
  * overflow would give), and one day is then subtracted. Postgres holds the
  * authoritative generated column - this is the preview helper the wizard uses.
+ * SPEC-23 D146 adds displayMouStatus, the "Expiring" label the screens and the
+ * record PDF show, so the browser and the server derive it identically.
  */
 
+import { MOU_STATUS_LABELS } from "./enums.ts";
 import type { MouStatus, TenureUnit } from "./enums.ts";
+
+/** An ACTIVE MoU ending within this many days displays as "Expiring" (SPEC-12 §2, D146). */
+export const EXPIRING_SOON_DAYS = 90;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MONTHS_PER_YEAR = 12;
@@ -105,4 +112,22 @@ export function deriveStatus(mouStartDate: string, endDate: string, today: strin
     return "ACTIVE";
   }
   return "EXPIRED";
+}
+
+/**
+ * The status label the design shows (D146): an ACTIVE MoU whose end date is 0 to
+ * EXPIRING_SOON_DAYS days after `today` is "Expiring"; any other status shows its
+ * own label, and text with no label (already a label, or unknown) passes through.
+ * Dates may carry a time part; only the calendar date is compared. A display
+ * helper, so an unreadable date shows the plain label rather than throwing.
+ */
+export function displayMouStatus(status: string, endDate: string, today: string): string {
+  const label = MOU_STATUS_LABELS[status as MouStatus] ?? status;
+  const endDay = endDate.slice(0, 10);
+  const todayDay = today.slice(0, 10);
+  if (label !== MOU_STATUS_LABELS.ACTIVE || !ISO_DATE_PATTERN.test(endDay) || !ISO_DATE_PATTERN.test(todayDay)) {
+    return label;
+  }
+  const days = Math.round((toUtcTime(endDay, "endDate") - toUtcTime(todayDay, "today")) / MS_PER_DAY);
+  return days >= 0 && days <= EXPIRING_SOON_DAYS ? "Expiring" : label;
 }

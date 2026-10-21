@@ -43,6 +43,9 @@ const ZONE_OF_RECORD = {
                JOIN mou m ON m.id = d.mou_id
                JOIN company c ON c.id = m.company_id
               WHERE d.id = $1`,
+  companyDocument: `SELECT c.zone_id FROM company_document d
+                      JOIN company c ON c.id = d.company_id
+                     WHERE d.id = $1`,
   alert: `SELECT c.zone_id FROM mou_alert a
             JOIN mou m ON m.id = a.mou_id
             JOIN company c ON c.id = m.company_id

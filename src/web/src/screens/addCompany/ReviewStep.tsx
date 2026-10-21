@@ -1,13 +1,12 @@
 /**
  * Purpose: Wizard step 4 - the read-only summary of what was actually entered:
  * company details, commercial terms (with each charge's frequency and basis and
- * the uploaded PDF's name), the payroll items answered Yes with their amounts and
- * the trainee categories - and the "Ready to save" note. Codes are shown as the
- * labels /api/enums serves.
+ * the uploaded PDF's name) and the trainee categories - and the "Ready to save"
+ * note. Codes are shown as the labels /api/enums serves. D158: no payroll item is
+ * asked, so none is listed.
  */
 
 import { computeEndDate } from "@mou/domain";
-import type { TenureUnit } from "@mou/domain";
 
 import type { EnumOption } from "../../api/client.ts";
 import { formatCalendarDate } from "../../ui/format.ts";
@@ -53,7 +52,7 @@ function ordinal(day: string): string {
 function safeEndDate(form: WizardForm): string {
   try {
     return formatCalendarDate(
-      computeEndDate(form.commercial.mouStartDate, Number(form.commercial.tenureValue), form.commercial.tenureUnit as TenureUnit),
+      computeEndDate(form.commercial.mouStartDate, Number(form.commercial.tenureValue), "MONTHS"),
     );
   } catch {
     return "";
@@ -80,9 +79,8 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
         .filter((part) => part.trim() !== "")
         .join(", "),
     },
-    { label: "HR Contact", value: join(company.hrContactName, company.hrContactNumber) },
-    { label: "Finance Head", value: join(company.financeHeadContactName, company.financeHeadContactNumber) },
-    { label: "Email", value: company.officialEmail },
+    { label: "HR Contact", value: join(company.hrContactName, company.hrContactNumber, company.hrEmail) },
+    { label: "Finance Head", value: join(company.financeHeadContactName, company.financeHeadContactNumber, company.financeEmail) },
   ];
   if (join(company.purchaseName, company.purchaseNumber, company.purchaseEmail) !== "") {
     companyItems.push({ label: "Purchase Contact", value: join(company.purchaseName, company.purchaseNumber, company.purchaseEmail) });
@@ -91,7 +89,7 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
   const commercialItems: ReviewItem[] = [
     { label: "Scheme", value: labelOf(enums.schemes, company.scheme) },
     { label: "MoU Start", value: formatCalendarDate(commercial.mouStartDate) },
-    { label: "Tenure", value: `${commercial.tenureValue} ${labelOf(enums.tenureUnits, commercial.tenureUnit)}` },
+    { label: "Tenure", value: `${commercial.tenureValue} Months` },
     { label: "MoU End", value: safeEndDate(form) },
     { label: "Attendance Cycle", value: commercial.attendanceCycle },
     { label: "Stipend Date", value: ordinal(commercial.stipendDate) },
@@ -109,21 +107,6 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
             labelOf(enums.commercialBases, row.basis),
           ),
     );
-
-  const payrollTags = [
-    ...enums.payrollItems
-      .filter((item) => item.itemType !== null && form.payrollItems[item.key]?.isApplicable === true)
-      .map((item) => ({
-        text: `${item.label}: ${rupees(form.payrollItems[item.key]?.amount ?? "")}`,
-        tone: item.itemType === "ALLOWANCE" ? ("success" as const) : ("info" as const),
-      })),
-    ...form.payrollOther
-      .filter((row) => row.label.trim() !== "")
-      .map((row) => ({
-        text: `${row.label}: ${rupees(row.amount)}`,
-        tone: row.itemType === "ALLOWANCE" ? ("success" as const) : ("info" as const),
-      })),
-  ];
 
   const categories = namedCategories(form.categories)
     .map((card) => {
@@ -154,13 +137,6 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
       </Card>
       <Card className="p-6">
         <SectionTitle>Review — Payroll</SectionTitle>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {payrollTags.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No payroll items apply.</p>
-          ) : (
-            payrollTags.map((tag) => <Badge key={tag.text} text={tag.text} tone={tag.tone} />)
-          )}
-        </div>
         <p className="text-xs text-muted-foreground">Training Category: {categories}</p>
       </Card>
       <div className="rounded-xl p-4 flex items-start gap-3 border" style={{ background: "#E8F0FB", borderColor: "#CDDAEE" }}>

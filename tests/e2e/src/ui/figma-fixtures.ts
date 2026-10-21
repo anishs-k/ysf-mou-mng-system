@@ -104,10 +104,10 @@ export async function insertCompanyWithMou(options: MouFixtureOptions = {}): Pro
          company_name, company_type, sector, registration_type, tan_number, gst_number,
          zone_id, address_line_1, city, pin_code, state, district,
          hr_contact_name, finance_head_contact_name, contact_type,
-         hr_contact_number, finance_head_contact_number, official_email, created_by
+         hr_contact_number, finance_head_contact_number, hr_email, finance_email, created_by
        ) VALUES ($1, 'PRIVATE_SECTOR', 'OTHER', 'COMPANY', 'TANP12345C', $2,
          $3, '1 Test Road', 'Pune', '411001', 'Maharashtra', 'Pune',
-         $4, 'Finance Name', 'MOBILE', $5, '9876543211', $6, $7)
+         $4, 'Finance Name', 'MOBILE', $5, '9876543211', $6, $6, $7)
        RETURNING id`,
       [companyName, `27AA${suffix}A1Z5`, zoneId, hrContactName, hrContactNumber, `e2e${suffix}@example.com`, creatorId],
     );
@@ -170,10 +170,10 @@ export async function insertCompanyWithoutMou(zoneId: string): Promise<{ company
          company_name, company_type, sector, registration_type, tan_number, gst_number,
          zone_id, address_line_1, city, pin_code, state, district,
          hr_contact_name, finance_head_contact_name, contact_type,
-         hr_contact_number, finance_head_contact_number, official_email, created_by
+         hr_contact_number, finance_head_contact_number, hr_email, finance_email, created_by
        ) VALUES ($1, 'PRIVATE_SECTOR', 'OTHER', 'COMPANY', 'TANP12345C', $2,
          $3, '1 Test Road', 'Pune', '411001', 'Maharashtra', 'Pune',
-         'HR Name', 'Finance Name', 'MOBILE', '9876543210', '9876543211', $4, $5)
+         'HR Name', 'Finance Name', 'MOBILE', '9876543210', '9876543211', $4, $4, $5)
        RETURNING id`,
       [companyName, `27AB${suffix}A1Z5`, zoneId, `e2e-empty${suffix}@example.com`, creatorId],
     );

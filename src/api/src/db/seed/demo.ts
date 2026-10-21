@@ -27,13 +27,10 @@
 import {
   COMMERCIAL_ITEMS,
   COMPANY_TYPES,
-  CONTACT_TYPES,
-  INSURANCE_TYPES,
   PAYROLL_FIXED_ITEM_KEYS,
   PAYROLL_ITEM_BY_KEY,
   REGISTRATION_TYPES,
   SECTORS,
-  type InsuranceType,
 } from "@mou/domain";
 import { Pool } from "pg";
 
@@ -141,10 +138,6 @@ function demoAmount(mouIndex: number, keyIndex: number): string {
   return (250 + ((mouIndex * 17 + keyIndex * 29) % 45) * 50).toFixed(2);
 }
 
-function insuranceTypeFor(mouIndex: number): InsuranceType {
-  return INSURANCE_TYPES[mouIndex % INSURANCE_TYPES.length] ?? "TOPUP";
-}
-
 async function firstValue<T>(query: Promise<{ rows: T[] }>, message: string): Promise<T> {
   const { rows } = await query;
   const row = rows[0];
@@ -201,8 +194,8 @@ async function insertCompany(
     `INSERT INTO company (
        company_name, company_type, sector, registration_type, tan_number, gst_number,
        zone_id, address_line_1, address_line_2, city, pin_code, state, district,
-       hr_contact_name, finance_head_contact_name, contact_type,
-       hr_contact_number, finance_head_contact_number, official_email,
+       hr_contact_name, finance_head_contact_name,
+       hr_contact_number, finance_head_contact_number, hr_email, finance_email,
        purchase_name, purchase_number, purchase_email, created_by
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
      RETURNING id`,
@@ -222,10 +215,10 @@ async function insertCompany(
       city.district,
       `HR Contact ${serial}`,
       `Finance Head ${serial}`,
-      CONTACT_TYPES[index % CONTACT_TYPES.length],
       String(9000000000 + index),
       String(9100000000 + index),
       `demo.company.${serial}@example.invalid`,
+      `demo.finance.${serial}@example.invalid`,
       hasPurchase ? `Purchase Contact ${serial}` : null,
       hasPurchase ? String(9200000000 + index) : null,
       hasPurchase ? `demo.purchase.${serial}@example.invalid` : null,
@@ -269,7 +262,7 @@ async function insertMou(
       scheme,
       startDate.toISOString().slice(0, 10),
       tenureValue,
-      tenureValue === 36 ? "YEARS" : "MONTHS",
+      "MONTHS",
       "Monthly (1st to last day)",
       (mouIndex % 28) + 1,
     ],
@@ -303,50 +296,36 @@ async function insertPayrollConfig(pool: Pool, mouId: string, mouIndex: number):
   return configId;
 }
 
+/** SPEC-23 D143: PF / ESI demo percentages - the statutory rates, well inside 0-100. */
+const DEMO_PERCENT: Readonly<Record<string, string>> = { PF: "12.00", ESI: "0.75" };
+
+/** An applicable row's amount by its value kind: rupees, a percentage, or none for TDS. */
+function demoPayrollAmount(key: string, mouIndex: number, keyIndex: number): string | null {
+  const { valueKind } = PAYROLL_ITEM_BY_KEY[key as keyof typeof PAYROLL_ITEM_BY_KEY];
+  if (valueKind === "STATUS") return null;
+  if (valueKind === "PERCENT") return DEMO_PERCENT[key] ?? "10.00";
+  return demoAmount(mouIndex, keyIndex);
+}
+
 /**
- * AC29: exactly the 23 fixed catalogue rows per MOU. Applicability is derived from
- * the two indices, and every row then satisfies the coupling CHECKs - an
- * inapplicable row carries no amount, a non-INSURANCE row carries no insurance
- * column, and an applicable INSURANCE row carries the amounts its type requires.
+ * AC29: exactly the fixed catalogue rows per MOU (PF, ESI and TDS since D158).
+ * Applicability is derived from the two indices, and every row then satisfies the
+ * coupling CHECKs - an inapplicable row carries no amount, and PF / ESI / TDS
+ * follow their value kinds.
  */
 async function insertPayrollItems(pool: Pool, configId: string, mouIndex: number): Promise<number> {
   let inserted = 0;
-  const insuranceType = insuranceTypeFor(mouIndex);
 
   for (const [keyIndex, key] of PAYROLL_FIXED_ITEM_KEYS.entries()) {
     const definition = PAYROLL_ITEM_BY_KEY[key];
     const isApplicable = (mouIndex + keyIndex) % 3 !== 0;
-    const amount = isApplicable ? demoAmount(mouIndex, keyIndex) : null;
-
-    let insuranceTypeValue: string | null = null;
-    let gfsAmount: string | null = null;
-    let mouAmount: string | null = null;
-    if (key === "INSURANCE" && isApplicable) {
-      insuranceTypeValue = insuranceType;
-      if (insuranceType === "TOPUP" || insuranceType === "BOTH") {
-        gfsAmount = (500 + ((mouIndex * 13) % 20) * 25).toFixed(2);
-      }
-      if (insuranceType === "RECOVERY" || insuranceType === "BOTH") {
-        mouAmount = (400 + ((mouIndex * 7) % 15) * 20).toFixed(2);
-      }
-    }
+    const amount = isApplicable ? demoPayrollAmount(key, mouIndex, keyIndex) : null;
 
     await pool.query(
       `INSERT INTO payroll_item (
-         payroll_config_id, item_key, custom_label, is_applicable, amount, item_type,
-         insurance_type, insurance_gfs_amount, insurance_mou_amount
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [
-        configId,
-        key,
-        null,
-        isApplicable,
-        amount,
-        definition.itemType,
-        insuranceTypeValue,
-        gfsAmount,
-        mouAmount,
-      ],
+         payroll_config_id, item_key, custom_label, is_applicable, amount, item_type
+       ) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [configId, key, null, isApplicable, amount, definition.itemType],
     );
     inserted += 1;
   }

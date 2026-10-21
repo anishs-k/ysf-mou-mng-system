@@ -13,6 +13,7 @@ import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY } from "./commercial
 import type { CommercialDetails } from "./commercial-details-validation.ts";
 import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "./payroll-items.ts";
 import type { PayrollDetails } from "./payroll-details-validation.ts";
+import { payrollAnswerText } from "./payroll-value.ts";
 
 export interface AgreementSnapshot {
   readonly commercial: CommercialDetails;
@@ -80,11 +81,8 @@ export function computeAgreementDiff(before: AgreementSnapshot, after: Agreement
   );
 
   for (const key of PAYROLL_FIXED_ITEM_KEYS) {
-    const beforeAnswer = before.payroll.items[key];
-    const afterAnswer = after.payroll.items[key];
-    const beforeText = beforeAnswer?.isApplicable === true ? `Yes (${amountText(beforeAnswer.amount)})` : "No";
-    const afterText = afterAnswer?.isApplicable === true ? `Yes (${amountText(afterAnswer.amount)})` : "No";
-    rows.push(row(PAYROLL_ITEM_BY_KEY[key].label, beforeText, afterText));
+    const { label, valueKind } = PAYROLL_ITEM_BY_KEY[key];
+    rows.push(row(label, payrollAnswerText(valueKind, before.payroll.items[key]), payrollAnswerText(valueKind, after.payroll.items[key])));
   }
   rows.push(row("Other Payroll Items", otherItemsText(before.payroll.otherItems), otherItemsText(after.payroll.otherItems)));
 

@@ -1,10 +1,10 @@
 /**
  * Purpose: Integration tests for SPEC-10 - requesting an edit and applying
- * one. Fixtures use a minimal MOU (payroll_config + one trainee category, no
- * commercial_item/payroll_item rows) since `fetchEditablePayload` already
- * defaults every absent fixed item to "answered No" and every absent charge
- * to blank, which is itself a valid starting state for SPEC-05/06's own
- * validators.
+ * one. Fixtures use a minimal MOU (payroll_config, one trainee category, every
+ * fixed payroll item answered No, no commercial_item rows) - a valid starting
+ * state for SPEC-05/06's own validators. SPEC-23 D148: an absent PF / ESI /
+ * TDS row - an MOU saved before they existed - loads with the statutory
+ * defaults, so the next edit saves them.
  */
 
 import { after, before, beforeEach, test } from "node:test";
@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { Server } from "node:http";
 
+import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "@mou/domain";
 import type { Pool } from "pg";
 
 import { createApp } from "./index.ts";
@@ -20,6 +21,7 @@ import {
   insertCompany,
   insertMou,
   insertPayrollConfig,
+  insertPayrollItem,
   insertPlant,
   insertTraineeCategory,
   insertUserWithPassword,
@@ -70,7 +72,10 @@ async function login(username: string, password: string): Promise<string> {
   return setCookie;
 }
 
-async function setupMou(role: "ADMIN" | "DATA_ENTRY" | "VIEWER" = "ADMIN") {
+/** SPEC-23's three keys - the rows an MOU saved before D142 never got. */
+const SPEC_23_KEYS = ["PF", "ESI", "TDS"];
+
+async function setupMou(role: "ADMIN" | "DATA_ENTRY" | "VIEWER" = "ADMIN", savedBeforeSpec23 = false) {
   const zoneId = await insertZone(pool);
   const creator = await insertUserWithPassword(pool, { username: "creator", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, creator.id);
@@ -78,6 +83,10 @@ async function setupMou(role: "ADMIN" | "DATA_ENTRY" | "VIEWER" = "ADMIN") {
   const mouId = await insertMou(pool, companyId, plantId);
   const configId = await insertPayrollConfig(pool, mouId);
   await insertTraineeCategory(pool, configId, "Category A");
+  for (const key of PAYROLL_FIXED_ITEM_KEYS) {
+    if (savedBeforeSpec23 && SPEC_23_KEYS.includes(key)) continue;
+    await insertPayrollItem(pool, configId, key, { isApplicable: false, itemType: PAYROLL_ITEM_BY_KEY[key].itemType ?? "ALLOWANCE" });
+  }
   const actor = await insertUserWithPassword(pool, { username: "actor", password: "pass", role });
   const cookie = await login(actor.username, actor.password);
   return { mouId, cookie };
@@ -218,6 +227,26 @@ test("AC10 emptying every trainee category is rejected", async () => {
 
   const response = await applyEdit(mouId, cookie, token, version, commercial, { ...payroll, traineeCategories: [] });
   assert.equal(response.status, 422);
+});
+
+test("SPEC-23 D148 an MOU saved before PF / ESI / TDS loads them with the defaults, and an edit saves them", async () => {
+  const { mouId, cookie } = await setupMou("ADMIN", true);
+  const edit = await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT");
+  const { token, version, commercial, payroll } = (await edit.json()) as { token: string; version: number } & EditablePayload;
+  const items = payroll["items"] as Record<string, { isApplicable?: boolean; amount?: string }>;
+  assert.deepEqual(items["PF"], { isApplicable: true, amount: "12.00" });
+  assert.deepEqual(items["ESI"], { isApplicable: true, amount: "0.75" });
+  assert.deepEqual(items["TDS"], { isApplicable: true, amount: "" });
+
+  const changed = { ...payroll, items: { ...items, PF: { isApplicable: true, amount: "10" } } };
+  const response = await applyEdit(mouId, cookie, token, version, commercial, changed);
+  assert.equal(response.status, 200);
+  const { rows } = await pool.query<{ item_key: string; amount: string | null }>(
+    `SELECT pi.item_key, pi.amount FROM payroll_item pi JOIN payroll_config pc ON pc.id = pi.payroll_config_id
+      WHERE pc.mou_id = $1 AND pi.item_key IN ('PF', 'ESI', 'TDS') ORDER BY pi.item_key`,
+    [mouId],
+  );
+  assert.deepEqual(rows.map((row) => [row.item_key, row.amount]), [["ESI", "0.75"], ["PF", "10.00"], ["TDS", null]]);
 });
 
 test("AC12 applying with no changed field is rejected", async () => {

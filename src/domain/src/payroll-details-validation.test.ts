@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { PAYROLL_FIXED_ITEM_KEYS } from "./payroll-items.ts";
-import { validatePayrollDetails } from "./payroll-details-validation.ts";
+import { STATUTORY_DEFAULTS, validatePayrollDetails, withStatutoryDefaults } from "./payroll-details-validation.ts";
 import type { PayrollDetails, PayrollItemAnswer } from "./payroll-details-validation.ts";
 
 /** All 22 fixed items answered No - the simplest fully-valid baseline. */
@@ -78,37 +78,37 @@ test("AC2 every unanswered item is reported", () => {
 
 test("AC1 answering No to one item does not affect another item's validation", () => {
   const items = allAnsweredNo();
-  items["ATTENDANCE_BONUS"] = { isApplicable: false, amount: "" };
+  items["ESI"] = { isApplicable: false, amount: "" };
   const result = validate({ items });
   assert.equal(result.errors.items?.["THIRD_YEAR_ALLOWANCE"], undefined);
 });
 
 test("AC3 Yes with an empty amount blocks Save", () => {
   const items = allAnsweredNo();
-  items["BONUS"] = { isApplicable: true, amount: "" };
+  items["PF"] = { isApplicable: true, amount: "" };
   const result = validate({ items });
-  assert.ok(result.errors.items?.["BONUS"]);
+  assert.ok(result.errors.items?.["PF"]);
 });
 
 test("AC3 Yes with a valid amount is accepted", () => {
   const items = allAnsweredNo();
-  items["BONUS"] = { isApplicable: true, amount: "500" };
+  items["PF"] = { isApplicable: true, amount: "12" };
   const result = validate({ items });
-  assert.equal(result.errors.items?.["BONUS"], undefined);
+  assert.equal(result.errors.items?.["PF"], undefined);
 });
 
 test("Yes with a negative amount is rejected", () => {
   const items = allAnsweredNo();
-  items["BONUS"] = { isApplicable: true, amount: "-5" };
+  items["PF"] = { isApplicable: true, amount: "-5" };
   const result = validate({ items });
-  assert.ok(result.errors.items?.["BONUS"]);
+  assert.ok(result.errors.items?.["PF"]);
 });
 
 test("AC4 No ignores a stray amount value", () => {
   const items = allAnsweredNo();
-  items["BONUS"] = { isApplicable: false, amount: "500" };
+  items["PF"] = { isApplicable: false, amount: "500" };
   const result = validate({ items });
-  assert.equal(result.errors.items?.["BONUS"], undefined);
+  assert.equal(result.errors.items?.["PF"], undefined);
 });
 
 // --- "Other" rows (reused from commercial-details-validation.ts) --------------
@@ -118,22 +118,11 @@ test("a fully empty Other row is ignored", () => {
   assert.equal(result.errors.otherItems, undefined);
 });
 
-test("a label with no amount blocks Save", () => {
+test("D158 any filled Other payroll row is refused - custom payroll items are no longer recorded", () => {
   const result = validate({
-    otherItems: [{ label: "Extra Bonus", amount: "", itemType: "ALLOWANCE" }],
+    otherItems: [{ label: "Extra Bonus", amount: "100", itemType: "ALLOWANCE" }],
   });
-  assert.ok(result.errors.otherItems?.[0]?.amount);
-});
-
-test("two Other rows with the same label are both rejected", () => {
-  const result = validate({
-    otherItems: [
-      { label: "Extra", amount: "100", itemType: "ALLOWANCE" },
-      { label: "extra", amount: "200", itemType: "DEDUCTION" },
-    ],
-  });
-  assert.ok(result.errors.otherItems?.[0]?.label);
-  assert.ok(result.errors.otherItems?.[1]?.label);
+  assert.equal(result.errors.otherItems?.[0]?.label, "Other payroll items are no longer recorded");
 });
 
 // --- Optional per-category details (qualification, stipend rate) ------------------
@@ -175,4 +164,94 @@ test("details naming a category that is not in traineeCategories are rejected", 
     traineeCategoryDetails: [{ categoryName: "Category Z", qualification: "ITI" }],
   });
   assert.ok(result.errors.traineeCategoryDetails?.[0]?.categoryName);
+});
+
+// --- SPEC-23: PF / ESI percentages and the TDS status ---------------------------
+
+function withItem(key: string, answer: PayrollItemAnswer) {
+  return validate({ items: { ...allAnsweredNo(), [key]: answer } });
+}
+
+test("SPEC-23 PF and ESI accept a percentage from 0 to 100 with up to 2 decimals", () => {
+  for (const amount of ["0", "12", "0.75", "100", "100.00"]) {
+    assert.equal(withItem("PF", { isApplicable: true, amount }).errors.items, undefined, `PF ${amount}`);
+    assert.equal(withItem("ESI", { isApplicable: true, amount }).errors.items, undefined, `ESI ${amount}`);
+  }
+});
+
+test("SPEC-23 AC2 a percentage above 100 is rejected", () => {
+  assert.ok(withItem("PF", { isApplicable: true, amount: "100.01" }).errors.items?.["PF"]);
+  assert.ok(withItem("ESI", { isApplicable: true, amount: "250" }).errors.items?.["ESI"]);
+});
+
+test("SPEC-23 a malformed percentage is rejected", () => {
+  for (const amount of ["12%", "-1", "1.234", "abc"]) {
+    assert.ok(withItem("PF", { isApplicable: true, amount }).errors.items?.["PF"], amount);
+  }
+});
+
+test("SPEC-23 PF answered Yes without a percentage is required", () => {
+  assert.equal(withItem("PF", { isApplicable: true, amount: "" }).errors.items?.["PF"], "Required");
+});
+
+test("SPEC-23 TDS As applicable needs no amount", () => {
+  assert.equal(withItem("TDS", { isApplicable: true, amount: "" }).errors.items, undefined);
+});
+
+test("SPEC-23 TDS Not applicable is a valid answer", () => {
+  assert.equal(withItem("TDS", { isApplicable: false, amount: "" }).errors.items, undefined);
+});
+
+test("SPEC-23 AC6 an unanswered PF, ESI or TDS is still an error", () => {
+  const items: Record<string, PayrollItemAnswer> = allAnsweredNo();
+  delete items["PF"];
+  delete items["ESI"];
+  delete items["TDS"];
+  const errors = validate({ items }).errors.items ?? {};
+  assert.deepEqual(Object.keys(errors).sort(), ["ESI", "PF", "TDS"]);
+});
+
+// --- SPEC-23 D148: statutory defaults ------------------------------------------------
+
+test("D148 the defaults are PF 12%, ESI 0.75% and TDS As applicable", () => {
+  assert.deepEqual(STATUTORY_DEFAULTS, {
+    PF: { isApplicable: true, amount: "12.00" },
+    ESI: { isApplicable: true, amount: "0.75" },
+    TDS: { isApplicable: true, amount: "" },
+  });
+});
+
+test("D148 missing PF, ESI and TDS answers are filled with the defaults", () => {
+  const items: Record<string, PayrollItemAnswer> = allAnsweredNo();
+  delete items["PF"];
+  delete items["ESI"];
+  delete items["TDS"];
+  const filled = withStatutoryDefaults(items);
+  assert.deepEqual(filled["PF"], { isApplicable: true, amount: "12.00" });
+  assert.deepEqual(filled["ESI"], { isApplicable: true, amount: "0.75" });
+  assert.deepEqual(filled["TDS"], { isApplicable: true, amount: "" });
+  assert.deepEqual(validate({ items: filled }).errors, {});
+});
+
+test("D148 an unanswered statutory item (isApplicable undefined) is defaulted too", () => {
+  const filled = withStatutoryDefaults({ PF: { isApplicable: undefined, amount: "" } });
+  assert.deepEqual(filled["PF"], { isApplicable: true, amount: "12.00" });
+});
+
+test("D148 an explicit answer is never overwritten, No included", () => {
+  const filled = withStatutoryDefaults({
+    PF: { isApplicable: true, amount: "10" },
+    ESI: { isApplicable: false, amount: "" },
+    TDS: { isApplicable: false, amount: "" },
+  });
+  assert.deepEqual(filled["PF"], { isApplicable: true, amount: "10" });
+  assert.deepEqual(filled["ESI"], { isApplicable: false, amount: "" });
+  assert.deepEqual(filled["TDS"], { isApplicable: false, amount: "" });
+});
+
+test("D148 other items are left exactly as given, and the input is not mutated", () => {
+  const items = { HRA: { isApplicable: undefined, amount: "" } };
+  const filled = withStatutoryDefaults(items);
+  assert.deepEqual(filled["HRA"], { isApplicable: undefined, amount: "" });
+  assert.equal("PF" in items, false);
 });

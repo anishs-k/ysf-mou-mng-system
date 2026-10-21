@@ -26,7 +26,7 @@ function baseSnapshot(): AgreementSnapshot {
     payroll: {
       scheme: "WILP",
       traineeCategories: ["Category A"],
-      items: { BONUS: { isApplicable: true, amount: "500.00" } },
+      items: { ESI: { isApplicable: true, amount: "0.75" } },
       otherItems: [],
     },
   };
@@ -59,33 +59,48 @@ test("a charge that goes from blank to an amount is reported as changed with a '
   assert.equal(insuranceRow?.newValue, "50");
 });
 
-test("a payroll item flipped from No to Yes is reported with its amount", () => {
-  const before = baseSnapshot();
-  const after = {
-    ...before,
-    payroll: { ...before.payroll, items: { ...before.payroll.items, HRA: { isApplicable: true, amount: "200" } } },
-  };
-  const rows = computeAgreementDiff(before, after);
-  const hraRow = rows.find((r) => r.field === "HRA");
-  assert.equal(hraRow?.changed, true);
-  assert.equal(hraRow?.oldValue, "No");
-  assert.equal(hraRow?.newValue, "Yes (200)");
-});
-
 test("every fixed commercial charge and payroll item appears exactly once", () => {
-  // Total row count is fixed: 4 MOU scalars + 16 charges + 1 "Other
-  // Charges" + trainee categories + 23 payroll items + 1 "Other Payroll
-  // Items". A commercial charge and a payroll item can legitimately share a
+  // Total row count is fixed: 4 MOU scalars + 9 charges (D153) + 1 "Other
+  // Charges" + trainee categories + 3 payroll items (PF, ESI, TDS - D158) + 1
+  // "Other Payroll Items" (kept so older history entries still read). A commercial charge and a payroll item can legitimately share a
   // display label (e.g. "Document Fee" exists in both catalogues) since the
   // real UI renders the two sections separately, so uniqueness is checked
   // per section rather than across the whole flat list.
   const snapshot = baseSnapshot();
   const rows = computeAgreementDiff(snapshot, snapshot);
-  assert.equal(rows.length, 4 + 17 + 1 + 24);
+  assert.equal(rows.length, 4 + 10 + 1 + 4);
 
-  const commercialFields = rows.slice(0, 4 + 17).map((r) => r.field);
+  const commercialFields = rows.slice(0, 4 + 10).map((r) => r.field);
   assert.equal(new Set(commercialFields).size, commercialFields.length);
 
-  const payrollFields = rows.slice(4 + 17 + 1).map((r) => r.field);
+  const payrollFields = rows.slice(4 + 10 + 1).map((r) => r.field);
   assert.equal(new Set(payrollFields).size, payrollFields.length);
+});
+
+test("SPEC-23 a PF percentage is reported with a % sign", () => {
+  const before = baseSnapshot();
+  const after = {
+    ...before,
+    payroll: { ...before.payroll, items: { ...before.payroll.items, PF: { isApplicable: true, amount: "12.00" } } },
+  };
+  const pfRow = computeAgreementDiff(before, after).find((r) => r.field === "Provident Fund (PF)");
+  assert.equal(pfRow?.changed, true);
+  assert.equal(pfRow?.oldValue, "No");
+  assert.equal(pfRow?.newValue, "Yes (12%)");
+});
+
+test("SPEC-23 TDS is reported by its status, never as Yes / No", () => {
+  const before = baseSnapshot();
+  const notApplicable = { ...before, payroll: { ...before.payroll, items: { ...before.payroll.items, TDS: { isApplicable: false, amount: "" } } } };
+  const asApplicable = { ...before, payroll: { ...before.payroll, items: { ...before.payroll.items, TDS: { isApplicable: true, amount: "" } } } };
+  const tdsRow = computeAgreementDiff(notApplicable, asApplicable).find((r) => r.field === "TDS");
+  assert.equal(tdsRow?.oldValue, "Not applicable");
+  assert.equal(tdsRow?.newValue, "As applicable");
+});
+
+test("SPEC-23 an old snapshot without TDS reads as unanswered, not as Not applicable", () => {
+  const before = baseSnapshot();
+  const after = { ...before, payroll: { ...before.payroll, items: { ...before.payroll.items, TDS: { isApplicable: true, amount: "" } } } };
+  const tdsRow = computeAgreementDiff(before, after).find((r) => r.field === "TDS");
+  assert.equal(tdsRow?.oldValue, "—");
 });

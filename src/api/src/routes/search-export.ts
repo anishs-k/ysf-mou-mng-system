@@ -7,6 +7,8 @@
  * a fire-and-forget generation finishes it later. Every route is open to any
  * authenticated role; nothing here writes to a record table. SPEC-19: every query
  * runs under the caller's zone scope, and a job is visible only to its creator (D120).
+ * SPEC-24 adds the Existing Companies list's bulk record PDF, streamed directly:
+ * it is built in seconds from batch queries, so it needs no job row.
  */
 
 import { MOU_STATUSES, SCHEMES } from "@mou/domain";
@@ -18,6 +20,8 @@ import type { Pool } from "pg";
 import { requireAuth, requireSession } from "../auth/middleware.ts";
 import { recordInScope, zoneScopeOf } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
+import { loadCompanyRecords, renderCompanyRecordsPdf } from "../db/company-record-pdf.ts";
+import { loadYsfLogo } from "../db/pdf-layout.ts";
 import {
   buildAllZonesPdfBuffer,
   buildCompanyPdfBuffer,
@@ -199,6 +203,36 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
         offset: (page - 1) * pageSize,
       });
       response.json({ rows, total, page, pageSize });
+    },
+  );
+
+  /**
+   * GET /api/export/records.pdf — SPEC-24: every MoU the list's filters select
+   * (same parameters and zone scope as /search, in its order), as one record PDF.
+   */
+  router.get(
+    "/export/records.pdf",
+    requireAuthSession,
+    async (request: Request, response: Response) => {
+      const { filters, error } = parseSearchFilters(request.query);
+      if (error !== undefined) {
+        response.status(422).json({ error });
+        return;
+      }
+      const { rows } = await searchMous(pool, zoneScopeOf(request), filters);
+      const records = await loadCompanyRecords(db, pool, rows.map((row) => row.mouId), requireAuth(request).username);
+      const [first] = records;
+      if (first === undefined) {
+        response.status(422).json({ error: "No MoU records match the filters" });
+        return;
+      }
+      const pdf = await renderCompanyRecordsPdf(records, { logo: await loadYsfLogo() });
+      response.setHeader("Content-Type", "application/pdf");
+      response.setHeader("Content-Disposition", `attachment; filename="companies-${first.today}.pdf"`);
+      response.setHeader("X-Record-Count", String(records.length));
+      // The web app runs on its own origin in development; let it read both headers.
+      response.setHeader("Access-Control-Expose-Headers", "Content-Disposition, X-Record-Count");
+      response.send(pdf);
     },
   );
 

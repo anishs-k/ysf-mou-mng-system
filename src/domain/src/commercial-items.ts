@@ -5,6 +5,8 @@
  * partial unique index that permits exactly one row per fixed key, and for the
  * display order the UI must not hardcode. Section 3 fixes the item type for every
  * key except "Other", where the user chooses, so itemType is null only there.
+ * D153 keeps only the 9 core charges (Admin ... One Time Registration Fees): the 7
+ * payroll-style deductions were never used and migration 0017 drops them.
  */
 
 import type { ItemType } from "./enums.ts";
@@ -21,13 +23,6 @@ export const COMMERCIAL_ITEM_KEYS = [
   "TRAINING_CHARGES",
   "ASSESSMENT_CHARGES",
   "ONE_TIME_REGISTRATION_FEES",
-  "CANTEEN_DEDUCTION",
-  "COUPON_AMOUNT",
-  "DOCUMENT_FEE",
-  "JOINING_FEE",
-  "LEFT_DEDUCTION",
-  "SKILL_DIPLOMA_FEES",
-  "TRANSPORTATION_DEDUCTION",
   "OTHER",
 ] as const;
 
@@ -59,19 +54,7 @@ export const COMMERCIAL_ITEMS: readonly CommercialItemDefinition[] = [
     itemType: "DEDUCTION",
     displayOrder: 9,
   },
-  { key: "CANTEEN_DEDUCTION", label: "Canteen Deduction", itemType: "DEDUCTION", displayOrder: 10 },
-  { key: "COUPON_AMOUNT", label: "Coupon Amount", itemType: "DEDUCTION", displayOrder: 11 },
-  { key: "DOCUMENT_FEE", label: "Document Fee", itemType: "DEDUCTION", displayOrder: 12 },
-  { key: "JOINING_FEE", label: "Joining Fee", itemType: "DEDUCTION", displayOrder: 13 },
-  { key: "LEFT_DEDUCTION", label: "Left Deduction", itemType: "DEDUCTION", displayOrder: 14 },
-  { key: "SKILL_DIPLOMA_FEES", label: "Skill Diploma Fees", itemType: "DEDUCTION", displayOrder: 15 },
-  {
-    key: "TRANSPORTATION_DEDUCTION",
-    label: "Transportation Deduction",
-    itemType: "DEDUCTION",
-    displayOrder: 16,
-  },
-  { key: "OTHER", label: "Other", itemType: null, displayOrder: 17 },
+  { key: "OTHER", label: "Other", itemType: null, displayOrder: 10 },
 ];
 
 export const COMMERCIAL_ITEM_BY_KEY: Readonly<

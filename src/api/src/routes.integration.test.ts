@@ -89,11 +89,12 @@ test("AC15 GET /api/enums returns every section 2, 3 and 4 list", async () => {
 
   const commercial = body["commercialItems"] as { itemType: string | null; displayOrder: number }[];
   const payroll = body["payrollItems"] as { itemType: string | null; displayOrder: number }[];
-  assert.equal(commercial.length, 17);
-  assert.equal(payroll.length, 24);
+  // D153: 9 core charges + OTHER; D158: PF, ESI, TDS + OTHER.
+  assert.equal(commercial.length, 10);
+  assert.equal(payroll.length, 4);
   assert.equal(commercial[0]?.displayOrder, 1);
-  assert.equal(commercial[16]?.itemType, null);
-  assert.equal(payroll[9]?.itemType, "DEDUCTION");
+  assert.equal(commercial[9]?.itemType, null);
+  assert.equal(payroll[0]?.itemType, "DEDUCTION");
 });
 
 /** SPEC-19 D121: the zone and plant lookups now need a session; an all-zone user sees everything. */

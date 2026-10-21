@@ -1,8 +1,9 @@
 /**
  * Purpose: Wizard step 1 - Basic Information (scheme with its toggleable guideline
  * card, zone, sector, company identity and tax numbers), the Registered Address and
- * the contacts: HR and Finance Head with the shared Mobile/LAN toggle, the one
- * official HR & Finance email the API stores, and the optional purchase contact.
+ * the contacts: HR, Finance Head and the optional Purchase contact, each with its
+ * name, number and email (with a confirm box). D155 / D156: HR and Finance have
+ * their own emails, and there is no Mobile / LAN toggle - a number may be either.
  * Every option list comes from /api/enums and /api/zones.
  */
 
@@ -13,7 +14,7 @@ import { useState } from "react";
 import { Field, SelectInput, TextInput } from "../../ui/form.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import { Card, SectionTitle } from "../../ui/primitives.tsx";
-import { ErrorText, ToggleGroup, WarningText } from "./fields.tsx";
+import { ErrorText, WarningText } from "./fields.tsx";
 import type { CompanyForm, WizardReference } from "./formState.ts";
 import type { CompanyErrors } from "./validation.ts";
 import { invalidBorder } from "./validation.ts";
@@ -41,22 +42,30 @@ const ADDRESS_FIELDS: readonly TextFieldSpec[] = [
   { key: "state", label: "State", placeholder: "Maharashtra", required: true },
 ];
 
-const MOBILE_PLACEHOLDER = "10-digit mobile, e.g. 9876543210";
-const LAN_PLACEHOLDER = "STD code and number, e.g. 020-24567890";
+const NUMBER_PLACEHOLDER = "Mobile, or STD code and number";
 
-function contactFields(contactType: string): readonly TextFieldSpec[] {
-  const numberPlaceholder = contactType === "LAN" ? LAN_PLACEHOLDER : MOBILE_PLACEHOLDER;
-  return [
-    { key: "hrContactNumber", label: "HR Contact Number", placeholder: numberPlaceholder, required: true, type: "tel" },
-    { key: "financeHeadContactNumber", label: "Finance Head Contact", placeholder: numberPlaceholder, required: true, type: "tel" },
-    { key: "officialEmail", label: "Official Email ID (HR & Finance)", placeholder: "hr@company.com", required: true, type: "email" },
-    { key: "confirmEmail", label: "Confirm Official Email ID", placeholder: "hr@company.com", required: true, type: "email", hint: "Must match Official Email ID" },
-    { key: "purchaseName", label: "Purchase Name", placeholder: "Enter purchase contact name" },
-    { key: "purchaseNumber", label: "Purchase Number", placeholder: "Enter purchase contact number", type: "tel" },
-    { key: "purchaseEmail", label: "Purchase Email ID", placeholder: "purchase@company.com", type: "email" },
-    { key: "purchaseEmailConfirm", label: "Confirm Purchase Email ID", placeholder: "purchase@company.com", type: "email", hint: "Must match Purchase Email ID" },
-  ];
-}
+/** Name, number and email (with its confirmation) per contact, two to a row. */
+const CONTACT_FIELDS: readonly TextFieldSpec[] = [
+  { key: "hrContactName", label: "HR Contact Name", placeholder: "Full name", required: true },
+  { key: "hrContactNumber", label: "HR Contact Number", placeholder: NUMBER_PLACEHOLDER, required: true, type: "tel" },
+  { key: "hrEmail", label: "HR Email ID", placeholder: "hr@company.com", required: true, type: "email" },
+  { key: "confirmHrEmail", label: "Confirm HR Email ID", placeholder: "hr@company.com", required: true, type: "email", hint: "Must match HR Email ID" },
+  { key: "financeHeadContactName", label: "Finance Head Name", placeholder: "Full name", required: true },
+  { key: "financeHeadContactNumber", label: "Finance Head Contact", placeholder: NUMBER_PLACEHOLDER, required: true, type: "tel" },
+  { key: "financeEmail", label: "Finance Email ID", placeholder: "finance@company.com", required: true, type: "email" },
+  {
+    key: "confirmFinanceEmail",
+    label: "Confirm Finance Email ID",
+    placeholder: "finance@company.com",
+    required: true,
+    type: "email",
+    hint: "Must match Finance Email ID",
+  },
+  { key: "purchaseName", label: "Purchase Name", placeholder: "Enter purchase contact name" },
+  { key: "purchaseNumber", label: "Purchase Number", placeholder: "Enter purchase contact number", type: "tel" },
+  { key: "purchaseEmail", label: "Purchase Email ID", placeholder: "purchase@company.com", type: "email" },
+  { key: "purchaseEmailConfirm", label: "Confirm Purchase Email ID", placeholder: "purchase@company.com", type: "email", hint: "Must match Purchase Email ID" },
+];
 
 interface CompanyDetailsStepProps {
   readonly company: CompanyForm;
@@ -140,12 +149,6 @@ export function CompanyDetailsStep({ company, onChange, errors, warnings, refere
   const schemeLabel = enums.schemes.find((option) => option.value === scheme)?.label ?? scheme;
   const set = (key: CompanyKey) => (value: string) => onChange({ [key]: value });
 
-  /** Section 3: one choice governs both numbers, so switching it clears them. */
-  const setContactType = (contactType: string) => {
-    if (contactType === company.contactType) return;
-    onChange({ contactType, hrContactNumber: "", financeHeadContactNumber: "" });
-  };
-
   const select = (key: CompanyKey, label: string, options: readonly { value: string; label: string }[], className = "") => (
     <Field label={label} htmlFor={`company-${key}`} required className={className}>
       <SelectInput id={`company-${key}`} options={options} value={company[key]} onChange={set(key)} />
@@ -215,18 +218,7 @@ export function CompanyDetailsStep({ company, onChange, errors, warnings, refere
       <Card className="p-6">
         <SectionTitle>Contact Information</SectionTitle>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {text({ key: "hrContactName", label: "HR Contact Name", placeholder: "Full name", required: true })}
-          {text({ key: "financeHeadContactName", label: "Finance Head Name", placeholder: "Full name", required: true })}
-          <Field label="Contact Type" required hint="Applies to both the HR and Finance Head numbers" className="md:col-span-2">
-            <ToggleGroup
-              name="Contact Type"
-              options={enums.contactTypes}
-              value={company.contactType}
-              onChange={setContactType}
-            />
-            <ErrorText message={errors.contactType} />
-          </Field>
-          <TextFields fields={contactFields(company.contactType)} company={company} onChange={onChange} errors={errors} />
+          <TextFields fields={CONTACT_FIELDS} company={company} onChange={onChange} errors={errors} />
         </div>
       </Card>
     </div>

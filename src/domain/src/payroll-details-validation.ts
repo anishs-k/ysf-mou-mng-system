@@ -10,16 +10,18 @@
  * named fields, for the same reason Page 2's 16 charges are a map: the set is
  * the data-driven PAYROLL_ITEM_BY_KEY catalogue the UI renders from, not a
  * fixed list this module should hardcode.
+ *
+ * SPEC-23 §2.3: how a Yes answer is checked depends on the item's value kind -
+ * an amount, a 0-100 percentage (PF, ESI), or nothing at all (TDS's status).
+ * D158: the fixed items are only PF, ESI and TDS, and Other rows are refused.
  */
 
-import {
-  type OtherChargeRow,
-  type OtherChargeRowErrors,
-  validateOtherChargeRows,
-} from "./commercial-details-validation.ts";
+import { type OtherChargeRow, type OtherChargeRowErrors } from "./commercial-details-validation.ts";
 import { SCHEMES } from "./enums.ts";
-import { PAYROLL_FIXED_ITEM_KEYS } from "./payroll-items.ts";
+import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY, STATUTORY_ITEM_KEYS } from "./payroll-items.ts";
+import type { PayrollValueKind } from "./payroll-items.ts";
 import { validateAmountString } from "./money.ts";
+import { validatePercentString } from "./payroll-value.ts";
 
 const MAX_CATEGORY_LENGTH = 100;
 const MAX_QUALIFICATION_LENGTH = 150;
@@ -71,6 +73,10 @@ export interface PayrollDetailErrors {
 
 export interface PayrollDetailValidation {
   readonly errors: PayrollDetailErrors;
+}
+
+function isBlankOtherRow(row: OtherChargeRow): boolean {
+  return row.label.trim() === "" && row.amount.trim() === "";
 }
 
 function validateCategoryRows(categories: readonly string[]): (string | undefined)[] {
@@ -135,6 +141,43 @@ function validateCategoryDetails(
   });
 }
 
+/**
+ * SPEC-23 D148: what PF, ESI and TDS are saved as when nobody has answered them -
+ * the wizard does not ask, and MOUs saved before SPEC-23 have no rows. Edit
+ * Agreement is where they are changed.
+ */
+export const STATUTORY_DEFAULTS: Readonly<Record<(typeof STATUTORY_ITEM_KEYS)[number], PayrollItemAnswer>> = {
+  PF: { isApplicable: true, amount: "12.00" },
+  ESI: { isApplicable: true, amount: "0.75" },
+  TDS: { isApplicable: true, amount: "" },
+};
+
+/** A copy of `items` with every unanswered statutory item set to its default; an explicit answer, No included, is kept. */
+export function withStatutoryDefaults(
+  items: Readonly<Record<string, PayrollItemAnswer>>,
+): Record<string, PayrollItemAnswer> {
+  const filled: Record<string, PayrollItemAnswer> = { ...items };
+  for (const key of STATUTORY_ITEM_KEYS) {
+    if (filled[key]?.isApplicable === undefined) {
+      filled[key] = STATUTORY_DEFAULTS[key];
+    }
+  }
+  return filled;
+}
+
+/** The error for an answered-Yes item, by its value kind; undefined when it passes. */
+function validateApplicableAnswer(valueKind: PayrollValueKind, rawAmount: string): string | undefined {
+  if (valueKind === "STATUS") {
+    // D143: TDS's Yes is "As applicable" - there is no amount to check.
+    return undefined;
+  }
+  const amount = rawAmount.trim();
+  if (amount === "") {
+    return "Required";
+  }
+  return valueKind === "PERCENT" ? validatePercentString(amount) : validateAmountString(amount);
+}
+
 export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollDetailValidation {
   const errors: {
     scheme?: string;
@@ -183,14 +226,9 @@ export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollD
       // AC4: No means the amount box is hidden; whatever is in it is ignored.
       continue;
     }
-    const amount = answer.amount.trim();
-    if (amount === "") {
-      itemErrors[key] = "Required";
-      continue;
-    }
-    const amountError = validateAmountString(amount);
-    if (amountError !== undefined) {
-      itemErrors[key] = amountError;
+    const answerError = validateApplicableAnswer(PAYROLL_ITEM_BY_KEY[key].valueKind, answer.amount);
+    if (answerError !== undefined) {
+      itemErrors[key] = answerError;
     }
   }
   if (Object.keys(itemErrors).length > 0) {
@@ -198,8 +236,11 @@ export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollD
   }
 
   // --- "Other" rows ----------------------------------------------------------------
+  // D158: custom payroll items are no longer recorded; a blank row is ignored.
   const otherItems = input.otherItems ?? [];
-  const otherItemErrors = validateOtherChargeRows(otherItems);
+  const otherItemErrors = otherItems.map((row): OtherChargeRowErrors | undefined =>
+    isBlankOtherRow(row) ? undefined : { label: "Other payroll items are no longer recorded" },
+  );
   if (otherItemErrors.some((rowErrors) => rowErrors !== undefined)) {
     errors.otherItems = otherItemErrors;
   }

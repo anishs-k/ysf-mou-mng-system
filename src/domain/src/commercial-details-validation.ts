@@ -18,9 +18,14 @@ import { validateAmountString } from "./money.ts";
 
 const MAX_BACKDATE_DAYS = 365;
 const MAX_TENURE_MONTHS = 120;
-const MAX_TENURE_YEARS = 10;
 const MAX_LABEL_LENGTH = 100;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * The attendance cycles the wizard offers, stored as the readable label -
+ * mou.attendance_cycle is free text. Shared with the SPEC-22 bulk sheet's dropdown.
+ */
+export const ATTENDANCE_CYCLES: readonly string[] = ["16th to 15th", "21st to 20th", "26th to 25th", "Calendar Month"];
 
 export interface OtherChargeRow {
   readonly label: string;
@@ -236,11 +241,12 @@ export function validateCommercialDetails(
   }
 
   // --- Tenure ------------------------------------------------------------------
-  const tenureUnit = (input.tenureUnit ?? "").trim();
-  if (tenureUnit === "") {
-    errors.tenureUnit = "Required";
-  } else if (!TENURE_UNITS.includes(tenureUnit as (typeof TENURE_UNITS)[number])) {
-    errors.tenureUnit = "Choose Months or Years";
+  // D157: the tenure is entered in months; a blank unit means Months.
+  const tenureUnit = (input.tenureUnit ?? "").trim() || "MONTHS";
+  if (tenureUnit !== "MONTHS") {
+    errors.tenureUnit = TENURE_UNITS.includes(tenureUnit as (typeof TENURE_UNITS)[number])
+      ? "Enter the tenure in months"
+      : "Choose Months or Years";
   }
 
   const tenureValueRaw = (input.tenureValue ?? "").trim();
@@ -250,10 +256,8 @@ export function validateCommercialDetails(
     const tenureValue = parsePositiveInteger(tenureValueRaw);
     if (tenureValue === undefined) {
       errors.tenureValue = "Enter a positive whole number";
-    } else if (tenureUnit === "MONTHS" && (tenureValue < 1 || tenureValue > MAX_TENURE_MONTHS)) {
-      errors.tenureValue = `Enter a value between 1 and ${MAX_TENURE_MONTHS} for Months`;
-    } else if (tenureUnit === "YEARS" && (tenureValue < 1 || tenureValue > MAX_TENURE_YEARS)) {
-      errors.tenureValue = `Enter a value between 1 and ${MAX_TENURE_YEARS} for Years`;
+    } else if (tenureValue < 1 || tenureValue > MAX_TENURE_MONTHS) {
+      errors.tenureValue = `Enter a value between 1 and ${MAX_TENURE_MONTHS} months`;
     }
   }
 

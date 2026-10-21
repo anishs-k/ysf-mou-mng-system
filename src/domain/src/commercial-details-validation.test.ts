@@ -62,9 +62,9 @@ test("120 months is accepted, 121 is rejected", () => {
   assert.ok(validate({ tenureValue: "121", tenureUnit: "MONTHS" }).errors.tenureValue);
 });
 
-test("10 years is accepted, 11 is rejected", () => {
-  assert.equal(validate({ tenureValue: "10", tenureUnit: "YEARS" }).errors.tenureValue, undefined);
-  assert.ok(validate({ tenureValue: "11", tenureUnit: "YEARS" }).errors.tenureValue);
+test("D157 tenure is in months: a blank unit means Months, Years is refused", () => {
+  assert.deepEqual(validate({ tenureValue: "36", tenureUnit: "" }).errors, {});
+  assert.ok(validate({ tenureValue: "3", tenureUnit: "YEARS" }).errors.tenureUnit);
 });
 
 test("a zero or negative tenure value is rejected", () => {

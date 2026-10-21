@@ -12,6 +12,8 @@ import type { Server } from "node:http";
 
 import type { Pool } from "pg";
 
+import { createDatabase } from "./db/client.ts";
+import { loadCompanyRecord, loadCompanyRecords } from "./db/company-record-pdf.ts";
 import { createApp } from "./index.ts";
 import {
   createTestPool,
@@ -164,25 +166,6 @@ test("AC8 a charge saved as NULL is null and one saved as 0.00 is distinguishabl
   assert.equal(insurance?.amount, null);
 });
 
-test("AC10 an item answered No does not appear in the payroll view", async () => {
-  const cookie = await viewerCookie();
-  const zoneId = await insertZone(pool);
-  const user = await insertUserWithPassword(pool, { username: "creator5", password: "pass" });
-  const companyId = await insertCompany(pool, zoneId, user.id);
-  const plantId = await insertPlant(pool, companyId);
-  const mouId = await insertMou(pool, companyId, plantId);
-  const configId = await insertPayrollConfig(pool, mouId);
-  await insertTraineeCategory(pool, configId, "Category A");
-  await insertPayrollItem(pool, configId, "BONUS", { isApplicable: true, amount: "500", itemType: "ALLOWANCE" });
-  await insertPayrollItem(pool, configId, "HRA", { isApplicable: false, itemType: "ALLOWANCE" });
-
-  const response = await fetch(`${baseUrl}/api/mous/${mouId}/payroll`, { headers: { Cookie: cookie } });
-  const body = (await response.json()) as { allowances: Array<{ itemKey: string }>; deductions: unknown[] };
-  const keys = body.allowances.map((row) => row.itemKey);
-  assert.ok(keys.includes("BONUS"));
-  assert.ok(!keys.includes("HRA"));
-});
-
 test("AC11 a scheme with only deduction items has an empty allowances array", async () => {
   const cookie = await viewerCookie();
   const zoneId = await insertZone(pool);
@@ -191,12 +174,61 @@ test("AC11 a scheme with only deduction items has an empty allowances array", as
   const plantId = await insertPlant(pool, companyId);
   const mouId = await insertMou(pool, companyId, plantId);
   const configId = await insertPayrollConfig(pool, mouId);
-  await insertPayrollItem(pool, configId, "DOCUMENT_FEE", { isApplicable: true, amount: "100", itemType: "DEDUCTION" });
+  await insertPayrollItem(pool, configId, "PF", { isApplicable: true, amount: "12", itemType: "DEDUCTION" });
 
   const response = await fetch(`${baseUrl}/api/mous/${mouId}/payroll`, { headers: { Cookie: cookie } });
   const body = (await response.json()) as { allowances: unknown[]; deductions: unknown[] };
   assert.deepEqual(body.allowances, []);
-  assert.equal(body.deductions.length, 1);
+  // D158: payroll is PF, ESI and TDS - all three are always listed.
+  assert.equal(body.deductions.length, 3);
+});
+
+test("SPEC-23 AC3/AC4 the payroll view carries value kinds, and PF / ESI / TDS appear even when Not applicable", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-pf", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const plantId = await insertPlant(pool, companyId);
+  const mouId = await insertMou(pool, companyId, plantId);
+  const configId = await insertPayrollConfig(pool, mouId);
+  await insertPayrollItem(pool, configId, "PF", { isApplicable: true, amount: "12", itemType: "DEDUCTION" });
+  await insertPayrollItem(pool, configId, "ESI", { isApplicable: false, itemType: "DEDUCTION" });
+  await insertPayrollItem(pool, configId, "TDS", { isApplicable: false, itemType: "DEDUCTION" });
+
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/payroll`, { headers: { Cookie: cookie } });
+  const body = (await response.json()) as {
+    allowances: Array<{ itemKey: string; valueKind: string; amount: string | null; isApplicable: boolean | null }>;
+    deductions: Array<{ itemKey: string; valueKind: string; amount: string | null; isApplicable: boolean | null }>;
+  };
+  assert.deepEqual(body.allowances, []);
+  assert.deepEqual(
+    body.deductions.map((row) => [row.itemKey, row.valueKind, row.amount, row.isApplicable]),
+    [
+      ["PF", "PERCENT", "12.00", true],
+      ["ESI", "PERCENT", null, false],
+      ["TDS", "STATUS", null, false],
+    ],
+  );
+});
+
+test("SPEC-23 AC6 an MOU saved before PF / ESI / TDS still lists all three, as not recorded", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-old", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const mouId = await insertMou(pool, companyId, await insertPlant(pool, companyId));
+  await insertPayrollConfig(pool, mouId);
+
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/payroll`, { headers: { Cookie: cookie } });
+  const body = (await response.json()) as { deductions: Array<{ itemKey: string; amount: string | null; isApplicable: boolean | null }> };
+  assert.deepEqual(
+    body.deductions.map((row) => [row.itemKey, row.amount, row.isApplicable]),
+    [
+      ["PF", null, null],
+      ["ESI", null, null],
+      ["TDS", null, null],
+    ],
+  );
 });
 
 test("SPEC-07 the most recently uploaded document is returned as current", async () => {
@@ -274,7 +306,9 @@ test("overview also returns the full Page 1 identity, address, zone name and pur
   assert.equal(body["state"], "Maharashtra");
   assert.equal(body["zoneName"], "West");
   assert.equal(body["contactType"], "MOBILE");
-  assert.match(String(body["officialEmail"]), /@example\.com$/);
+  assert.match(String(body["hrEmail"]), /@example\.com$/);
+  assert.match(String(body["financeEmail"]), /@example\.com$/);
+  assert.equal(body["officialEmail"], undefined);
   assert.equal(body["purchaseName"], "Buyer");
   assert.equal(body["purchaseNumber"], "9000000000");
   assert.equal(body["purchaseEmail"], "buy@example.com");
@@ -372,4 +406,74 @@ test("an unauthenticated request is refused", async () => {
 
   const response = await fetch(`${baseUrl}/api/companies/${companyId}/overview`);
   assert.equal(response.status, 401);
+});
+
+// --- SPEC-23 §5: the record PDF behind Export PDF ------------------------------------
+
+test("SPEC-23 AC8 the record PDF is served inline as a PDF named after the MoU code, to a VIEWER too", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-pdf", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const plantId = await insertPlant(pool, companyId);
+  const mouId = await insertMou(pool, companyId, plantId);
+  const configId = await insertPayrollConfig(pool, mouId);
+  await insertPayrollItem(pool, configId, "PF", { isApplicable: true, amount: "12", itemType: "DEDUCTION" });
+
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/record.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/pdf");
+  assert.match(response.headers.get("content-disposition") ?? "", /^inline; filename=".+\.pdf"$/);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(bytes.subarray(0, 4).toString("latin1"), "%PDF");
+});
+
+test("SPEC-23 an unknown MoU answers 404 to the record PDF", async () => {
+  const cookie = await viewerCookie();
+  const response = await fetch(`${baseUrl}/api/mous/00000000-0000-4000-8000-000000000000/record.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 404);
+});
+
+test("SPEC-23 an MoU outside the user's zones answers 404 to the record PDF", async () => {
+  const zoneId = await insertZone(pool);
+  const otherZone = await insertZone(pool, "OTZ", "Other Zone");
+  const user = await insertUserWithPassword(pool, { username: "creator-pdf2", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const mouId = await insertMou(pool, companyId, await insertPlant(pool, companyId));
+  const zonal = await insertUserWithPassword(pool, { username: "zonal-pdf", password: "pass", role: "VIEWER", zoneIds: [otherZone] });
+  const cookie = await login(zonal.username, zonal.password);
+
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/record.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 404);
+});
+
+// --- SPEC-24: the batch loaders give exactly what the one-record loaders give ---------
+
+test("SPEC-24 loadCompanyRecords matches loadCompanyRecord for each MoU, in the order asked", async () => {
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-batch", password: "pass" });
+  const firstCompany = await insertCompany(pool, zoneId, user.id);
+  const secondCompany = await insertCompany(pool, zoneId, user.id, { companyName: "Second Batch Co", gstNumber: "27AAACB1234B1Z5" });
+  const firstMou = await insertMou(pool, firstCompany, await insertPlant(pool, firstCompany));
+  const secondMou = await insertMou(pool, secondCompany, await insertPlant(pool, secondCompany), { scheme: "NAPS" });
+  await insertCommercialItem(pool, firstMou, "ADMIN_CHARGES", { amount: "100.00" });
+  const configId = await insertPayrollConfig(pool, secondMou);
+  await insertTraineeCategory(pool, configId, "Category A");
+  await insertPayrollItem(pool, configId, "PF", { isApplicable: true, amount: "12", itemType: "DEDUCTION" });
+  await insertMouDocument(pool, firstMou, user.id, { originalFilename: "first.pdf" });
+
+  const db = createDatabase(pool);
+  const batch = await loadCompanyRecords(db, pool, [secondMou, firstMou], "tester");
+  const singles = [await loadCompanyRecord(db, pool, secondMou, "tester"), await loadCompanyRecord(db, pool, firstMou, "tester")];
+  assert.deepEqual(batch, singles);
+  assert.deepEqual(batch.map((record) => record.commercial.mouId), [secondMou, firstMou]);
+});
+
+test("SPEC-24 an unknown or inactive MoU is skipped by the batch loader", async () => {
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-batch2", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const mouId = await insertMou(pool, companyId, await insertPlant(pool, companyId));
+  const batch = await loadCompanyRecords(createDatabase(pool), pool, ["00000000-0000-4000-8000-000000000000", mouId], "tester");
+  assert.deepEqual(batch.map((record) => record.commercial.mouId), [mouId]);
 });

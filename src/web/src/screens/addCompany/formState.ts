@@ -4,6 +4,8 @@
  * category cards, "Other" payroll rows) because that is what the Figma steps edit;
  * toDraftPayload() folds them into the API's keyed maps (charges + chargeMeta,
  * traineeCategories + traineeCategoryDetails) and fromDraftPayload() rebuilds them.
+ * D157 / D158: the tenure is always months and the wizard asks no payroll item -
+ * page 3 carries the scheme and trainee categories, PF / ESI / TDS default on save.
  */
 
 import type { CommercialDetails, CompanyDetails, PayrollDetails } from "@mou/domain";
@@ -24,8 +26,8 @@ export interface CompanyForm extends CompanyDetails {
 
 export interface CommercialForm {
   readonly mouStartDate: string;
+  /** Whole months (D157). */
   readonly tenureValue: string;
-  readonly tenureUnit: string;
   /** The readable cycle label, e.g. "16th to 15th" - mou.attendance_cycle is free text. */
   readonly attendanceCycle: string;
   readonly stipendDate: string;
@@ -54,12 +56,7 @@ export interface CategoryCard {
   readonly stipendRate: string;
 }
 
-export interface PayrollAnswer {
-  readonly isApplicable: boolean | undefined;
-  readonly amount: string;
-}
-
-export interface OtherRow {
+interface OtherRow {
   readonly id: number;
   readonly label: string;
   readonly amount: string;
@@ -71,8 +68,6 @@ export interface WizardForm {
   readonly commercial: CommercialForm;
   readonly charges: readonly ChargeRow[];
   readonly categories: readonly CategoryCard[];
-  readonly payrollItems: Readonly<Record<string, PayrollAnswer>>;
-  readonly payrollOther: readonly OtherRow[];
 }
 
 /** Every option list the steps render, all from GET /api/enums and /api/zones. */
@@ -114,10 +109,6 @@ export function blankCategory(): CategoryCard {
   return { id: newRowId(), name: "", qualification: "", stipendRate: "" };
 }
 
-export function blankOtherRow(): OtherRow {
-  return { id: newRowId(), label: "", amount: "", itemType: "" };
-}
-
 const EMPTY_COMPANY: CompanyForm = {
   companyType: "",
   companyName: "",
@@ -134,11 +125,14 @@ const EMPTY_COMPANY: CompanyForm = {
   district: "",
   hrContactName: "",
   financeHeadContactName: "",
-  contactType: "MOBILE",
+  // D156: no longer asked; kept only so a resumed older draft round-trips.
+  contactType: "",
   hrContactNumber: "",
   financeHeadContactNumber: "",
-  officialEmail: "",
-  confirmEmail: "",
+  hrEmail: "",
+  confirmHrEmail: "",
+  financeEmail: "",
+  confirmFinanceEmail: "",
   sector: "",
   purchaseName: "",
   purchaseNumber: "",
@@ -150,7 +144,6 @@ const EMPTY_COMPANY: CompanyForm = {
 const EMPTY_COMMERCIAL: CommercialForm = {
   mouStartDate: "",
   tenureValue: "",
-  tenureUnit: "MONTHS",
   attendanceCycle: "",
   stipendDate: "",
   mouDocument: undefined,
@@ -162,8 +155,6 @@ export function emptyForm(): WizardForm {
     commercial: EMPTY_COMMERCIAL,
     charges: [blankChargeRow()],
     categories: [blankCategory()],
-    payrollItems: {},
-    payrollOther: [],
   };
 }
 
@@ -206,7 +197,7 @@ export function toPage2(form: WizardForm): Page2Payload {
       }
     }
   }
-  return { ...form.commercial, charges, chargeMeta, otherItems };
+  return { ...form.commercial, tenureUnit: "MONTHS", charges, chargeMeta, otherItems };
 }
 
 export function toPage3(form: WizardForm): PayrollDetails {
@@ -218,8 +209,9 @@ export function toPage3(form: WizardForm): PayrollDetails {
       qualification: card.qualification,
       stipendRate: card.stipendRate,
     })),
-    items: form.payrollItems,
-    otherItems: form.payrollOther.map(({ label, amount, itemType }) => ({ label, amount, itemType })),
+    // D158: no payroll item is asked; the server saves PF / ESI / TDS defaults.
+    items: {},
+    otherItems: [],
   };
 }
 
@@ -296,27 +288,19 @@ export function fromDraftPayload(payload: Draft["payload"], commercialOrder: rea
     return { id: newRowId(), name, qualification: text(detail, "qualification"), stipendRate: text(detail, "stipendRate") };
   });
 
-  const payrollItems: Record<string, PayrollAnswer> = {};
-  for (const [key, value] of Object.entries(asRecord(page3["items"]))) {
-    const answer = asRecord(value);
-    const isApplicable = answer["isApplicable"];
-    payrollItems[key] = {
-      isApplicable: typeof isApplicable === "boolean" ? isApplicable : undefined,
-      amount: text(answer, "amount"),
-    };
-  }
+  // A draft saved before D157 may hold its tenure in years.
+  const draftTenure = text(page2, "tenureValue");
+  const tenureValue = text(page2, "tenureUnit") === "YEARS" && /^\d+$/.test(draftTenure) ? String(Number(draftTenure) * 12) : draftTenure;
 
   return {
     company: {
       ...company,
-      contactType: company.contactType === "" ? EMPTY_COMPANY.contactType : company.contactType,
       purchaseEmailConfirm: purchaseEmail,
       scheme: text(page3, "scheme"),
     },
     commercial: {
       mouStartDate: text(page2, "mouStartDate"),
-      tenureValue: text(page2, "tenureValue"),
-      tenureUnit: text(page2, "tenureUnit") === "" ? EMPTY_COMMERCIAL.tenureUnit : text(page2, "tenureUnit"),
+      tenureValue,
       attendanceCycle: text(page2, "attendanceCycle"),
       stipendDate: text(page2, "stipendDate"),
       mouDocument:
@@ -326,7 +310,5 @@ export function fromDraftPayload(payload: Draft["payload"], commercialOrder: rea
     },
     charges: chargeRows.length > 0 ? chargeRows : [blankChargeRow()],
     categories: categories.length > 0 ? categories : [blankCategory()],
-    payrollItems,
-    payrollOther: otherRowsFrom(page3["otherItems"]),
   };
 }

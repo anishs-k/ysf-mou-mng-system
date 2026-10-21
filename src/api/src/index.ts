@@ -22,8 +22,10 @@ import { runExportCleanup } from "./jobs/export-cleanup.ts";
 import { runExpiryAlertJob } from "./jobs/expiry-alerts.ts";
 import { createAlertsRouter } from "./routes/alerts.ts";
 import { createAdminUsersRouter } from "./routes/admin-users.ts";
+import { createBulkCompaniesRouter } from "./routes/bulk-companies.ts";
 import { createAuthRouter } from "./routes/auth.ts";
 import { createCompaniesRouter } from "./routes/companies.ts";
+import { createCompanyDocumentsRouter } from "./routes/company-documents.ts";
 import { createAgreementHistoryRouter } from "./routes/agreement-history.ts";
 import { createCompanyViewRouter } from "./routes/company-view.ts";
 import { createDashboardSummaryRouter } from "./routes/dashboard-summary.ts";
@@ -82,8 +84,10 @@ export function createApp(pool: Pool): Express {
     createEnumsRouter(),
     createZonesRouter(db, pool),
     createCompaniesRouter(db, pool),
+    createBulkCompaniesRouter(db, pool),
     createCompanyViewRouter(db, pool),
     createMouDocumentsRouter(db, pool),
+    createCompanyDocumentsRouter(db, pool),
     createEditAgreementRouter(db, pool),
     createAgreementHistoryRouter(db, pool),
     createZoneDashboardRouter(db, pool),

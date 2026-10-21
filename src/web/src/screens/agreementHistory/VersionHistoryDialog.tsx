@@ -12,6 +12,7 @@ import {
   PAYROLL_FIXED_ITEM_KEYS,
   PAYROLL_ITEM_BY_KEY,
   TENURE_UNIT_LABELS,
+  payrollAnswerText,
 } from "@mou/domain";
 import type { TenureUnit } from "@mou/domain";
 import { useEffect, useState } from "react";
@@ -89,14 +90,8 @@ function VersionDetail({ title, detail }: { readonly title: string; readonly det
       </p>
       <SubHeading>Payroll Items</SubHeading>
       {PAYROLL_FIXED_ITEM_KEYS.map((key) => {
-        const answer = payroll.items[key];
-        return (
-          <Line
-            key={key}
-            label={PAYROLL_ITEM_BY_KEY[key].label}
-            value={answer?.isApplicable === true ? `Yes (${present(answer.amount)})` : "No"}
-          />
-        );
+        const { label, valueKind } = PAYROLL_ITEM_BY_KEY[key];
+        return <Line key={key} label={label} value={payrollAnswerText(valueKind, payroll.items[key])} />;
       })}
       {payroll.otherItems.map((item, index) => (
         <Line key={index} label={`${item.label} (${item.itemType})`} value={present(item.amount)} />

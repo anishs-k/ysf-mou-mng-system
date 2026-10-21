@@ -66,8 +66,10 @@ async function createViewableCompany(
     contactType: "MOBILE",
     hrContactNumber: "9876543210",
     financeHeadContactNumber: "9876543211",
-    officialEmail: `co${suffix}@example.com`,
-    confirmEmail: `co${suffix}@example.com`,
+    hrEmail: `co${suffix}@example.com`,
+    financeEmail: `co${suffix}@example.com`,
+    confirmHrEmail: `co${suffix}@example.com`,
+    confirmFinanceEmail: `co${suffix}@example.com`,
     plantName,
   };
 
@@ -101,7 +103,7 @@ async function createViewableCompany(
   for (const key of PAYROLL_FIXED_ITEM_KEYS) {
     items[key] = { isApplicable: false, amount: "" };
   }
-  items["BONUS"] = { isApplicable: true, amount: "500" };
+  items["PF"] = { isApplicable: true, amount: "12" };
   const page3 = {
     scheme: "WILP",
     traineeCategories: ["Category A"],
@@ -257,7 +259,7 @@ test("AC9 print links to the PDF endpoint for this MOU", async ({ page, request 
   );
 });
 
-test("AC10 an item answered No during the wizard does not appear on Page 3", async ({ page, request }) => {
+test("AC10 the payroll page lists PF and none of the removed payroll items (D158)", async ({ page, request }) => {
   const zoneId = await firstZoneId(request);
   const { companyId } = await createViewableCompany(request, zoneId);
 
@@ -269,6 +271,6 @@ test("AC10 an item answered No during the wizard does not appear on Page 3", asy
   await page.getByRole("button", { name: "Next" }).click();
 
   await expect(page.getByRole("heading", { name: "Payroll Details" })).toBeVisible();
-  await expect(page.getByText("Bonus", { exact: false })).toBeVisible();
+  await expect(page.getByText("Provident Fund", { exact: false })).toBeVisible();
   await expect(page.getByText("Attendance Bonus")).toHaveCount(0);
 });

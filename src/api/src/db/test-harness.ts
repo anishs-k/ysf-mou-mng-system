@@ -203,11 +203,11 @@ export async function insertCompany(
        company_name, company_type, sector, registration_type, tan_number, gst_number,
        zone_id, address_line_1, city, pin_code, state, district,
        hr_contact_name, finance_head_contact_name, contact_type,
-       hr_contact_number, finance_head_contact_number, official_email, created_by
+       hr_contact_number, finance_head_contact_number, hr_email, finance_email, created_by
      ) VALUES (
        $1, 'PRIVATE_SECTOR', $2, 'COMPANY', 'TANP12345C', $3,
        $4, '1 Test Road', 'Pune', '411001', 'Maharashtra', 'Pune',
-       'HR Name', 'Finance Head Name', 'MOBILE', '9876543210', '9876543211', $5, $6
+       'HR Name', 'Finance Head Name', 'MOBILE', '9876543210', '9876543211', $5, $5, $6
      ) RETURNING id`,
     [
       options.companyName ?? `Test Company ${suffix}`,

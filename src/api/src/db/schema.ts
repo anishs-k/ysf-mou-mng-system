@@ -19,6 +19,10 @@
  * qualification, stipend rate and trainee count (D107), `commercial_item` gains a
  * period and basis (D108), `payroll_item` gains the insurance sub-model (D108), and
  * `company_code_counter` is re-keyed to (scheme, year).
+ *
+ * SPEC-23 adds PF / ESI / TDS through CHECKs only (D143): a percentage lives in
+ * `payroll_item.amount`, TDS in `is_applicable` with no amount. It also adds the
+ * company-level `company_document` table for GST / Registration certificates (D145).
  */
 
 import { sql, type SQL } from "drizzle-orm";
@@ -45,16 +49,17 @@ import {
   COMMERCIAL_BASES,
   COMMERCIAL_ITEM_KEYS,
   COMMERCIAL_PERIODS,
+  COMPANY_DOCUMENT_TYPES,
   COMPANY_TYPES,
   CONTACT_TYPES,
   EDIT_AGREEMENT_REASONS,
-  INSURANCE_ITEM_KEY,
-  INSURANCE_TYPES,
   ITEM_TYPES,
   PAYROLL_ITEM_KEYS,
+  PERCENT_ITEM_KEYS,
   REGISTRATION_TYPES,
   SCHEMES,
   SECTORS,
+  STATUS_ITEM_KEYS,
   TENURE_UNITS,
   USER_ROLES,
 } from "@mou/domain";
@@ -211,10 +216,13 @@ export const company = pgTable(
     district: varchar("district", { length: 100 }).notNull(),
     hrContactName: varchar("hr_contact_name", { length: 150 }).notNull(),
     financeHeadContactName: varchar("finance_head_contact_name", { length: 150 }).notNull(),
-    contactType: varchar("contact_type", { length: 10 }).notNull(),
+    // D156: no longer asked; companies saved before keep theirs.
+    contactType: varchar("contact_type", { length: 10 }),
     hrContactNumber: varchar("hr_contact_number", { length: 20 }).notNull(),
     financeHeadContactNumber: varchar("finance_head_contact_number", { length: 20 }).notNull(),
-    officialEmail: varchar("official_email", { length: 255 }).notNull(),
+    // D155: the HR and Finance emails replaced the single official_email (migrations 0018 / 0019).
+    hrEmail: varchar("hr_email", { length: 255 }).notNull(),
+    financeEmail: varchar("finance_email", { length: 255 }).notNull(),
     purchaseName: varchar("purchase_name", { length: 150 }),
     purchaseNumber: varchar("purchase_number", { length: 20 }),
     purchaseEmail: varchar("purchase_email", { length: 255 }),
@@ -385,9 +393,6 @@ export const payrollItem = pgTable(
     isApplicable: boolean("is_applicable").notNull(),
     amount: numeric("amount", { precision: 12, scale: 2 }),
     itemType: varchar("item_type", { length: 10 }).notNull(),
-    insuranceType: varchar("insurance_type", { length: 10 }),
-    insuranceGfsAmount: numeric("insurance_gfs_amount", { precision: 12, scale: 2 }),
-    insuranceMouAmount: numeric("insurance_mou_amount", { precision: 12, scale: 2 }),
   },
   (t) => [
     uniqueIndex("payroll_item_fixed_uq")
@@ -397,27 +402,18 @@ export const payrollItem = pgTable(
     check("payroll_item_key_chk", enumCheck("payroll_item_key_chk", "item_key", PAYROLL_ITEM_KEYS)),
     check("payroll_item_item_type_chk", enumCheck("payroll_item_item_type_chk", "item_type", ITEM_TYPES)),
     check("payroll_item_amount_chk", sql.raw("amount >= 0")),
-    check("payroll_item_applicable_amount_chk", sql.raw("NOT is_applicable OR amount IS NOT NULL")),
+    // SPEC-23 D143: a status item (TDS) is the one applicable row with no amount.
+    check(
+      "payroll_item_applicable_amount_chk",
+      sql.raw(`NOT is_applicable OR amount IS NOT NULL OR item_key IN (${sqlList(STATUS_ITEM_KEYS)})`),
+    ),
+    check("payroll_item_status_chk", sql.raw(`item_key NOT IN (${sqlList(STATUS_ITEM_KEYS)}) OR amount IS NULL`)),
+    check("payroll_item_percent_chk", sql.raw(`item_key NOT IN (${sqlList(PERCENT_ITEM_KEYS)}) OR amount <= 100`)),
     check("payroll_item_inapplicable_amount_chk", sql.raw("is_applicable OR amount IS NULL")),
     check(
       "payroll_item_custom_label_chk",
       sql.raw(`(item_key = '${OTHER_ITEM_KEY}') = (custom_label IS NOT NULL)`),
     ),
-    // SPEC-16 D108. The insurance sub-model belongs to the INSURANCE key alone, so a
-    // half-written or misplaced one is rejected outright rather than left to the
-    // application to police.
-    check(
-      "payroll_item_insurance_key_chk",
-      sql.raw(
-        `(item_key = '${INSURANCE_ITEM_KEY}') OR (insurance_type IS NULL AND insurance_gfs_amount IS NULL AND insurance_mou_amount IS NULL)`,
-      ),
-    ),
-    check(
-      "payroll_item_insurance_type_chk",
-      enumCheck("payroll_item_insurance_type_chk", "insurance_type", INSURANCE_TYPES),
-    ),
-    check("payroll_item_insurance_gfs_chk", sql.raw("insurance_gfs_amount >= 0")),
-    check("payroll_item_insurance_mou_chk", sql.raw("insurance_mou_amount >= 0")),
   ],
 );
 
@@ -445,6 +441,34 @@ export const mouDocument = pgTable(
     referenceNumber: varchar("reference_number", { length: 100 }),
   },
   () => [check("mou_document_valid_until_chk", sql.raw("valid_until >= document_date"))],
+);
+
+/**
+ * SPEC-23 §3.1 (D145). A certificate belongs to the company, not to one agreement,
+ * so unlike mou_document it hangs off `company`. Append-only like SPEC-09: every
+ * upload adds a row. `mime_type` is the type the file's own bytes proved.
+ */
+export const companyDocument = pgTable(
+  "company_document",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => company.id, { onDelete: "restrict" }),
+    documentType: varchar("document_type", { length: 30 }).notNull(),
+    filePath: text("file_path").notNull(),
+    originalFilename: varchar("original_filename", { length: 255 }).notNull(),
+    mimeType: varchar("mime_type", { length: 50 }).notNull(),
+    fileSizeBytes: bigint("file_size_bytes", { mode: "number" }).notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+    uploadedBy: uuid("uploaded_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+  },
+  (t) => [
+    index("company_document_company_idx").on(t.companyId),
+    check("company_document_type_chk", enumCheck("company_document_type_chk", "document_type", COMPANY_DOCUMENT_TYPES)),
+  ],
 );
 
 /** Section 5.10. Append-only - no UPDATE or DELETE path exists at any role. */
@@ -593,6 +617,7 @@ export type PayrollConfig = typeof payrollConfig.$inferSelect;
 export type TraineeCategory = typeof traineeCategory.$inferSelect;
 export type PayrollItem = typeof payrollItem.$inferSelect;
 export type MouDocument = typeof mouDocument.$inferSelect;
+export type CompanyDocument = typeof companyDocument.$inferSelect;
 export type AgreementHistory = typeof agreementHistory.$inferSelect;
 export type MouEditRequest = typeof mouEditRequest.$inferSelect;
 export type ExportJob = typeof exportJob.$inferSelect;

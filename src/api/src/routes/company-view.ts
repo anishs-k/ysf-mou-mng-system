@@ -6,7 +6,9 @@
  * this flow is view-only (SPEC-07 section 1), so every route here is a GET
  * with no role restriction beyond being signed in - a VIEWER sees exactly
  * what an ADMIN sees. The query assembly itself lives in db/mou-view.ts so
- * SPEC-11 (history) and SPEC-13 (export) can reuse it.
+ * SPEC-11 (history) and SPEC-13 (export) can reuse it. SPEC-23 §5 adds the
+ * designed full-record PDF behind the record view's Export PDF button; /print
+ * stays SPEC-07's Page 1 + Page 2 document.
  */
 
 import { MOU_STATUS_LABELS } from "@mou/domain";
@@ -15,9 +17,11 @@ import type { Request, Response } from "express";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
 
-import { requireSession } from "../auth/middleware.ts";
+import { requireAuth, requireSession } from "../auth/middleware.ts";
 import { emptyList, notFoundError, requireInScope } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
+import { loadCompanyRecord, renderCompanyRecordPdf } from "../db/company-record-pdf.ts";
+import { loadYsfLogo } from "../db/pdf-layout.ts";
 import {
   fetchCompanyAgreements,
   fetchCompanyMous,
@@ -202,6 +206,30 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
       }
 
       doc.end();
+    },
+  );
+
+  /** GET /api/mous/:mouId/record.pdf — SPEC-23 §5: the full record, payroll included. */
+  router.get(
+    "/mous/:mouId/record.pdf",
+    requireAuthSession,
+    requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
+    async (request: Request, response: Response) => {
+      const mouId = String(request.params["mouId"] ?? "");
+      if (!isUuid(mouId)) {
+        response.status(400).json({ error: "mouId must be a UUID" });
+        return;
+      }
+      const record = await loadCompanyRecord(db, pool, mouId, requireAuth(request).username);
+      if (record === undefined) {
+        response.status(404).json({ error: "MOU not found" });
+        return;
+      }
+      const pdf = await renderCompanyRecordPdf(record, { logo: await loadYsfLogo() });
+      response.setHeader("Content-Type", "application/pdf");
+      // The MoU code is A-Z, 0-9 and hyphens only (D109), so it is safe in a quoted filename.
+      response.setHeader("Content-Disposition", `inline; filename="${record.commercial.generatedCode}.pdf"`);
+      response.send(pdf);
     },
   );
 

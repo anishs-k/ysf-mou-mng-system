@@ -3,6 +3,8 @@
 **Depends on:** SPEC-01 (charge item catalogue, end-date rule), SPEC-03, SPEC-04.
 **Source:** `docs/project_information.md` §4.2, §8.10, §10.2
 
+> **Amended 2026-10-21 by SPEC-25 (D153 / D157: the 9 core charges only; "MoU Tenure (Months)" is one number, 1-120, with no unit).**
+
 ---
 
 ## 1. Scope
@@ -74,6 +76,10 @@ filled must have all three filled.
 
 Content-type is checked from the file bytes, not only from the browser-supplied
 header — a renamed `.exe` must be rejected.
+
+> **Amended by SPEC-22 (D138):** the MOU PDF rule applies to the wizard only. An
+> MOU created by Bulk Company Upload is saved without a PDF; it is attached later
+> through Upload MoU (SPEC-09).
 
 ---
 

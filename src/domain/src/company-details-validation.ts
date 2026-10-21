@@ -10,11 +10,16 @@
  * this module's job, so it cannot assume it. A result carries errors (blocking)
  * and warnings (advisory) separately, which is what lets the GST-vs-State
  * mismatch of AC8 inform the user without preventing them from continuing.
+ *
+ * D155: the single official email became an HR email and a Finance email, each
+ * with its confirmation. D156: Contact Type is no longer asked - a number is
+ * accepted as a mobile or as a LAN number on its own; a stored or supplied type
+ * still narrows the check to that kind.
  */
 
 import { COMPANY_TYPES, CONTACT_TYPES, REGISTRATION_TYPES } from "./enums.ts";
 
-/** The 20 Page 1 fields of SPEC-04 section 2, in diagram order. */
+/** The Page 1 fields of SPEC-04 section 2, as amended by D155 / D156. */
 export interface CompanyDetails {
   readonly companyType: string;
   readonly companyName: string;
@@ -31,11 +36,14 @@ export interface CompanyDetails {
   readonly district: string;
   readonly hrContactName: string;
   readonly financeHeadContactName: string;
+  /** D156: optional - blank means each number may be a mobile or a LAN number. */
   readonly contactType: string;
   readonly hrContactNumber: string;
   readonly financeHeadContactNumber: string;
-  readonly officialEmail: string;
-  readonly confirmEmail: string;
+  readonly hrEmail: string;
+  readonly confirmHrEmail: string;
+  readonly financeEmail: string;
+  readonly confirmFinanceEmail: string;
 }
 
 export type CompanyDetailField = keyof CompanyDetails;
@@ -95,6 +103,11 @@ export const GST_STATE_NAMES: Readonly<Record<string, string>> = {
   "38": "Ladakh",
 };
 
+/** True for a 15-character GST Number in the SPEC-04 pattern (upper case). */
+export function isGstNumber(value: string): boolean {
+  return GST_PATTERN.test(value);
+}
+
 /** The state a GST's leading two digits denote, or undefined if unknown. */
 export function stateNameForGstCode(code: string): string | undefined {
   return GST_STATE_NAMES[code];
@@ -147,8 +160,33 @@ function validateContactNumber(value: string, contactType: string): string | und
   if (contactType === "LAN") {
     return validateLandline(trimmed);
   }
+  if (contactType === "") {
+    // D156: no type given - a valid mobile or a valid LAN number both pass.
+    if (isMobile(trimmed)) return undefined;
+    return validateLandline(trimmed) === undefined ? undefined : "Enter a 10-digit mobile number, or a LAN number with its STD code";
+  }
   // The contact type itself is invalid; that error is reported instead.
   return undefined;
+}
+
+/** An email and its confirmation: required, well formed, and equal ignoring case (AC6). */
+function validateEmailPair(
+  errors: CompanyDetailErrors,
+  fields: { readonly email: CompanyDetailField; readonly confirm: CompanyDetailField },
+  email: string,
+  confirm: string,
+  label: string,
+): void {
+  if (email === "") {
+    errors[fields.email] = "Required";
+  } else if (!EMAIL_PATTERN.test(email)) {
+    errors[fields.email] = "Enter a valid email address";
+  }
+  if (confirm === "") {
+    errors[fields.confirm] = "Required";
+  } else if (errors[fields.email] === undefined && confirm.toLowerCase() !== email.toLowerCase()) {
+    errors[fields.confirm] = `Does not match the ${label}`;
+  }
 }
 
 export function validateCompanyDetails(
@@ -231,9 +269,7 @@ export function validateCompanyDetails(
   required("financeHeadContactName");
 
   const contactType = value("contactType");
-  if (contactType === "") {
-    errors.contactType = "Choose Mobile No or LAN No";
-  } else if (!CONTACT_TYPES.includes(contactType as (typeof CONTACT_TYPES)[number])) {
+  if (contactType !== "" && !CONTACT_TYPES.includes(contactType as (typeof CONTACT_TYPES)[number])) {
     errors.contactType = "Choose Mobile No or LAN No";
   }
 
@@ -250,23 +286,14 @@ export function validateCompanyDetails(
     errors.financeHeadContactNumber = financeNumberError;
   }
 
-  const officialEmail = value("officialEmail");
-  if (officialEmail === "") {
-    errors.officialEmail = "Required";
-  } else if (!EMAIL_PATTERN.test(officialEmail)) {
-    errors.officialEmail = "Enter a valid email address";
-  }
-
-  const confirmEmail = value("confirmEmail");
-  if (confirmEmail === "") {
-    errors.confirmEmail = "Required";
-  } else if (errors.officialEmail === undefined) {
-    // Compared case-insensitively after trimming, so a capitalisation slip is
-    // not treated as a mismatch (AC6).
-    if (confirmEmail.toLowerCase() !== officialEmail.toLowerCase()) {
-      errors.confirmEmail = "Does not match the official email";
-    }
-  }
+  validateEmailPair(errors, { email: "hrEmail", confirm: "confirmHrEmail" }, value("hrEmail"), value("confirmHrEmail"), "HR email");
+  validateEmailPair(
+    errors,
+    { email: "financeEmail", confirm: "confirmFinanceEmail" },
+    value("financeEmail"),
+    value("confirmFinanceEmail"),
+    "Finance email",
+  );
 
   // --- AC8: GST state code vs State -----------------------------------------
   // Advisory only - a mismatch warns but must never block Next.

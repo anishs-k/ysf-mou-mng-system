@@ -9,8 +9,10 @@
  * functions the wizard's final save does, not a second copy.
  *
  * Unlike SPEC-07's read-only view (which shows only *applicable* payroll
- * items), editing needs every one of the 22 fixed items back, including an
- * unanswered/No one, because the user must be able to flip it to Yes.
+ * items), editing needs every fixed item back, including a No one, because the
+ * user must be able to flip it to Yes. A fixed item with no row at all comes back
+ * unanswered rather than silently No - except PF, ESI and TDS, which an MOU saved
+ * before SPEC-23 lacks: they come back as the statutory defaults (D148).
  */
 
 import {
@@ -18,6 +20,7 @@ import {
   COMMERCIAL_ITEM_BY_KEY,
   PAYROLL_FIXED_ITEM_KEYS,
   PAYROLL_ITEM_BY_KEY,
+  withStatutoryDefaults,
 } from "@mou/domain";
 import type { CommercialDetails, OtherChargeRow, PayrollDetails, PayrollItemAnswer } from "@mou/domain";
 import { asc, eq } from "drizzle-orm";
@@ -106,7 +109,7 @@ export async function fetchEditablePayload(db: Database, mouId: string): Promise
     const fixedByKey = new Map(itemRows.filter((row) => row.itemKey !== "OTHER").map((row) => [row.itemKey, row]));
     for (const key of PAYROLL_FIXED_ITEM_KEYS) {
       const row = fixedByKey.get(key);
-      items[key] = { isApplicable: row?.isApplicable ?? false, amount: row?.amount ?? "" };
+      items[key] = { isApplicable: row?.isApplicable, amount: row?.amount ?? "" };
     }
     for (const row of itemRows) {
       if (row.itemKey === "OTHER") {
@@ -134,7 +137,7 @@ export async function fetchEditablePayload(db: Database, mouId: string): Promise
     payroll: {
       scheme: mouRow.scheme,
       traineeCategories,
-      items,
+      items: withStatutoryDefaults(items),
       otherItems: payrollOtherItems,
     },
   };
@@ -190,12 +193,14 @@ export function derivePayrollItemRows(
   for (const key of PAYROLL_FIXED_ITEM_KEYS) {
     const answer = items[key];
     const isApplicable = answer?.isApplicable ?? false;
+    const { itemType, valueKind } = PAYROLL_ITEM_BY_KEY[key];
     rows.push({
       itemKey: key,
       customLabel: null,
       isApplicable,
-      amount: isApplicable ? Number((answer?.amount ?? "0").trim()).toFixed(2) : null,
-      itemType: PAYROLL_ITEM_BY_KEY[key].itemType ?? "ALLOWANCE",
+      // SPEC-23 D143: a status item (TDS) never carries an amount, Yes or No.
+      amount: isApplicable && valueKind !== "STATUS" ? Number((answer?.amount ?? "0").trim()).toFixed(2) : null,
+      itemType: itemType ?? "ALLOWANCE",
     });
   }
   for (const row of otherItems) {

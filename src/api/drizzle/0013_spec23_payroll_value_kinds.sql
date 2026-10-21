@@ -1,0 +1,6 @@
+ALTER TABLE "payroll_item" DROP CONSTRAINT "payroll_item_key_chk";--> statement-breakpoint
+ALTER TABLE "payroll_item" DROP CONSTRAINT "payroll_item_applicable_amount_chk";--> statement-breakpoint
+ALTER TABLE "payroll_item" ADD CONSTRAINT "payroll_item_status_chk" CHECK (item_key NOT IN ('TDS') OR amount IS NULL);--> statement-breakpoint
+ALTER TABLE "payroll_item" ADD CONSTRAINT "payroll_item_percent_chk" CHECK (item_key NOT IN ('PF', 'ESI') OR amount <= 100);--> statement-breakpoint
+ALTER TABLE "payroll_item" ADD CONSTRAINT "payroll_item_key_chk" CHECK (item_key IN ('ATTENDANCE_BONUS', 'ACCOMMODATION_ALLOWANCE', 'CONVEYANCE', 'HRA', 'BONUS', 'NIGHT_SHIFT_ALLOWANCE', 'EDUCATION_ALLOWANCE', 'INSURANCE', 'ADMISSION_DEDUCTION', 'ADVANCE', 'CANTEEN_DEDUCTION', 'COUPON_AMOUNT', 'COURSE_REGISTRATION_FEE', 'DOCUMENT_FEE', 'EDUCATION_FEE', 'EXAM_FEE', 'INSURANCE_DEDUCTION', 'JOINING_FEE_DEDUCTION', 'LEFT_DEDUCTION', 'SHOES_DEDUCTION', 'SKILL_DIPLOMA_FEES', 'TRANSPORTATION_DEDUCTION', 'UNIFORM_DEDUCTION', 'PF', 'ESI', 'TDS', 'OTHER'));--> statement-breakpoint
+ALTER TABLE "payroll_item" ADD CONSTRAINT "payroll_item_applicable_amount_chk" CHECK (NOT is_applicable OR amount IS NOT NULL OR item_key IN ('TDS'));

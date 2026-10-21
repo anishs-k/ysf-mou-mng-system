@@ -3,6 +3,8 @@
 **Depends on:** SPEC-01 (enums, zone master), SPEC-03 (wizard shell, draft).
 **Source:** `docs/project_information.md` §4.1, §8.1–8.3, §10.1
 
+> **Amended 2026-10-21 by SPEC-25 (D155 / D156: HR Email ID and Finance Email ID, each with a Confirm box, replace the one official email; Contact Type is no longer asked and each number may be a mobile or a LAN number).**
+
 ---
 
 ## 1. Scope

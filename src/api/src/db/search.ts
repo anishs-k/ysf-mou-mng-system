@@ -15,16 +15,18 @@
  * filter, so no caller can forget it; it is ANDed with the user's own zoneId.
  */
 
+import { EXPIRING_SOON_DAYS } from "@mou/domain";
 import type { Pool } from "pg";
 
 import type { ZoneScope } from "../auth/zone-scope.ts";
 
 /**
  * "Expiring soon" = end date between today and today + 90 days, the same
- * window as the Dashboard KPI (zone-dashboard.ts) and the alert badge
- * (routes/alerts.ts), so the list a KPI links to holds exactly that many rows.
+ * window as the Dashboard KPI (zone-dashboard.ts), the alert badge
+ * (routes/alerts.ts) and the displayed "Expiring" status (SPEC-23 D146), so the
+ * list a KPI links to holds exactly that many rows. Re-exported for its callers.
  */
-export const EXPIRING_SOON_DAYS = 90;
+export { EXPIRING_SOON_DAYS };
 
 /** The derived statuses plus EXPIRING, which is a filter only - rows never carry it. */
 export type SearchStatusFilter = "ACTIVE" | "EXPIRED" | "NEW" | "EXPIRING";

@@ -62,7 +62,8 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "contact_type",
     "hr_contact_number",
     "finance_head_contact_number",
-    "official_email",
+    "hr_email",
+    "finance_email",
     "purchase_name",
     "purchase_number",
     "purchase_email",
@@ -100,6 +101,18 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "basis",
   ],
   payroll_config: ["id", "mou_id"],
+  // SPEC-23 D145.
+  company_document: [
+    "id",
+    "company_id",
+    "document_type",
+    "file_path",
+    "original_filename",
+    "mime_type",
+    "file_size_bytes",
+    "uploaded_at",
+    "uploaded_by",
+  ],
   trainee_category: [
     "id",
     "payroll_config_id",
@@ -116,9 +129,6 @@ const EXPECTED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
     "is_applicable",
     "amount",
     "item_type",
-    "insurance_type",
-    "insurance_gfs_amount",
-    "insurance_mou_amount",
   ],
   mou_document: [
     "id",
@@ -189,11 +199,9 @@ const EXPECTED_CHECK_CONSTRAINTS = [
   "payroll_item_applicable_amount_chk",
   "payroll_item_inapplicable_amount_chk",
   "payroll_item_custom_label_chk",
-  // SPEC-16 D108 insurance sub-model.
-  "payroll_item_insurance_key_chk",
-  "payroll_item_insurance_type_chk",
-  "payroll_item_insurance_gfs_chk",
-  "payroll_item_insurance_mou_chk",
+  // SPEC-23 D143 PF / ESI percentages and the TDS status.
+  "payroll_item_percent_chk",
+  "payroll_item_status_chk",
   // SPEC-16 D107 trainee-category fields.
   "trainee_category_stipend_rate_chk",
   "trainee_category_trainee_count_chk",
@@ -203,6 +211,7 @@ const EXPECTED_CHECK_CONSTRAINTS = [
   "mou_edit_request_reason_chk",
   "export_job_kind_chk",
   "export_job_status_chk",
+  "company_document_type_chk",
 ];
 
 const EXPECTED_INDEXES = [
@@ -225,6 +234,7 @@ const EXPECTED_INDEXES = [
   "mou_edit_request_mou_idx",
   "export_job_expires_at_idx",
   "user_zone_zone_idx",
+  "company_document_company_idx",
 ];
 
 let pool: Pool;
@@ -429,7 +439,7 @@ test("AC9 a payroll item that is not applicable cannot carry an amount", async (
   await expectSqlState(
     pool.query(
       `INSERT INTO payroll_item (payroll_config_id, item_key, is_applicable, amount, item_type)
-       VALUES ($1, 'BONUS', false, 100.00, 'ALLOWANCE')`,
+       VALUES ($1, 'PF', false, 10.00, 'DEDUCTION')`,
       [configId],
     ),
     CHECK_VIOLATION,
@@ -446,7 +456,7 @@ test("AC9 an applicable payroll item must carry an amount", async () => {
   await expectSqlState(
     pool.query(
       `INSERT INTO payroll_item (payroll_config_id, item_key, is_applicable, amount, item_type)
-       VALUES ($1, 'BONUS', true, NULL, 'ALLOWANCE')`,
+       VALUES ($1, 'PF', true, NULL, 'DEDUCTION')`,
       [configId],
     ),
     CHECK_VIOLATION,
@@ -462,8 +472,64 @@ test("AC9 an applicable payroll item with an amount is accepted", async () => {
 
   await pool.query(
     `INSERT INTO payroll_item (payroll_config_id, item_key, is_applicable, amount, item_type)
-     VALUES ($1, 'BONUS', true, 100.00, 'ALLOWANCE')`,
+     VALUES ($1, 'PF', true, 12.00, 'DEDUCTION')`,
     [configId],
+  );
+});
+
+/** SPEC-23 D143: one payroll row, inserted raw so the CHECKs alone are what is tested. */
+async function insertPayrollRow(itemKey: string, isApplicable: boolean, amount: string | null): Promise<unknown> {
+  const zoneId = await insertZone(pool);
+  const userId = await insertUser(pool);
+  const companyId = await insertCompany(pool, zoneId, userId);
+  const mouId = await insertMou(pool, companyId, null);
+  const configId = await insertPayrollConfig(pool, mouId);
+  return pool.query(
+    `INSERT INTO payroll_item (payroll_config_id, item_key, is_applicable, amount, item_type)
+     VALUES ($1, $2, $3, $4, 'DEDUCTION')`,
+    [configId, itemKey, isApplicable, amount],
+  );
+}
+
+test("SPEC-23 AC2 a PF or ESI percentage up to 100 is accepted", async () => {
+  await insertPayrollRow("PF", true, "12.00");
+  await insertPayrollRow("ESI", true, "100.00");
+});
+
+test("SPEC-23 AC2 a PF percentage above 100 is refused by the database", async () => {
+  await expectSqlState(insertPayrollRow("PF", true, "100.01"), CHECK_VIOLATION);
+});
+
+test("SPEC-23 AC3 TDS As applicable is stored with no amount", async () => {
+  await insertPayrollRow("TDS", true, null);
+  await insertPayrollRow("TDS", false, null);
+});
+
+test("SPEC-23 TDS can never carry an amount", async () => {
+  await expectSqlState(insertPayrollRow("TDS", true, "10.00"), CHECK_VIOLATION);
+});
+
+test("D151 a removed demo deduction key is rejected", async () => {
+  await expectSqlState(insertPayrollRow("ADVANCE", false, null), CHECK_VIOLATION);
+  await expectSqlState(insertPayrollRow("UNIFORM_DEDUCTION", false, null), CHECK_VIOLATION);
+});
+
+test("D158 a removed allowance / deduction key is rejected", async () => {
+  await expectSqlState(insertPayrollRow("HRA", false, null), CHECK_VIOLATION);
+  await expectSqlState(insertPayrollRow("COUPON_AMOUNT", false, null), CHECK_VIOLATION);
+});
+
+test("SPEC-23 a company document of an unknown type is rejected", async () => {
+  const zoneId = await insertZone(pool);
+  const userId = await insertUser(pool);
+  const companyId = await insertCompany(pool, zoneId, userId);
+  await expectSqlState(
+    pool.query(
+      `INSERT INTO company_document (company_id, document_type, file_path, original_filename, mime_type, file_size_bytes, uploaded_by)
+       VALUES ($1, 'PAN_CARD', 'company/x/y.pdf', 'pan.pdf', 'application/pdf', 10, $2)`,
+      [companyId, userId],
+    ),
+    CHECK_VIOLATION,
   );
 });
 

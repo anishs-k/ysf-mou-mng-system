@@ -4,9 +4,11 @@
  * Commercial and Payroll inputs over the SPEC-10 edit-token values (with the
  * domain validators' messages under each field), and the Review diff from
  * computeAgreementDiff. State lives in EditAgreementScreen; these only render it.
+ * SPEC-23: PF / ESI take a percentage, and TDS answers As / Not applicable only.
+ * D157 / D158: the tenure is entered in months, and payroll has no Other rows.
  */
 
-import { TENURE_UNITS, TENURE_UNIT_OPTIONS, computeEndDate } from "@mou/domain";
+import { TENURE_UNITS, TENURE_UNIT_OPTIONS, computeEndDate, payrollAnswerText, payrollStatusLabel } from "@mou/domain";
 import type { CommercialDetailErrors, DiffRow, OtherChargeRowErrors, PayrollDetailErrors, TenureUnit } from "@mou/domain";
 import type { ChangeEvent, ReactNode } from "react";
 
@@ -245,25 +247,17 @@ export function CommercialTab({ scheme, previous, value, errors, charges, itemTy
         <LockedInput label="MoU End Date" value={endDateText(value)} title="Calculated from the start date and tenure" />
       </CompareRow>
       <CompareRow
-        label="Tenure"
+        label="MoU Tenure (Months)"
         previous={`${previous.tenureValue} ${unitLabel(previous.tenureUnit)}`}
         error={errors.tenureValue ?? errors.tenureUnit}
       >
-        <div className="grid grid-cols-2 gap-2">
-          <TextField label="Tenure" type="number" value={value.tenureValue} onChange={(tenureValue) => set({ tenureValue })} />
-          <select
-            aria-label="New Tenure Unit"
-            value={value.tenureUnit}
-            onChange={(event) => set({ tenureUnit: event.target.value })}
-            className={INPUT_CLASS}
-          >
-            {TENURE_UNIT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {/* D157: months only - the unit is fixed, so an older Years tenure is saved as months. */}
+        <TextField
+          label="MoU Tenure (Months)"
+          type="number"
+          value={value.tenureValue}
+          onChange={(tenureValue) => set({ tenureValue, tenureUnit: "MONTHS" })}
+        />
       </CompareRow>
       <CompareRow label="Attendance Cycle" previous={textOrDash(previous.attendanceCycle)} error={errors.attendanceCycle}>
         <TextField label="Attendance Cycle" value={value.attendanceCycle} onChange={(attendanceCycle) => set({ attendanceCycle })} />
@@ -302,16 +296,23 @@ interface PayrollTabProps {
   readonly value: EditablePayroll;
   readonly errors: PayrollDetailErrors;
   readonly items: readonly PayrollItemOption[];
-  readonly itemTypes: readonly EnumOption[];
   readonly onChange: (value: EditablePayroll) => void;
 }
 
-function answerText(answer: { readonly isApplicable: boolean | undefined; readonly amount: string } | undefined): string {
-  if (answer?.isApplicable === true) return `Yes (${textOrDash(answer.amount)})`;
-  return answer?.isApplicable === false ? "No" : PENDING_FIGURE;
+function answerText(
+  item: PayrollItemOption,
+  answer: { readonly isApplicable: boolean | undefined; readonly amount: string } | undefined,
+): string {
+  return answer?.isApplicable === undefined ? PENDING_FIGURE : payrollAnswerText(item.valueKind, answer);
 }
 
-export function PayrollTab({ previous, value, errors, items, itemTypes, onChange }: PayrollTabProps) {
+/** The two buttons' text: Yes / No, or TDS's As applicable / Not applicable. */
+function choiceLabel(item: PayrollItemOption, choice: boolean): string {
+  if (item.valueKind === "STATUS") return payrollStatusLabel(choice);
+  return choice ? "Yes" : "No";
+}
+
+export function PayrollTab({ previous, value, errors, items, onChange }: PayrollTabProps) {
   const set = (patch: Partial<EditablePayroll>) => onChange({ ...value, ...patch });
   const categories = value.traineeCategories;
   return (
@@ -347,7 +348,7 @@ export function PayrollTab({ previous, value, errors, items, itemTypes, onChange
         const setAnswer = (isApplicable: boolean, amount: string) =>
           set({ items: { ...value.items, [item.key]: { isApplicable, amount } } });
         return (
-          <CompareRow key={item.key} label={item.label} previous={answerText(previous.items[item.key])} error={errors.items?.[item.key]}>
+          <CompareRow key={item.key} label={item.label} previous={answerText(item, previous.items[item.key])} error={errors.items?.[item.key]}>
             <div className="flex gap-2 items-center">
               {([true, false] as const).map((choice) => {
                 const active = answer.isApplicable === choice;
@@ -356,31 +357,27 @@ export function PayrollTab({ previous, value, errors, items, itemTypes, onChange
                     key={String(choice)}
                     type="button"
                     aria-pressed={active}
-                    aria-label={`${item.label} ${choice ? "Yes" : "No"}`}
+                    aria-label={`${item.label} ${choiceLabel(item, choice)}`}
                     onClick={() => setAnswer(choice, choice ? answer.amount : "")}
                     className={`h-9 px-3 rounded-lg border text-xs font-semibold transition-all ${
                       active ? "border-[#1B5FAE] bg-[#E8F0FB] text-[#1B5FAE]" : "border-border bg-white text-muted-foreground hover:bg-muted"
                     }`}
                   >
-                    {choice ? "Yes" : "No"}
+                    {choiceLabel(item, choice)}
                   </button>
                 );
               })}
-              {answer.isApplicable === true && (
-                <TextField label={`${item.label} amount`} value={answer.amount} onChange={(amount) => setAnswer(true, amount)} />
+              {answer.isApplicable === true && item.valueKind !== "STATUS" && (
+                <TextField
+                  label={`${item.label} ${item.valueKind === "PERCENT" ? "percentage" : "amount"}`}
+                  value={answer.amount}
+                  onChange={(amount) => setAnswer(true, amount)}
+                />
               )}
             </div>
           </CompareRow>
         );
       })}
-      <OtherItemsEditor
-        title="Other Payroll Items"
-        previous={previous.otherItems}
-        items={value.otherItems}
-        itemTypes={itemTypes}
-        errors={errors.otherItems}
-        onChange={(otherItems) => set({ otherItems })}
-      />
     </div>
   );
 }

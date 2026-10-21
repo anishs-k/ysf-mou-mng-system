@@ -3,12 +3,18 @@
  * layer Search uses (`db/search.ts`), plus SPEC-07's `mou-view.ts` and
  * SPEC-12's `zone-dashboard.ts` - nothing here re-derives a status, a
  * charge, or a payroll item; it only assembles what those modules already
- * compute into a workbook or a PDF.
+ * compute into a workbook or a PDF. A payroll value is written through
+ * @mou/domain's formatter (SPEC-23 §2.4), so a PF percentage never reads as rupees.
+ * D166: the Zone-wise MoU Summary PDF is drawn in the YSF layout of pdf-layout.ts
+ * (navy band with the logo, section bars, tables, running header, footers).
  */
 
 import {
   COMMERCIAL_FIXED_ITEM_KEYS,
   COMMERCIAL_ITEM_BY_KEY,
+  SCHEME_LABELS,
+  displayMouStatus,
+  formatPayrollValue,
   MOU_STATUS_LABELS,
 } from "@mou/domain";
 import { and, eq, inArray } from "drizzle-orm";
@@ -18,14 +24,33 @@ import type { Pool } from "pg";
 
 import type { ZoneScope } from "../auth/zone-scope.ts";
 import type { Database } from "./client.ts";
-import { fetchCompanyMous, fetchCompanyOverview, fetchMouCommercialDetail, fetchMouPayrollDetail } from "./mou-view.ts";
+import { businessToday, fetchCompanyMous, fetchCompanyOverview, fetchMouCommercialDetail, fetchMouPayrollDetail } from "./mou-view.ts";
+import type { MouPayrollItemRow } from "./mou-view.ts";
+import {
+  BAND_HEIGHT,
+  BOTTOM_MARGIN,
+  MARGIN,
+  loadYsfLogo,
+  drawBrandBand,
+  drawFooters,
+  drawRunningHeader,
+  note,
+  sectionHeading,
+  table,
+} from "./pdf-layout.ts";
 import { company, companyPlant } from "./schema.ts";
 import type { SearchFilters, SearchRow } from "./search.ts";
 import { searchMous } from "./search.ts";
 import { fetchSchemeMatrix, fetchZoneSummary } from "./zone-dashboard.ts";
+import type { SchemeMatrix, ZoneSummaryRow } from "./zone-dashboard.ts";
 
 function amountCell(value: string | null): number | null {
   return value === null || value.trim() === "" ? null : Number(value);
+}
+
+/** An amount stays a number; a percentage or a TDS status is written as its display text. */
+function payrollValueCell(item: MouPayrollItemRow): number | string | null {
+  return item.valueKind === "AMOUNT" ? amountCell(item.amount) : formatPayrollValue(item.valueKind, item.amount, item.isApplicable);
 }
 
 function dateCell(sheet: ExcelJS.Worksheet, row: ExcelJS.Row, key: string, value: string): void {
@@ -52,7 +77,8 @@ interface CompanyExportRow {
   readonly hrContactNumber: string;
   readonly financeHeadContactName: string;
   readonly financeHeadContactNumber: string;
-  readonly officialEmail: string;
+  readonly hrEmail: string;
+  readonly financeEmail: string;
   readonly plantNames: string;
 }
 
@@ -91,7 +117,8 @@ async function fetchCompaniesWithPlants(db: Database, companyIds: readonly strin
     hrContactNumber: c.hrContactNumber,
     financeHeadContactName: c.financeHeadContactName,
     financeHeadContactNumber: c.financeHeadContactNumber,
-    officialEmail: c.officialEmail,
+    hrEmail: c.hrEmail,
+    financeEmail: c.financeEmail,
     plantNames: (plantsByCompany.get(c.id) ?? []).join(", "),
   }));
 }
@@ -127,7 +154,8 @@ export async function buildExportWorkbook(
     { header: "HR Contact Number", key: "hrContactNumber", width: 16 },
     { header: "Finance Head Contact Name", key: "financeHeadContactName", width: 24 },
     { header: "Finance Head Contact Number", key: "financeHeadContactNumber", width: 16 },
-    { header: "Official Email", key: "officialEmail", width: 26 },
+    { header: "HR Email", key: "hrEmail", width: 26 },
+    { header: "Finance Email", key: "financeEmail", width: 26 },
   ];
   companiesSheet.views = [{ state: "frozen", ySplit: 1 }];
   for (const c of companies) {
@@ -229,7 +257,7 @@ export async function buildExportWorkbook(
         traineeCategories,
         itemLabel: item.label,
         itemType: item.itemType,
-        amount: amountCell(item.amount),
+        amount: payrollValueCell(item),
       });
     }
   }
@@ -238,70 +266,155 @@ export async function buildExportWorkbook(
 }
 
 const PDF_MARGIN = 50;
+/** pdfkit's standard Helvetica has no ₹ glyph, so payroll amounts print "Rs." in a PDF. */
+const PDF_CURRENCY = "Rs.";
 
-/** SPEC-13 section 4.2: the zone summary followed by a company listing grouped by zone. */
-export async function buildAllZonesPdfBuffer(pool: Pool, scope: ZoneScope, generatedByUsername: string): Promise<Buffer> {
-  const [summary, matrix] = await Promise.all([fetchZoneSummary(pool, {}, scope), fetchSchemeMatrix(pool, {}, scope)]);
-  const { rows: mous } = await searchMous(pool, scope, {});
-  const mousByZone = new Map<string, SearchRow[]>();
-  for (const m of mous) {
-    const list = mousByZone.get(m.zoneId) ?? [];
-    list.push(m);
-    mousByZone.set(m.zoneId, list);
-  }
+/** Everything the Zone-wise MoU Summary shows, loaded before drawing. */
+export interface ZoneSummaryPdfData {
+  readonly summary: readonly ZoneSummaryRow[];
+  readonly matrix: SchemeMatrix;
+  readonly mous: readonly SearchRow[];
+  /** The business date the statuses are derived against (YYYY-MM-DD). */
+  readonly today: string;
+  readonly generatedBy: string;
+}
 
+const SUMMARY_TITLE = "Zone-wise MoU Summary";
+const DASH = "—";
+
+/** "2026-12-31" -> "31 Dec 2026", never shifted by the time zone. */
+function calendarDate(isoDate: string): string {
+  const [year = 0, month = 1, day = 1] = isoDate.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+const sum = (rows: readonly ZoneSummaryRow[], pick: (row: ZoneSummaryRow) => number): number => rows.reduce((total, row) => total + pick(row), 0);
+
+/**
+ * D166: SPEC-13 §4.2's content - the zone summary with totals, the zone x scheme
+ * matrix, then each zone's MoUs - as an official YSF document: landscape A4, the
+ * navy band with the logo, section bars, bordered tables whose header repeats after
+ * a page break, a running header on later pages and "Page x of y" footers.
+ */
+export function renderZoneSummaryPdf(
+  data: ZoneSummaryPdfData,
+  options: { readonly logo?: Buffer | undefined; readonly compress?: boolean } = {},
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: PDF_MARGIN, bufferPages: true });
+    const doc = new PDFDocument({
+      size: "A4",
+      layout: "landscape",
+      margins: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: BOTTOM_MARGIN },
+      bufferPages: true,
+      compress: options.compress ?? true,
+      info: { Title: SUMMARY_TITLE, Author: "YSF MoU Management System" },
+    });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
+    const generated = `Generated ${calendarDate(data.today)} by ${data.generatedBy}`;
+    doc.on("pageAdded", () => drawRunningHeader(doc, SUMMARY_TITLE, generated));
 
-    doc.fontSize(18).text("Zone Wise Summary", { underline: true });
-    doc.fontSize(10).text(`Generated ${new Date().toISOString()} by ${generatedByUsername}`);
-    doc.moveDown();
+    const { summary, matrix } = data;
+    drawBrandBand(doc, options.logo, {
+      title: SUMMARY_TITLE,
+      lines: [`${summary.length} zones · ${sum(summary, (row) => row.mous)} MoUs · ${sum(summary, (row) => row.companies)} companies`, generated],
+      reserveRight: 0,
+    });
+    doc.x = MARGIN;
+    doc.y = BAND_HEIGHT + 24;
 
-    for (const zone of summary) {
-      doc.fontSize(13).text(zone.zoneName, { underline: true });
-      doc.fontSize(10).text(
-        `Companies: ${zone.companies}  Plants: ${zone.plants}  MOUs: ${zone.mous}  Active: ${zone.active}  Expired: ${zone.expired}  New: ${zone.new}  Expiring<=90d: ${zone.expiringSoon}`,
+    sectionHeading(doc, "Zone Summary");
+    if (summary.length === 0) {
+      note(doc, "No zones in your scope.");
+    } else {
+      const figures = (row: Omit<ZoneSummaryRow, "zoneId" | "zoneName">): string[] =>
+        [row.companies, row.plants, row.mous, row.active, row.expired, row.new, row.expiringSoon].map(String);
+      table(
+        doc,
+        [
+          { header: "Zone", share: 0.23 },
+          ...["Companies", "Plants", "MoUs", "Active", "Expired", "New", "Expiring <= 90d"].map((header) => ({ header, share: 0.11 })),
+        ],
+        [
+          ...summary.map((row) => [row.zoneName, ...figures(row)]),
+          [
+            "Total",
+            ...figures({
+              companies: sum(summary, (row) => row.companies),
+              plants: sum(summary, (row) => row.plants),
+              mous: sum(summary, (row) => row.mous),
+              active: sum(summary, (row) => row.active),
+              expired: sum(summary, (row) => row.expired),
+              new: sum(summary, (row) => row.new),
+              expiringSoon: sum(summary, (row) => row.expiringSoon),
+            }),
+          ],
+        ],
       );
-      doc.moveDown(0.5);
     }
 
-    doc.addPage();
-    doc.fontSize(14).text("Scheme Matrix", { underline: true });
-    doc.fontSize(10);
-    for (const row of matrix.rows) {
-      const cells = matrix.schemes.map((s) => `${s}: ${row.counts[s] ?? 0}`).join("  ");
-      doc.text(`${row.zoneName} — ${cells}  Total: ${row.rowTotal}`);
+    sectionHeading(doc, "Scheme Matrix");
+    if (matrix.rows.length === 0) {
+      note(doc, "No MoUs to count.");
+    } else {
+      const schemeShare = 0.75 / (matrix.schemes.length + 1);
+      table(
+        doc,
+        [
+          { header: "Zone", share: 0.25 },
+          ...matrix.schemes.map((scheme) => ({ header: SCHEME_LABELS[scheme as keyof typeof SCHEME_LABELS] ?? scheme, share: schemeShare })),
+          { header: "Total", share: schemeShare },
+        ],
+        [
+          ...matrix.rows.map((row) => [row.zoneName, ...matrix.schemes.map((scheme) => String(row.counts[scheme] ?? 0)), String(row.rowTotal)]),
+          ["Total", ...matrix.schemes.map((scheme) => String(matrix.columnTotals[scheme] ?? 0)), String(matrix.grandTotal)],
+        ],
+      );
     }
 
     for (const zone of summary) {
-      const zoneMous = mousByZone.get(zone.zoneId) ?? [];
-      if (zoneMous.length === 0) {
-        continue;
-      }
-      doc.addPage();
-      doc.fontSize(14).text(`${zone.zoneName} — Companies`, { underline: true });
-      doc.fontSize(10);
-      for (const m of zoneMous) {
-        doc.text(
-          `${m.generatedCode}  ${m.companyName}  ${m.plantName ?? "—"}  ${m.scheme}  ${m.mouStartDate} → ${m.endDate}  ${MOU_STATUS_LABELS[m.status as keyof typeof MOU_STATUS_LABELS] ?? m.status}`,
-        );
-      }
+      const zoneMous = data.mous.filter((row) => row.zoneId === zone.zoneId);
+      if (zoneMous.length === 0) continue;
+      sectionHeading(doc, `${zone.zoneName} - MoUs (${zoneMous.length})`);
+      table(
+        doc,
+        [
+          { header: "MoU Code", share: 0.17 },
+          { header: "Company", share: 0.27 },
+          { header: "Plant", share: 0.15 },
+          { header: "Scheme", share: 0.08 },
+          { header: "Start", share: 0.1 },
+          { header: "End", share: 0.1 },
+          { header: "Status", share: 0.13 },
+        ],
+        zoneMous.map((row) => [
+          row.generatedCode,
+          row.companyName,
+          row.plantName ?? DASH,
+          SCHEME_LABELS[row.scheme as keyof typeof SCHEME_LABELS] ?? row.scheme,
+          calendarDate(row.mouStartDate),
+          calendarDate(row.endDate),
+          displayMouStatus(row.status, row.endDate, data.today),
+        ]),
+      );
     }
 
-    const range = doc.bufferedPageRange();
-    for (let i = 0; i < range.count; i++) {
-      doc.switchToPage(i);
-      doc.fontSize(8).text(`Page ${i + 1} of ${range.count}`, PDF_MARGIN, doc.page.height - PDF_MARGIN / 2, {
-        align: "center",
-      });
-    }
-
+    drawFooters(doc);
     doc.end();
   });
+}
+
+/** SPEC-13 section 4.2: the zone summary followed by a company listing grouped by zone, in the D166 layout. */
+export async function buildAllZonesPdfBuffer(pool: Pool, scope: ZoneScope, generatedByUsername: string): Promise<Buffer> {
+  const [summary, matrix, search, today] = await Promise.all([
+    fetchZoneSummary(pool, {}, scope),
+    fetchSchemeMatrix(pool, {}, scope),
+    searchMous(pool, scope, {}),
+    businessToday(pool),
+  ]);
+  return renderZoneSummaryPdf({ summary, matrix, mous: search.rows, today, generatedBy: generatedByUsername }, { logo: await loadYsfLogo() });
 }
 
 /** SPEC-13 section 4.3: the complete record for one company + plant, including payroll (unlike SPEC-07's Print). */
@@ -366,13 +479,13 @@ export async function buildCompanyPdfBuffer(
           doc.moveDown(0.5).fontSize(12).text("Allowances", { underline: true });
           doc.fontSize(10);
           for (const item of payroll.allowances) {
-            doc.text(`${item.label}: ${item.amount}`);
+            doc.text(`${item.label}: ${formatPayrollValue(item.valueKind, item.amount, item.isApplicable, PDF_CURRENCY)}`);
           }
 
           doc.moveDown(0.5).fontSize(12).text("Deductions", { underline: true });
           doc.fontSize(10);
           for (const item of payroll.deductions) {
-            doc.text(`${item.label}: ${item.amount}`);
+            doc.text(`${item.label}: ${formatPayrollValue(item.valueKind, item.amount, item.isApplicable, PDF_CURRENCY)}`);
           }
         }
       }

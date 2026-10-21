@@ -92,6 +92,55 @@
       "when": 1792401368703,
       "tag": "0012_spec21_drop_signup",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792502373760,
+      "tag": "0013_spec23_payroll_value_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792502633795,
+      "tag": "0014_spec23_company_document",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792506086668,
+      "tag": "0015_spec23_statutory_defaults_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792528223609,
+      "tag": "0016_d151_remove_demo_deductions",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1792530977442,
+      "tag": "0017_d153_core_commercial_charges",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792534918517,
+      "tag": "0018_d155_d158_form_alignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792534950704,
+      "tag": "0019_d155_drop_official_email",
+      "breakpoints": true
     }
   ]
 }

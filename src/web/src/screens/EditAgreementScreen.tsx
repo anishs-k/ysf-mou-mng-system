@@ -484,7 +484,6 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
               value={payroll}
               errors={payrollErrors}
               items={loaded.payrollItems}
-              itemTypes={loaded.itemTypes}
               onChange={editPayroll}
             />
           ) : (

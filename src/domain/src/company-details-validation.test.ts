@@ -33,11 +33,13 @@ const VALID: CompanyDetails = {
   district: "Pune",
   hrContactName: "Rita Sharma",
   financeHeadContactName: "Arun Verma",
-  contactType: "MOBILE",
+  contactType: "",
   hrContactNumber: "9876543210",
   financeHeadContactNumber: "9123456780",
-  officialEmail: "hr@acme.example",
-  confirmEmail: "hr@acme.example",
+  hrEmail: "hr@acme.example",
+  confirmHrEmail: "hr@acme.example",
+  financeEmail: "finance@acme.example",
+  confirmFinanceEmail: "finance@acme.example",
 };
 
 function errorsFor(overrides: Partial<CompanyDetails>) {
@@ -121,22 +123,45 @@ test("a mobile is rejected when the contact type is LAN", () => {
 
 // --- AC6: confirm email -------------------------------------------------------
 
-test("AC6 official and confirm email differing only in case are accepted", () => {
+test("AC6 an email and its confirmation differing only in case are accepted", () => {
   const errors = errorsFor({
-    officialEmail: "A@B.com",
-    confirmEmail: "a@b.com",
+    hrEmail: "A@B.com",
+    confirmHrEmail: "a@b.com",
+    financeEmail: "F@B.com",
+    confirmFinanceEmail: "f@b.com",
   });
-  assert.equal(errors.confirmEmail, undefined);
+  assert.equal(errors.confirmHrEmail, undefined);
+  assert.equal(errors.confirmFinanceEmail, undefined);
 });
 
-test("a genuinely different confirm email is rejected", () => {
-  assert.ok(
-    errorsFor({ officialEmail: "a@b.com", confirmEmail: "a@c.com" }).confirmEmail,
-  );
+test("a genuinely different confirm email is rejected, for HR and for Finance", () => {
+  const errors = errorsFor({ hrEmail: "a@b.com", confirmHrEmail: "a@c.com", financeEmail: "f@b.com", confirmFinanceEmail: "f@c.com" });
+  assert.ok(errors.confirmHrEmail);
+  assert.ok(errors.confirmFinanceEmail);
 });
 
-test("a malformed official email is rejected", () => {
-  assert.ok(errorsFor({ officialEmail: "not-an-email" }).officialEmail);
+test("a malformed HR or Finance email is rejected", () => {
+  assert.ok(errorsFor({ hrEmail: "not-an-email" }).hrEmail);
+  assert.ok(errorsFor({ financeEmail: "not-an-email" }).financeEmail);
+});
+
+test("D155 HR and Finance may share one email address", () => {
+  const errors = errorsFor({ financeEmail: "hr@acme.example", confirmFinanceEmail: "hr@acme.example" });
+  assert.equal(errors.financeEmail, undefined);
+});
+
+// --- D156: contact type is no longer asked ---------------------------------------
+
+test("D156 without a contact type a mobile or a LAN number is accepted, per number", () => {
+  const errors = errorsFor({ contactType: "", hrContactNumber: "9876543210", financeHeadContactNumber: "020-66201234" });
+  assert.equal(errors.contactType, undefined);
+  assert.equal(errors.hrContactNumber, undefined);
+  assert.equal(errors.financeHeadContactNumber, undefined);
+});
+
+test("D156 without a contact type a number that is neither is rejected", () => {
+  assert.ok(errorsFor({ contactType: "", hrContactNumber: "12ab" }).hrContactNumber);
+  assert.ok(errorsFor({ contactType: "", hrContactNumber: "66201" }).hrContactNumber);
 });
 
 // --- AC7: PIN -----------------------------------------------------------------
@@ -207,8 +232,10 @@ test("AC9 every required field left empty is reported", () => {
     "financeHeadContactName",
     "hrContactNumber",
     "financeHeadContactNumber",
-    "officialEmail",
-    "confirmEmail",
+    "hrEmail",
+    "confirmHrEmail",
+    "financeEmail",
+    "confirmFinanceEmail",
   ];
 
   const errors = validateCompanyDetails({}).errors;

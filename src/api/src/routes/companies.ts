@@ -12,13 +12,10 @@
  */
 
 import {
-  COMMERCIAL_FIXED_ITEM_KEYS,
-  COMMERCIAL_ITEM_BY_KEY,
-  PAYROLL_FIXED_ITEM_KEYS,
-  PAYROLL_ITEM_BY_KEY,
   validateCommercialDetails,
   validateCompanyDetails,
   validatePayrollDetails,
+  withStatutoryDefaults,
 } from "@mou/domain";
 import type {
   ChargeMeta,
@@ -36,8 +33,8 @@ import type { Pool } from "pg";
 
 import { requireAuth, requireSession } from "../auth/middleware.ts";
 import { OUT_OF_ZONE_MESSAGE, emptyList, requireInScope, zoneAllowed, zoneScopeOf } from "../auth/zone-scope.ts";
-import { allocateCompanyCode } from "../db/company-code-repository.ts";
 import type { Database } from "../db/client.ts";
+import { insertCompanyWithMou } from "../db/company-writer.ts";
 import {
   asArray,
   asRecord,
@@ -48,12 +45,8 @@ import {
   company,
   companyDraft,
   companyPlant,
-  commercialItem,
   mou,
   mouDocument,
-  payrollConfig,
-  payrollItem,
-  traineeCategory,
   zone,
 } from "../db/schema.ts";
 import {
@@ -116,12 +109,6 @@ function firstRow<T>(rows: T[]): T {
   return row;
 }
 
-/** An optional text field: trimmed, and blank stored as NULL. */
-function blankToNull(value: string | undefined): string | null {
-  const trimmed = (value ?? "").trim();
-  return trimmed === "" ? null : trimmed;
-}
-
 /** PostgreSQL SQLSTATE for a unique-constraint violation. */
 const UNIQUE_VIOLATION = "23505";
 
@@ -150,7 +137,7 @@ const UNIQUE_CONFLICT_MESSAGES: Readonly<Record<string, string>> = {
  * inspected, because a driver or query-builder layer may wrap the original
  * pg error rather than rethrowing it untouched.
  */
-function describeUniqueConflict(error: unknown): string | undefined {
+export function describeUniqueConflict(error: unknown): string | undefined {
   let current: unknown = error;
   for (
     let depth = 0;
@@ -643,10 +630,6 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
 
       const page1Text = (field: string): string =>
         String(page1[field] ?? "").trim();
-      const page1Optional = (field: string): string | undefined => {
-        const raw = page1Text(field);
-        return raw === "" ? undefined : raw;
-      };
 
       // SPEC-05 section 4: Page 2 must be complete and valid before a single row
       // is written, for the same reason Page 1 is validated above.
@@ -779,7 +762,8 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         scheme,
         traineeCategories,
         traineeCategoryDetails,
-        items: payrollItemAnswers,
+        // SPEC-23 D148: the wizard does not ask for PF / ESI / TDS - they save as the defaults.
+        items: withStatutoryDefaults(payrollItemAnswers),
         otherItems: payrollOtherItems,
       };
 
@@ -796,178 +780,47 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
 
       try {
         const result = await db.transaction(async (tx) => {
-          // Allocate the MOU code outside the long transaction (D7), then use it.
-          // SPEC-16 D109: the sequence is per scheme per year, not per zone per year,
-          // because the code identifies the MOU rather than the company.
-          const year = new Date().getFullYear();
-          const generatedCode = await allocateCompanyCode(pool, scheme, year);
-
-          // 1. Insert company. It no longer carries a generated code (D109); it does
-          // carry the sector (D107) and the optional purchase contact (D110).
-          const companyRow = await tx
-            .insert(company)
-            .values({
-              companyName,
-              companyType: page1Text("companyType"),
-              // Phase B adds the SPEC-16 required-field rule for sector; until then a
-              // draft without one falls back to OTHER, matching the migration's backfill.
-              sector:
-                page1Text("sector") === "" ? "OTHER" : page1Text("sector"),
-              registrationType: page1Text("registrationType"),
-              tanNumber: page1Text("tanNumber"),
-              gstNumber: page1Text("gstNumber"),
-              zoneId,
-              addressLine1: page1Text("addressLine1"),
-              addressLine2: page1Optional("addressLine2"),
-              city: page1Text("city"),
-              pinCode: page1Text("pinCode"),
-              state: page1Text("state"),
-              district: page1Text("district"),
-              hrContactName: page1Text("hrContactName"),
-              financeHeadContactName: page1Text("financeHeadContactName"),
-              contactType: page1Text("contactType"),
-              hrContactNumber: page1Text("hrContactNumber"),
-              financeHeadContactNumber: page1Text("financeHeadContactNumber"),
-              officialEmail: page1Text("officialEmail"),
-              purchaseName: page1Optional("purchaseName"),
-              purchaseNumber: page1Optional("purchaseNumber"),
-              purchaseEmail: page1Optional("purchaseEmail"),
-              createdBy: auth.userId,
-            })
-            .returning({ id: company.id });
-
-          const companyId = firstRow(companyRow).id;
-
-          // 2. Insert plant.
-          const plantName =
-            readJsonField<string>(page1, "plantName") ?? "Main Plant";
-          const plantRow = await tx
-            .insert(companyPlant)
-            .values({ companyId, plantName })
-            .returning({ id: companyPlant.id });
-          const plantId = firstRow(plantRow).id;
-
-          // 3. Insert MOU. Page 2 and Page 3 have already been validated above,
-          // so every field read here is known-good.
-          const mouRow = await tx
-            .insert(mou)
-            .values({
-              generatedCode,
-              companyId,
-              companyPlantId: plantId,
-              scheme,
-              mouStartDate: commercialDetails.mouStartDate,
-              tenureValue: Number(commercialDetails.tenureValue),
-              tenureUnit: commercialDetails.tenureUnit,
-              attendanceCycle: commercialDetails.attendanceCycle,
-              stipendDate: Number(commercialDetails.stipendDate),
-            })
-            .returning({ id: mou.id });
-          const mouId = firstRow(mouRow).id;
-
-          // 4. Insert commercial items — one row per entered charge (a blank
-          // fixed charge gets no row at all; SPEC-05 section 2.2), derived here
-          // rather than trusting a client-supplied item list, so itemType for a
-          // fixed key always matches the SPEC-01 catalogue.
-          const commercialItemRows: (typeof commercialItem.$inferInsert)[] = [];
-          for (const key of COMMERCIAL_FIXED_ITEM_KEYS) {
-            const raw = (charges[key] ?? "").trim();
-            if (raw === "") {
-              continue;
-            }
-            commercialItemRows.push({
-              mouId,
-              itemKey: key,
-              amount: raw,
-              itemType: COMMERCIAL_ITEM_BY_KEY[key].itemType ?? "DEDUCTION",
-              period: blankToNull(chargeMeta[key]?.period),
-              basis: blankToNull(chargeMeta[key]?.basis),
-            });
-          }
-          for (const row of otherItems) {
-            const label = row.label.trim();
-            const amount = row.amount.trim();
-            const itemType = row.itemType.trim();
-            if (label === "" && amount === "" && itemType === "") {
-              // AC7: a fully empty Other row is ignored, nothing to persist.
-              continue;
-            }
-            commercialItemRows.push({
-              mouId,
-              itemKey: "OTHER",
-              customLabel: label,
-              amount,
-              itemType,
-            });
-          }
-          if (commercialItemRows.length > 0) {
-            await tx.insert(commercialItem).values(commercialItemRows);
-          }
-
-          // 5. Insert payroll config.
-          const configRow = await tx
-            .insert(payrollConfig)
-            .values({ mouId })
-            .returning({ id: payrollConfig.id });
-          const configId = firstRow(configRow).id;
-
-          // 6. Insert trainee categories - already validated above (AC5/AC6:
-          // at least one, unique case-insensitively), each with its optional
-          // details matched by name.
-          const detailByName = new Map(
-            traineeCategoryDetails.map((detail) => [
-              detail.categoryName.trim().toLowerCase(),
-              detail,
-            ]),
+          // Steps 1-7 (company, plant, MOU, commercial items, payroll config,
+          // trainee categories, payroll items) are shared with SPEC-22's bulk
+          // upload, so both write exactly the same rows.
+          const { companyId, mouId, generatedCode } = await insertCompanyWithMou(
+            tx,
+            pool,
+            {
+              company: {
+                companyName,
+                companyType: page1Text("companyType"),
+                registrationType: page1Text("registrationType"),
+                tanNumber: page1Text("tanNumber"),
+                gstNumber: page1Text("gstNumber"),
+                addressLine1: page1Text("addressLine1"),
+                addressLine2: page1Text("addressLine2"),
+                city: page1Text("city"),
+                pinCode: page1Text("pinCode"),
+                state: page1Text("state"),
+                district: page1Text("district"),
+                hrContactName: page1Text("hrContactName"),
+                financeHeadContactName: page1Text("financeHeadContactName"),
+                contactType: page1Text("contactType"),
+                hrContactNumber: page1Text("hrContactNumber"),
+                financeHeadContactNumber: page1Text("financeHeadContactNumber"),
+                hrEmail: page1Text("hrEmail"),
+                confirmHrEmail: page1Text("confirmHrEmail"),
+                financeEmail: page1Text("financeEmail"),
+                confirmFinanceEmail: page1Text("confirmFinanceEmail"),
+                zoneId,
+                plantName:
+                  readJsonField<string>(page1, "plantName") ?? "Main Plant",
+              },
+              sector: page1Text("sector"),
+              purchaseName: page1Text("purchaseName"),
+              purchaseNumber: page1Text("purchaseNumber"),
+              purchaseEmail: page1Text("purchaseEmail"),
+              commercial: commercialDetails,
+              payroll: payrollDetails,
+            },
+            auth.userId,
           );
-          await tx.insert(traineeCategory).values(
-            traineeCategories.map((categoryName) => {
-              const detail = detailByName.get(categoryName.trim().toLowerCase());
-              return {
-                payrollConfigId: configId,
-                categoryName: categoryName.trim(),
-                qualification: blankToNull(detail?.qualification),
-                stipendRate: blankToNull(detail?.stipendRate),
-              };
-            }),
-          );
-
-          // 7. Insert payroll items - exactly one row per fixed key, always
-          // (SPEC-06 section 3.3), unlike commercial_item's blank-means-no-row
-          // (SPEC-05 D31): every one of the 22 items has already been confirmed
-          // Yes or No by validatePayrollDetails, and itemType is taken from the
-          // catalogue rather than trusted from the client. Plus one row per
-          // non-blank Other row.
-          const payrollItemRows: (typeof payrollItem.$inferInsert)[] = [];
-          for (const key of PAYROLL_FIXED_ITEM_KEYS) {
-            const answer = payrollItemAnswers[key];
-            const isApplicable = answer?.isApplicable ?? false;
-            payrollItemRows.push({
-              payrollConfigId: configId,
-              itemKey: key,
-              isApplicable,
-              amount: isApplicable ? answer?.amount.trim() : undefined,
-              itemType: PAYROLL_ITEM_BY_KEY[key].itemType ?? "ALLOWANCE",
-            });
-          }
-          for (const row of payrollOtherItems) {
-            const label = row.label.trim();
-            const amount = row.amount.trim();
-            const itemType = row.itemType.trim();
-            if (label === "" && amount === "" && itemType === "") {
-              // A fully empty Other row is ignored, nothing to persist.
-              continue;
-            }
-            payrollItemRows.push({
-              payrollConfigId: configId,
-              itemKey: "OTHER",
-              customLabel: label,
-              isApplicable: true,
-              amount,
-              itemType,
-            });
-          }
-          await tx.insert(payrollItem).values(payrollItemRows);
 
           // 8. Promote the temp MOU PDF to permanent storage and record it.
           // Done as late as possible in the transaction: a physical file move

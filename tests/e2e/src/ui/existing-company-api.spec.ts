@@ -102,7 +102,8 @@ test("the record view reads overview, commercial, payroll, history and documents
     tanNumber: string;
     gstNumber: string;
     zoneName: string;
-    officialEmail: string;
+    hrEmail: string;
+    financeEmail: string;
     city: string;
   };
 
@@ -118,7 +119,8 @@ test("the record view reads overview, commercial, payroll, history and documents
     overview.tanNumber,
     overview.gstNumber,
     overview.zoneName,
-    overview.officialEmail,
+    overview.hrEmail,
+    overview.financeEmail,
     overview.city,
     fixture.hrContactName,
     fixture.plantName,

@@ -15,39 +15,31 @@
  *
  * INSURANCE is the only key that carries the insurance sub-model of D108, so its key
  * is exported for the schema's CHECK constraint to reference.
+ *
+ * SPEC-23 (D142, D143) appends PF, ESI and TDS - 26 fixed keys, 27 entries - and
+ * gives every item a value kind: what its stored answer means. PF and ESI hold a
+ * percentage in `amount`, TDS holds only its Yes / No (As / Not applicable), and
+ * every other item a rupee amount. The kind belongs to the item, so it lives here
+ * rather than in a column, and the percent / status key lists feed the schema CHECKs.
+ *
+ * D151 removes the 10 demo deductions (Advance, Canteen, Course Registration Fee,
+ * Document Fee, Exam Fee, Insurance Deduction, Left, Shoes, Transportation, Uniform):
+ * 16 fixed keys, 17 entries. Migration 0016 deletes their rows.
+ *
+ * D158 removes the remaining 13 allowance / deduction items, and with INSURANCE the
+ * D108 insurance sub-model: payroll is now only PF, ESI and TDS, which the server
+ * fills with their defaults. OTHER stays as a key so the database CHECKs keep their
+ * shape, but no screen or upload writes an Other payroll row any more.
  */
 
 import type { ItemType } from "./enums.ts";
 
 const OTHER_ITEM_KEY = "OTHER";
 
-/** The one key allowed to carry insurance_type and its two amounts (D108). */
-export const INSURANCE_ITEM_KEY = "INSURANCE";
-
 export const PAYROLL_ITEM_KEYS = [
-  "ATTENDANCE_BONUS",
-  "ACCOMMODATION_ALLOWANCE",
-  "CONVEYANCE",
-  "HRA",
-  "BONUS",
-  "NIGHT_SHIFT_ALLOWANCE",
-  "EDUCATION_ALLOWANCE",
-  "INSURANCE",
-  "ADMISSION_DEDUCTION",
-  "ADVANCE",
-  "CANTEEN_DEDUCTION",
-  "COUPON_AMOUNT",
-  "COURSE_REGISTRATION_FEE",
-  "DOCUMENT_FEE",
-  "EDUCATION_FEE",
-  "EXAM_FEE",
-  "INSURANCE_DEDUCTION",
-  "JOINING_FEE_DEDUCTION",
-  "LEFT_DEDUCTION",
-  "SHOES_DEDUCTION",
-  "SKILL_DIPLOMA_FEES",
-  "TRANSPORTATION_DEDUCTION",
-  "UNIFORM_DEDUCTION",
+  "PF",
+  "ESI",
+  "TDS",
   "OTHER",
 ] as const;
 
@@ -55,81 +47,45 @@ export type PayrollItemKey = (typeof PAYROLL_ITEM_KEYS)[number];
 
 export type FixedPayrollItemKey = Exclude<PayrollItemKey, typeof OTHER_ITEM_KEY>;
 
+/** What a stored answer means (D143): rupees, a percentage of the stipend, or a status only. */
+export type PayrollValueKind = "AMOUNT" | "PERCENT" | "STATUS";
+
+/** SPEC-23 D142: PF and ESI are a percentage of the stipend, stored in `amount`. */
+export const PERCENT_ITEM_KEYS = ["PF", "ESI"] as const satisfies readonly PayrollItemKey[];
+
+/** SPEC-23 D143: TDS is As applicable / Not applicable only - `amount` stays NULL. */
+export const STATUS_ITEM_KEYS = ["TDS"] as const satisfies readonly PayrollItemKey[];
+
+/** SPEC-23 D144: the statutory deductions every payroll view lists, answered or not. */
+export const STATUTORY_ITEM_KEYS = [...PERCENT_ITEM_KEYS, ...STATUS_ITEM_KEYS] as const;
+
 export interface PayrollItemDefinition {
   readonly key: PayrollItemKey;
   readonly label: string;
+  readonly valueKind: PayrollValueKind;
   /** The section 2.6 item type, or null for "Other" where the user selects one. */
   readonly itemType: ItemType | null;
   /** The `#` column of section 2.6 - served to the UI so it never hardcodes order. */
   readonly displayOrder: number;
 }
 
-export const PAYROLL_ITEMS: readonly PayrollItemDefinition[] = [
-  { key: "ATTENDANCE_BONUS", label: "Attendance Bonus", itemType: "ALLOWANCE", displayOrder: 1 },
-  {
-    key: "ACCOMMODATION_ALLOWANCE",
-    label: "Accommodation Allowance",
-    itemType: "ALLOWANCE",
-    displayOrder: 2,
-  },
-  { key: "CONVEYANCE", label: "Conveyance", itemType: "ALLOWANCE", displayOrder: 3 },
-  { key: "HRA", label: "HRA", itemType: "ALLOWANCE", displayOrder: 4 },
-  { key: "BONUS", label: "Bonus", itemType: "ALLOWANCE", displayOrder: 5 },
-  {
-    key: "NIGHT_SHIFT_ALLOWANCE",
-    label: "Night Shift Allowance",
-    itemType: "ALLOWANCE",
-    displayOrder: 6,
-  },
-  {
-    key: "EDUCATION_ALLOWANCE",
-    label: "Education Allowance",
-    itemType: "ALLOWANCE",
-    displayOrder: 7,
-  },
-  { key: "INSURANCE", label: "Insurance", itemType: "ALLOWANCE", displayOrder: 8 },
-  {
-    key: "ADMISSION_DEDUCTION",
-    label: "Admission Deduction",
-    itemType: "DEDUCTION",
-    displayOrder: 9,
-  },
-  { key: "ADVANCE", label: "Advance", itemType: "DEDUCTION", displayOrder: 10 },
-  { key: "CANTEEN_DEDUCTION", label: "Canteen Deduction", itemType: "DEDUCTION", displayOrder: 11 },
-  { key: "COUPON_AMOUNT", label: "Coupon Amount", itemType: "DEDUCTION", displayOrder: 12 },
-  {
-    key: "COURSE_REGISTRATION_FEE",
-    label: "Course Registration Fee",
-    itemType: "DEDUCTION",
-    displayOrder: 13,
-  },
-  { key: "DOCUMENT_FEE", label: "Document Fee", itemType: "DEDUCTION", displayOrder: 14 },
-  { key: "EDUCATION_FEE", label: "Education Fee", itemType: "DEDUCTION", displayOrder: 15 },
-  { key: "EXAM_FEE", label: "Exam Fee", itemType: "DEDUCTION", displayOrder: 16 },
-  { key: "INSURANCE_DEDUCTION", label: "Insurance Deduction", itemType: "DEDUCTION", displayOrder: 17 },
-  {
-    key: "JOINING_FEE_DEDUCTION",
-    label: "Joining Fee Deduction",
-    itemType: "DEDUCTION",
-    displayOrder: 18,
-  },
-  { key: "LEFT_DEDUCTION", label: "Left Deduction", itemType: "DEDUCTION", displayOrder: 19 },
-  { key: "SHOES_DEDUCTION", label: "Shoes Deduction", itemType: "DEDUCTION", displayOrder: 20 },
-  {
-    key: "SKILL_DIPLOMA_FEES",
-    label: "Skill Diploma Fees",
-    itemType: "DEDUCTION",
-    displayOrder: 21,
-  },
-  {
-    key: "TRANSPORTATION_DEDUCTION",
-    label: "Transportation Deduction",
-    itemType: "DEDUCTION",
-    displayOrder: 22,
-  },
-  { key: "UNIFORM_DEDUCTION", label: "Uniform Deduction", itemType: "DEDUCTION", displayOrder: 23 },
-  { key: "OTHER", label: "Other", itemType: null, displayOrder: 24 },
+const CATALOGUE: readonly Omit<PayrollItemDefinition, "valueKind">[] = [
+  { key: "PF", label: "Provident Fund (PF)", itemType: "DEDUCTION", displayOrder: 1 },
+  { key: "ESI", label: "ESI", itemType: "DEDUCTION", displayOrder: 2 },
+  { key: "TDS", label: "TDS", itemType: "DEDUCTION", displayOrder: 3 },
+  { key: "OTHER", label: "Other", itemType: null, displayOrder: 4 },
 ];
+
+function valueKindOf(key: PayrollItemKey): PayrollValueKind {
+  if ((PERCENT_ITEM_KEYS as readonly string[]).includes(key)) return "PERCENT";
+  if ((STATUS_ITEM_KEYS as readonly string[]).includes(key)) return "STATUS";
+  return "AMOUNT";
+}
+
+export const PAYROLL_ITEMS: readonly PayrollItemDefinition[] = CATALOGUE.map((item) => ({
+  ...item,
+  valueKind: valueKindOf(item.key),
+}));
 
 export const PAYROLL_ITEM_BY_KEY: Readonly<Record<PayrollItemKey, PayrollItemDefinition>> =
   Object.fromEntries(PAYROLL_ITEMS.map((item) => [item.key, item])) as Readonly<

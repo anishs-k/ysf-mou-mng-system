@@ -1,20 +1,17 @@
 /**
  * Purpose: Wizard step 3 - one card per trainee category (name, qualification,
- * stipend rate; at least one, names unique), then the Fixed Payroll Items: every
- * fixed item of /api/enums payrollItems, grouped into allowances and deductions,
- * answered with a compact Yes/No toggle and an amount when Yes, plus repeatable
- * "Other" payroll rows with their own label and Allowance/Deduction type.
+ * stipend rate; at least one, names unique). D158: the step asks nothing else -
+ * no fixed payroll items and no Other payroll rows; the server saves PF, ESI and
+ * TDS with their statutory defaults (D148), and Edit Agreement is where they change.
  */
 
 import type { ChangeEvent } from "react";
 
-import type { PayrollItemOption } from "../../api/client.ts";
-import { SelectInput, TextInput } from "../../ui/form.tsx";
 import { Icon } from "../../ui/Icon.tsx";
-import { Card, SectionTitle } from "../../ui/primitives.tsx";
-import { ErrorText, HiddenLabel, ToggleGroup } from "./fields.tsx";
-import type { CategoryCard, OtherRow, PayrollAnswer, WizardReference } from "./formState.ts";
-import { blankCategory, blankOtherRow } from "./formState.ts";
+import { Card } from "../../ui/primitives.tsx";
+import { ErrorText } from "./fields.tsx";
+import type { CategoryCard } from "./formState.ts";
+import { blankCategory } from "./formState.ts";
 import type { PayrollValidation } from "./validation.ts";
 import { invalidBorder } from "./validation.ts";
 
@@ -27,92 +24,16 @@ const CATEGORY_FIELDS = [
   { field: "stipendRate", label: "Stipend Rate (₹)", placeholder: "e.g. 8000", type: "number", required: false },
 ] as const;
 
-const YES_NO = [
-  { value: "yes", label: "Yes" },
-  { value: "no", label: "No" },
-] as const;
-
-const yesNoLook = (value: string): string =>
-  value === "yes" ? "bg-[#39B54A] border-[#39B54A] text-white" : "bg-[#5A7AA8] border-[#5A7AA8] text-white";
-
 interface PayrollStepProps {
   readonly categories: readonly CategoryCard[];
   readonly onCategoriesChange: (cards: readonly CategoryCard[]) => void;
-  readonly answers: Readonly<Record<string, PayrollAnswer>>;
-  readonly onAnswersChange: (answers: Readonly<Record<string, PayrollAnswer>>) => void;
-  readonly otherRows: readonly OtherRow[];
-  readonly onOtherRowsChange: (rows: readonly OtherRow[]) => void;
   /** Empty until Save & Continue has been pressed once. */
   readonly errors: PayrollValidation;
-  readonly reference: WizardReference;
 }
 
-function PayrollItemRow({
-  item,
-  answer,
-  error,
-  onChange,
-}: {
-  readonly item: PayrollItemOption;
-  readonly answer: PayrollAnswer | undefined;
-  readonly error: string | undefined;
-  readonly onChange: (answer: PayrollAnswer) => void;
-}) {
-  const choice = answer?.isApplicable === undefined ? "" : answer.isApplicable ? "yes" : "no";
-  const amountId = `payroll-${item.key}-amount`;
-  return (
-    <div className="py-2 border-b border-border last:border-b-0">
-      <div className="flex items-center gap-3">
-        <p className="flex-1 min-w-0 text-sm font-medium text-foreground">{item.label}</p>
-        {answer?.isApplicable === true && (
-          <div className="w-28 shrink-0">
-            <HiddenLabel htmlFor={amountId}>{`${item.label} amount`}</HiddenLabel>
-            <TextInput
-              id={amountId}
-              type="number"
-              placeholder="₹"
-              value={answer.amount}
-              onChange={(amount) => onChange({ isApplicable: true, amount })}
-              className={`w-full h-8! ${invalidBorder(error)}`}
-            />
-          </div>
-        )}
-        <ToggleGroup
-          name={item.label}
-          options={YES_NO}
-          value={choice}
-          size="sm"
-          activeClass={yesNoLook}
-          onChange={(value) => onChange({ isApplicable: value === "yes", amount: answer?.amount ?? "" })}
-        />
-      </div>
-      <ErrorText message={error} />
-    </div>
-  );
-}
-
-export function PayrollStep({
-  categories,
-  onCategoriesChange,
-  answers,
-  onAnswersChange,
-  otherRows,
-  onOtherRowsChange,
-  errors,
-  reference,
-}: PayrollStepProps) {
-  const { enums } = reference;
-  const fixedItems = enums.payrollItems.filter((item) => item.itemType !== null);
-  const answered = fixedItems.filter((item) => answers[item.key]?.isApplicable !== undefined).length;
-  const groups = [
-    { title: "Allowances", items: fixedItems.filter((item) => item.itemType === "ALLOWANCE") },
-    { title: "Deductions", items: fixedItems.filter((item) => item.itemType === "DEDUCTION") },
-  ];
-
+export function PayrollStep({ categories, onCategoriesChange, errors }: PayrollStepProps) {
   const updateCard = (id: number, patch: Partial<CategoryCard>) =>
     onCategoriesChange(categories.map((card) => (card.id === id ? { ...card, ...patch } : card)));
-  const updateOther = (id: number, patch: Partial<OtherRow>) =>
-    onOtherRowsChange(otherRows.map((row) => (row.id === id ? { ...row, ...patch } : row)));
 
   return (
     <div className="space-y-5">
@@ -170,95 +91,6 @@ export function PayrollStep({
         <Icon name="plus" className="w-4 h-4" strokeWidth={2.2} />
         Add New Category
       </button>
-
-      <Card className="p-6">
-        <SectionTitle>Fixed Payroll Items</SectionTitle>
-        <p className="text-xs text-muted-foreground -mt-2 mb-4">
-          Answer Yes or No for every item and enter the amount when Yes · {answered} of {fixedItems.length} answered
-        </p>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
-          {groups.map((group) => (
-            <div key={group.title}>
-              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">{group.title}</p>
-              {group.items.map((item) => (
-                <PayrollItemRow
-                  key={item.key}
-                  item={item}
-                  answer={answers[item.key]}
-                  error={errors.items[item.key]}
-                  onChange={(answer) => onAnswersChange({ ...answers, [item.key]: answer })}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="p-6">
-        <SectionTitle>Other Payroll Items</SectionTitle>
-        <div className="space-y-3">
-          {otherRows.map((row, index) => {
-            const n = index + 1;
-            const rowErrors = errors.other[row.id] ?? {};
-            return (
-              <div key={row.id} className="space-y-1">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-start">
-                  <div>
-                    <HiddenLabel htmlFor={`payroll-other-${row.id}-label`}>{`Other item name ${n}`}</HiddenLabel>
-                    <TextInput
-                      id={`payroll-other-${row.id}-label`}
-                      placeholder="Item name"
-                      value={row.label}
-                      onChange={(label) => updateOther(row.id, { label })}
-                      className={`w-full ${invalidBorder(rowErrors.label)}`}
-                    />
-                  </div>
-                  <div>
-                    <HiddenLabel htmlFor={`payroll-other-${row.id}-amount`}>{`Other item amount ${n}`}</HiddenLabel>
-                    <TextInput
-                      id={`payroll-other-${row.id}-amount`}
-                      type="number"
-                      placeholder="Amount (₹)"
-                      value={row.amount}
-                      onChange={(amount) => updateOther(row.id, { amount })}
-                      className={`w-full ${invalidBorder(rowErrors.amount)}`}
-                    />
-                  </div>
-                  <div>
-                    <HiddenLabel htmlFor={`payroll-other-${row.id}-type`}>{`Other item type ${n}`}</HiddenLabel>
-                    <SelectInput
-                      id={`payroll-other-${row.id}-type`}
-                      options={enums.itemTypes}
-                      value={row.itemType}
-                      placeholder="Allowance / Deduction…"
-                      onChange={(itemType) => updateOther(row.id, { itemType })}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onOtherRowsChange(otherRows.filter((other) => other.id !== row.id))}
-                    className="h-10 text-muted-foreground hover:text-red-500 transition-colors flex items-center gap-1 text-xs font-semibold"
-                  >
-                    <Icon name="close" className="w-4 h-4" strokeWidth={2} />
-                    Remove
-                  </button>
-                </div>
-                <ErrorText
-                  message={[rowErrors.label, rowErrors.amount, rowErrors.itemType].filter((message) => message !== undefined).join(" · ") || undefined}
-                />
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => onOtherRowsChange([...otherRows, blankOtherRow()])}
-            className="inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg bg-secondary text-primary border-border hover:bg-blue-100 px-3 py-1.5 text-xs"
-          >
-            <Icon name="plus" className="w-4 h-4" strokeWidth={2.2} />
-            Add Other Item
-          </button>
-        </div>
-      </Card>
     </div>
   );
 }

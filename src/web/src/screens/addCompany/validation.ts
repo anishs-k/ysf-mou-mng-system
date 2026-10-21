@@ -7,7 +7,7 @@
  * purchase email, a charge row without a head) the design adds.
  */
 
-import { validateCommercialDetails, validateCompanyDetails, validatePayrollDetails } from "@mou/domain";
+import { validateCommercialDetails, validateCompanyDetails, validatePayrollDetails, withStatutoryDefaults } from "@mou/domain";
 
 import { todayIso } from "../../ui/format.ts";
 import type { CompanyForm, WizardForm } from "./formState.ts";
@@ -40,7 +40,7 @@ export type ChargeRowErrors = Partial<Record<"head" | "amount" | "period" | "bas
 
 export interface CommercialValidation {
   readonly fields: Partial<
-    Record<"mouStartDate" | "tenureValue" | "tenureUnit" | "attendanceCycle" | "stipendDate" | "mouDocument", string>
+    Record<"mouStartDate" | "tenureValue" | "attendanceCycle" | "stipendDate" | "mouDocument", string>
   >;
   /** Keyed by charge row id. */
   readonly rows: Readonly<Record<number, ChargeRowErrors>>;
@@ -79,8 +79,7 @@ export function validateCommercialStep(form: WizardForm): CommercialValidation {
   return {
     fields: {
       mouStartDate: errors.mouStartDate,
-      tenureValue: errors.tenureValue,
-      tenureUnit: errors.tenureUnit,
+      tenureValue: errors.tenureValue ?? errors.tenureUnit,
       attendanceCycle: errors.attendanceCycle,
       stipendDate: errors.stipendDate,
       mouDocument: errors.mouDocument,
@@ -91,20 +90,17 @@ export function validateCommercialStep(form: WizardForm): CommercialValidation {
 }
 
 export type CategoryErrors = Partial<Record<"name" | "qualification" | "stipendRate", string>>;
-export type OtherRowErrors = Partial<Record<"label" | "amount" | "itemType", string>>;
 
 export interface PayrollValidation {
   readonly categories: string | undefined;
   /** Keyed by category card id. */
   readonly cards: Readonly<Record<number, CategoryErrors>>;
-  /** Keyed by fixed payroll item key. */
-  readonly items: Readonly<Record<string, string>>;
-  /** Keyed by Other row id. */
-  readonly other: Readonly<Record<number, OtherRowErrors>>;
 }
 
 export function validatePayrollStep(form: WizardForm): PayrollValidation {
-  const { errors } = validatePayrollDetails(toPage3(form));
+  // D148 / D158: the wizard asks no payroll item; the server saves the PF / ESI / TDS defaults.
+  const page3 = toPage3(form);
+  const { errors } = validatePayrollDetails({ ...page3, items: withStatutoryDefaults(page3.items) });
   const cards: Record<number, CategoryErrors> = {};
   form.categories.forEach((card, index) => {
     const nameError = errors.traineeCategoryRows?.[index];
@@ -116,12 +112,7 @@ export function validatePayrollStep(form: WizardForm): PayrollValidation {
       cards[card.id] = { ...cards[card.id], qualification: detail.qualification, stipendRate: detail.stipendRate };
     }
   });
-  const other: Record<number, OtherRowErrors> = {};
-  form.payrollOther.forEach((row, index) => {
-    const rowErrors = errors.otherItems?.[index];
-    if (rowErrors !== undefined) other[row.id] = { ...rowErrors };
-  });
-  return { categories: errors.traineeCategories, cards, items: errors.items ?? {}, other };
+  return { categories: errors.traineeCategories, cards };
 }
 
 /** Appended to TextInput's classes so an invalid field's border turns red. */

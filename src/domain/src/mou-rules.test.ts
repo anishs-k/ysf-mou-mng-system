@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computeEndDate, deriveStatus } from "./mou-rules.ts";
+import { EXPIRING_SOON_DAYS, computeEndDate, deriveStatus, displayMouStatus } from "./mou-rules.ts";
 
 test("AC1 computeEndDate: 12 months from 2026-01-01 ends 2026-12-31", () => {
   assert.equal(computeEndDate("2026-01-01", 12, "MONTHS"), "2026-12-31");
@@ -65,4 +65,34 @@ test("deriveStatus: a single-day term is ACTIVE on its only day", () => {
 
 test("deriveStatus: rejects malformed dates", () => {
   assert.throws(() => deriveStatus("2026-01-01", "2026-12-31", "today"), RangeError);
+});
+
+// --- SPEC-23 D146: the display status, shared by the web app and the record PDF ---
+
+test("SPEC-23 an active MoU ending within 90 days displays as Expiring", () => {
+  assert.equal(EXPIRING_SOON_DAYS, 90);
+  assert.equal(displayMouStatus("ACTIVE", "2026-11-19", "2026-10-20"), "Expiring");
+  assert.equal(displayMouStatus("ACTIVE", "2026-10-20", "2026-10-20"), "Expiring", "ends today");
+  assert.equal(displayMouStatus("ACTIVE", "2027-01-18", "2026-10-20"), "Expiring", "exactly 90 days");
+});
+
+test("SPEC-23 an active MoU ending in more than 90 days displays as Active", () => {
+  assert.equal(displayMouStatus("ACTIVE", "2027-01-19", "2026-10-20"), "Active");
+});
+
+test("SPEC-23 expired and new MoUs display their own label, whatever the end date", () => {
+  assert.equal(displayMouStatus("EXPIRED", "2026-10-01", "2026-10-20"), "Expired");
+  assert.equal(displayMouStatus("NEW", "2026-11-01", "2026-10-20"), "New");
+});
+
+test("SPEC-23 an unknown status code passes through unchanged", () => {
+  assert.equal(displayMouStatus("Archived", "2026-11-01", "2026-10-20"), "Archived");
+});
+
+test("SPEC-23 a status already given as its label is treated the same as the code", () => {
+  assert.equal(displayMouStatus("Active", "2026-11-19", "2026-10-20"), "Expiring");
+});
+
+test("SPEC-23 an unreadable end date shows the plain label instead of throwing", () => {
+  assert.equal(displayMouStatus("ACTIVE", "", "2026-10-20"), "Active");
 });

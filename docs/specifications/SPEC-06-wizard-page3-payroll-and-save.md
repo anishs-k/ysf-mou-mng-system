@@ -4,6 +4,8 @@
 **Completes:** the Add New Company flow.
 **Source:** `docs/project_information.md` §4.3, §8.11, §10.3
 
+> **Amended 2026-10-21 by SPEC-25 (D158: the Payroll step holds only trainee categories; payroll is PF / ESI / TDS with their D148 defaults, and Other payroll rows are refused).**
+
 ---
 
 ## 1. Scope

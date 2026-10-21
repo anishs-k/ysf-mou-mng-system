@@ -43,6 +43,9 @@ COPY --from=build /app/src/api/dist src/api/dist
 # drizzle/ holds the generated SQL migrations - runMigrations() (db/migrate.ts)
 # resolves this folder relative to its own compiled location at runtime.
 COPY src/api/drizzle src/api/drizzle
+# assets/ holds the YSF logo the SPEC-23 record PDF embeds - resolved the same
+# way, relative to db/company-record-pdf's compiled location.
+COPY src/api/assets src/api/assets
 COPY src/api/package.json src/api/package.json
 COPY src/api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

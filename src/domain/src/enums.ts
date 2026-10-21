@@ -339,23 +339,17 @@ export const COMMERCIAL_BASIS_LABELS: Readonly<Record<CommercialBasis, string>> 
 
 export const COMMERCIAL_BASIS_OPTIONS = toOptions(COMMERCIAL_BASES, COMMERCIAL_BASIS_LABELS);
 
-/**
- * SPEC-16 D108. The insurance sub-model carried only by the INSURANCE payroll
- * item. TOPUP and BOTH require the GFS amount; RECOVERY and BOTH require the MOU
- * amount; BOTH requires both. The database CHECK enforces that a non-INSURANCE
- * row never carries any of the three columns.
- */
-export const INSURANCE_TYPES = ["TOPUP", "RECOVERY", "BOTH"] as const;
+/** SPEC-23 D145: the company-level documents `company_document.document_type` accepts. */
+export const COMPANY_DOCUMENT_TYPES = ["GST_CERTIFICATE", "REGISTRATION_CERTIFICATE"] as const;
 
-export type InsuranceType = (typeof INSURANCE_TYPES)[number];
+export type CompanyDocumentType = (typeof COMPANY_DOCUMENT_TYPES)[number];
 
-export const INSURANCE_TYPE_LABELS: Readonly<Record<InsuranceType, string>> = {
-  TOPUP: "Top Up (GFS)",
-  RECOVERY: "Recovery (MoU)",
-  BOTH: "Both",
+export const COMPANY_DOCUMENT_TYPE_LABELS: Readonly<Record<CompanyDocumentType, string>> = {
+  GST_CERTIFICATE: "GST Certificate",
+  REGISTRATION_CERTIFICATE: "Registration Certificate",
 };
 
-export const INSURANCE_TYPE_OPTIONS = toOptions(INSURANCE_TYPES, INSURANCE_TYPE_LABELS);
+export const COMPANY_DOCUMENT_TYPE_OPTIONS = toOptions(COMPANY_DOCUMENT_TYPES, COMPANY_DOCUMENT_TYPE_LABELS);
 
 /**
  * Every list in one object, keyed for the /api/enums response so no route has to
@@ -374,5 +368,4 @@ export const ENUM_SETS = {
   sectors: SECTOR_OPTIONS,
   commercialPeriods: COMMERCIAL_PERIOD_OPTIONS,
   commercialBases: COMMERCIAL_BASIS_OPTIONS,
-  insuranceTypes: INSURANCE_TYPE_OPTIONS,
 } as const;

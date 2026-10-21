@@ -4,16 +4,18 @@
  * server page at a time with a pager, and the record view (existingCompany/
  * CompanyRecord.tsx) that opens from a row, its View button, or a
  * ?zoneId=&companyId= deep link (which opens the company's newest active MoU).
+ * SPEC-24: Export PDF downloads every record the current filters select as one PDF.
  */
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { fetchCompanyAgreements, fetchSearch } from "../api/client.ts";
+import { downloadRecordsPdf, fetchCompanyAgreements, fetchSearch } from "../api/client.ts";
 import type { SearchFilters, SearchResponse } from "../api/client.ts";
 import { SCHEME_FILTER_OPTIONS, STATUS_FILTER_OPTIONS, useZoneOptions } from "../hooks/useSearchFilterOptions.ts";
 import { Field, SelectInput } from "../ui/form.tsx";
 import { PENDING_FIGURE, displayStatus, formatCalendarDate, schemeLabel } from "../ui/format.ts";
+import { saveBlob } from "../ui/download.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Pager } from "../ui/Pager.tsx";
@@ -26,6 +28,8 @@ const COLUMNS = ["Company", "MoU Code", "Zone", "Plant", "Scheme", "Expires", "S
 const TH_CLASS = "px-4 py-2.5 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide";
 const GHOST_BUTTON =
   "inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg bg-transparent text-muted-foreground border-transparent hover:bg-muted hover:text-foreground px-3 py-1.5 text-xs  ";
+const EXPORT_BUTTON =
+  "inline-flex items-center justify-center gap-2 h-10 px-4 font-semibold transition-all duration-150 border select-none rounded-lg bg-secondary text-primary border-border text-xs hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer";
 
 /** The API rejects a shorter company query; typing pauses this long before searching. */
 const MIN_QUERY_LENGTH = 2;
@@ -56,6 +60,8 @@ export function ExistingCompaniesScreen() {
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loadError, setLoadError] = useState("");
   const [selected, setSelected] = useState<RecordSelection | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   // ?zoneId=&companyId= (from other screens) opens that company's newest active MoU.
   const linkedCompanyId = searchParams.get("companyId") ?? "";
@@ -109,6 +115,15 @@ export function ExistingCompaniesScreen() {
     setQuery("");
     setPage(1);
   };
+  // SPEC-24: the same filters the table shows, so the PDF holds exactly the listed records.
+  const exportPdf = () => {
+    setExporting(true);
+    setExportError("");
+    downloadRecordsPdf(toSearchFilters(filters, debouncedQuery))
+      .then(({ blob, filename }) => saveBlob(blob, filename))
+      .catch((reason: unknown) => setExportError(reason instanceof Error ? reason.message : "Export failed."))
+      .finally(() => setExporting(false));
+  };
   const closeRecord = () => {
     setSelected(null);
     if (linkedCompanyId !== "") setSearchParams({}, { replace: true });
@@ -123,6 +138,11 @@ export function ExistingCompaniesScreen() {
       subtitle="Search, view and manage MoU company records"
       contentClassName="p-4 md:p-6 space-y-4 md:space-y-5"
     >
+      {exportError !== "" && (
+        <div role="alert" className="rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]">
+          {exportError}
+        </div>
+      )}
       {loadError !== "" && (
         <div role="alert" className="rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]">
           {loadError}
@@ -154,6 +174,20 @@ export function ExistingCompaniesScreen() {
             </Field>
             <button type="button" onClick={clear} className={GHOST_BUTTON}>
               Clear
+            </button>
+            <button
+              type="button"
+              onClick={exportPdf}
+              disabled={exporting || result?.total === 0}
+              aria-busy={exporting}
+              className={EXPORT_BUTTON}
+            >
+              {exporting ? (
+                <span aria-hidden="true" className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+              ) : (
+                <Icon name="download" />
+              )}
+              {exporting ? "Exporting…" : "Export PDF"}
             </button>
           </div>
         </div>

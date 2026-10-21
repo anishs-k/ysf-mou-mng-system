@@ -161,11 +161,10 @@ export const MANUAL_SECTIONS: readonly ManualSection[] = [
       {
         kind: "fields",
         rows: [
-          { term: "HR Contact Name", text: "Primary HR contact person at the company." },
-          { term: "HR Mobile", text: "10-digit mobile number of the HR contact." },
-          { term: "HR Email", text: "Official email address of the HR contact." },
-          { term: "Alternate Mobile", text: "Secondary contact number (optional)." },
-          { term: "Purchase Confirm Email", text: "Email ID for purchase order / MoU confirmation correspondence." },
+          { term: "HR Contact", text: "Name, contact number (mobile, or landline with STD code) and email ID of the HR contact." },
+          { term: "Finance Head", text: "Name, contact number and email ID of the Finance Head." },
+          { term: "Purchase Contact", text: "Optional name, number and email ID for purchase order correspondence." },
+          { term: "Confirm Email", text: "Each email ID is typed twice; the two must match." },
         ],
       },
       { kind: "subheading", text: "Step 2 — Commercial Details" },
@@ -180,21 +179,14 @@ export const MANUAL_SECTIONS: readonly ManualSection[] = [
       { kind: "subheading", text: "Step 3 — Payroll / Trainee Categories" },
       {
         kind: "note",
-        text: "Define one or more trainee categories. Each category has its own allowances and deductions inline.",
+        text: "Define one or more trainee categories. PF (12%), ESI (0.75%) and TDS (As applicable) are applied automatically and can be changed later in Edit Agreement.",
       },
       {
         kind: "steps",
         steps: [
-          "Click 'Add New Category'. Enter Category Name (e.g. Diploma Trainee), Qualification, Stipend Rate, and Trainee Count.",
-          "Check applicable Allowances. Each checked allowance reveals an amount input. For Insurance, choose sub-type: Top Up (GFS), Recovery (MoU), or Both — and enter the respective amounts.",
-          "Check applicable Deductions. Each checked deduction reveals an amount input.",
+          "Click 'Add New Category'. Enter the Trainee Category (e.g. Diploma Trainee), Qualification and Stipend Rate.",
           "Repeat for additional categories by clicking 'Add New Category' again.",
         ],
-      },
-      {
-        kind: "tip",
-        tone: "info",
-        text: "Each category is independent — allowances and deductions configured in one category do not affect others.",
       },
       {
         kind: "tip",
@@ -230,7 +222,7 @@ export const MANUAL_SECTIONS: readonly ManualSection[] = [
         rows: [
           { term: "Overview", text: "MoU code, zone, plant, scheme, status badge, and expiry date at a glance." },
           { term: "Commercial", text: "MoU start/end dates, admin charges, and uploaded supporting documents." },
-          { term: "Payroll", text: "All trainee categories with their allowances, deductions, and stipend rates." },
+          { term: "Payroll", text: "Trainee categories with their stipend rates, and the PF, ESI and TDS settings." },
           { term: "History", text: "Amendment history and change log for the agreement." },
           { term: "Documents", text: "Uploaded MoU PDFs and attachment files." },
         ],

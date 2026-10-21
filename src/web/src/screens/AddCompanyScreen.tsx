@@ -4,11 +4,13 @@
  * Each Save & Continue runs that step's @mou/domain rules (step 1 also the server's
  * GST / duplicate check) and persists the draft; the PDF uploads to the draft; the
  * last step submits it and shows the generated MoU code. A saved draft is offered
- * for resume on arrival. AppShell already refuses VIEWERs on this path.
+ * for resume on arrival. AppShell already refuses VIEWERs on this path. SPEC-22:
+ * a Manual / Bulk switch on top; Bulk Upload hides the whole wizard for BulkUploadPanel.
  */
 
 import { formatMoUDisplayCode } from "@mou/domain";
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { Draft } from "../api/client.ts";
@@ -26,6 +28,8 @@ import {
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Button } from "../ui/primitives.tsx";
+import type { EntryMode } from "./addCompany/BulkUploadPanel.tsx";
+import { BulkUploadPanel, EntryModeSwitch } from "./addCompany/BulkUploadPanel.tsx";
 import { CommercialDetailsStep } from "./addCompany/CommercialDetailsStep.tsx";
 import { CompanyDetailsStep } from "./addCompany/CompanyDetailsStep.tsx";
 import type { CommercialForm, CompanyForm, WizardForm, WizardReference } from "./addCompany/formState.ts";
@@ -50,7 +54,7 @@ const FIX_FIELDS = "Fix the highlighted fields to continue.";
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const NO_COMMERCIAL_ERRORS = { fields: {}, rows: {} } as const;
-const NO_PAYROLL_ERRORS: PayrollValidation = { categories: undefined, cards: {}, items: {}, other: {} };
+const NO_PAYROLL_ERRORS: PayrollValidation = { categories: undefined, cards: {} };
 const NOT_ATTEMPTED: readonly boolean[] = [false, false, false];
 
 function messageOf(error: unknown, fallback: string): string {
@@ -106,6 +110,7 @@ export function AddCompanyScreen() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [savedCode, setSavedCode] = useState<string | null>(null);
+  const [mode, setMode] = useState<EntryMode>("manual");
 
   useEffect(() => {
     let cancelled = false;
@@ -283,12 +288,25 @@ export function AddCompanyScreen() {
     return <RegisteredState mouCode={savedCode} onAddAnother={restart} onDashboard={() => navigate("/")} />;
   }
 
-  return (
+  const frame = (children: ReactNode) => (
     <ScreenFrame
       title="Add New Company"
       subtitle="Register a company for MoU / Apprenticeship scheme"
       contentClassName="p-4 md:p-6 max-w-5xl mx-auto"
     >
+      <EntryModeSwitch mode={mode} onChange={setMode} />
+      {children}
+    </ScreenFrame>
+  );
+
+  // SPEC-22 section 2: bulk mode shows nothing of the wizard. Its state is kept,
+  // so switching back to Manual Entry resumes where the user was.
+  if (mode === "bulk") {
+    return frame(<BulkUploadPanel />);
+  }
+
+  return frame(
+    <>
       {pendingDraft !== null && (
         <ResumeDraftBanner onResume={resume} onDiscard={discard} disabled={reference === NO_REFERENCE} />
       )}
@@ -324,12 +342,7 @@ export function AddCompanyScreen() {
         <PayrollStep
           categories={form.categories}
           onCategoriesChange={update("categories")}
-          answers={form.payrollItems}
-          onAnswersChange={update("payrollItems")}
-          otherRows={form.payrollOther}
-          onOtherRowsChange={update("payrollOther")}
           errors={payrollErrors}
-          reference={reference}
         />
       )}
       {step === LAST_STEP && <ReviewStep form={form} reference={reference} />}
@@ -348,6 +361,6 @@ export function AddCompanyScreen() {
           </Button>
         )}
       </div>
-    </ScreenFrame>
+    </>,
   );
 }

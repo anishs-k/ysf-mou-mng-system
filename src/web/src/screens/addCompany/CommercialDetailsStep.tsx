@@ -1,13 +1,12 @@
 /**
- * Purpose: Wizard step 2 - Agreement Details (start date, tenure value and unit,
+ * Purpose: Wizard step 2 - Agreement Details (start date, tenure in months (D157),
  * the end date from @mou/domain's computeEndDate, and the required signed MoU PDF,
  * uploaded to the draft as soon as it is picked), the Payment Schedule, and the
  * add/remove charge rows. A row's head is one of the API's fixed commercial items
  * (each usable once) or "Other" with its own label and Allowance/Deduction type.
  */
 
-import { computeEndDate, TENURE_UNITS } from "@mou/domain";
-import type { TenureUnit } from "@mou/domain";
+import { ATTENDANCE_CYCLES, computeEndDate } from "@mou/domain";
 import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 
@@ -21,22 +20,17 @@ import { OTHER_HEAD, blankChargeRow } from "./formState.ts";
 import type { CommercialValidation } from "./validation.ts";
 import { invalidBorder } from "./validation.ts";
 
-/** Stored as the readable label - mou.attendance_cycle is free text. */
-const ATTENDANCE_CYCLES: readonly string[] = ["16th to 15th", "21st to 20th", "26th to 25th", "Calendar Month"];
-
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** The last day of the tenure, or null until start date, tenure and unit are all usable. */
+/** The last day of the tenure, or null until the start date and the months are both usable. */
 function mouEndDate(commercial: CommercialForm): string | null {
   const tenure = Number(commercial.tenureValue);
-  const unit = commercial.tenureUnit as TenureUnit;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(commercial.mouStartDate) || !Number.isInteger(tenure) || tenure <= 0) return null;
-  if (!TENURE_UNITS.includes(unit)) return null;
   try {
-    return computeEndDate(commercial.mouStartDate, tenure, unit);
+    return computeEndDate(commercial.mouStartDate, tenure, "MONTHS");
   } catch {
     return null;
   }
@@ -108,28 +102,16 @@ export function CommercialDetailsStep({
             <ErrorText message={errors.fields.mouStartDate} />
             <WarningText message={errors.startDateWarning} />
           </Field>
-          <Field label="MoU Tenure" htmlFor="mou-tenure" required>
-            <div className="flex gap-2">
-              <TextInput
-                id="mou-tenure"
-                type="number"
-                placeholder="12"
-                value={commercial.tenureValue}
-                onChange={set("tenureValue")}
-                className={`flex-1 min-w-0 ${invalidBorder(errors.fields.tenureValue)}`}
-              />
-              <div className="w-32 shrink-0">
-                <HiddenLabel htmlFor="mou-tenure-unit">Tenure Unit</HiddenLabel>
-                <SelectInput
-                  id="mou-tenure-unit"
-                  options={enums.tenureUnits}
-                  value={commercial.tenureUnit}
-                  onChange={set("tenureUnit")}
-                  placeholder="Unit…"
-                />
-              </div>
-            </div>
-            <ErrorText message={errors.fields.tenureValue ?? errors.fields.tenureUnit} />
+          <Field label="MoU Tenure (Months)" htmlFor="mou-tenure" required>
+            <TextInput
+              id="mou-tenure"
+              type="number"
+              placeholder="12"
+              value={commercial.tenureValue}
+              onChange={set("tenureValue")}
+              className={`w-full ${invalidBorder(errors.fields.tenureValue)}`}
+            />
+            <ErrorText message={errors.fields.tenureValue} />
           </Field>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">MoU End Date</label>

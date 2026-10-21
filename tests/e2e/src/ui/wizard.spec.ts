@@ -60,8 +60,10 @@ const VALID_PAGE1 = {
   financeHeadContactName: "Arun Verma",
   hrContactNumber: "9876543210",
   financeHeadContactNumber: "9123456780",
-  officialEmail: "hr@acme.example",
-  confirmEmail: "hr@acme.example",
+  hrEmail: "hr@acme.example",
+  confirmHrEmail: "hr@acme.example",
+  financeEmail: "finance@acme.example",
+  confirmFinanceEmail: "finance@acme.example",
 };
 
 async function fillPage1(
@@ -87,8 +89,11 @@ async function fillPage1(
   await page.getByLabel("Finance Head Contact Name").fill(values.financeHeadContactName);
   await page.getByLabel("HR Contact Number").fill(values.hrContactNumber);
   await page.getByLabel("Finance Head Contact Number").fill(values.financeHeadContactNumber);
-  await page.getByLabel("Official HR and Finance Email ID").fill(values.officialEmail);
-  await page.getByLabel("Confirm Email").fill(values.confirmEmail);
+  // D155: an HR and a Finance email, each confirmed.
+  await page.getByLabel("HR Email ID", { exact: true }).fill(values.hrEmail);
+  await page.getByLabel("Confirm HR Email ID").fill(values.confirmHrEmail);
+  await page.getByLabel("Finance Email ID", { exact: true }).fill(values.financeEmail);
+  await page.getByLabel("Confirm Finance Email ID").fill(values.confirmFinanceEmail);
 }
 
 const VALID_PDF_BYTES = Buffer.from("%PDF-1.4\n%mock mou document\n");
@@ -106,7 +111,6 @@ async function uploadValidPdf(page: Page, filename = "agreement.pdf") {
 const VALID_PAGE2 = {
   mouStartDate: "2026-01-01",
   tenureValue: "24",
-  tenureUnit: "MONTHS",
   attendanceCycle: "Monthly",
   stipendDate: "5",
 };
@@ -115,15 +119,15 @@ async function fillPage2(page: Page, overrides: Partial<typeof VALID_PAGE2> = {}
   const values = { ...VALID_PAGE2, ...overrides };
 
   await page.getByLabel("MoU Start Date").fill(values.mouStartDate);
-  await page.getByLabel("Tenure").fill(values.tenureValue);
-  await page.getByLabel("Unit").selectOption(values.tenureUnit);
+  // D157: the tenure is months, with no unit to choose.
+  await page.getByLabel(/Tenure/).fill(values.tenureValue);
   await page.getByLabel("Attendance Cycle").fill(values.attendanceCycle);
   await page.getByLabel("Stipend Date").fill(values.stipendDate);
   await uploadValidPdf(page);
 }
 
-/** A valid Page 3: a scheme, one trainee category, and every fixed payroll
- * item answered No - the simplest state that satisfies AC2 (Save enabled). */
+/** A valid Page 3: a scheme and one trainee category - D158 left no payroll
+ * items to answer. */
 const VALID_PAGE3 = {
   scheme: "WILP",
   category: "Category A",
@@ -135,12 +139,6 @@ async function fillPage3(page: Page, overrides: Partial<typeof VALID_PAGE3> = {}
   await page.getByLabel("Scheme").selectOption(values.scheme);
   await page.getByRole("button", { name: "Add Trainee Category" }).click();
   await page.getByLabel("Category").fill(values.category);
-
-  const noRadios = page.getByRole("radio", { name: "No" });
-  const count = await noRadios.count();
-  for (let i = 0; i < count; i += 1) {
-    await noRadios.nth(i).check();
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -164,8 +162,8 @@ test("AC1 every Page 1 dropdown is populated from the API, not hardcoded", async
   // Zone comes from /api/zones and offers the real zone we just read.
   await expect(page.getByLabel("Zone").locator(`option[value="${zoneId}"]`)).toHaveCount(1);
 
-  // The contact type radio pair is the two values of CONTACT_TYPES.
-  await expect(page.getByRole("radio")).toHaveCount(2);
+  // D156: Contact Type is no longer asked - Page 1 has no radio pair.
+  await expect(page.getByRole("radio")).toHaveCount(0);
 });
 
 test("AC9 Next with a required field empty keeps the user on Page 1 and marks it", async ({
@@ -223,7 +221,7 @@ test("AC8 a GST state code disagreeing with State warns but still allows Next", 
   await page.getByRole("button", { name: "Cancel" }).click();
 });
 
-test("AC6 official and confirm email differing only in case are accepted", async ({
+test("AC6 an email and its confirmation differing only in case are accepted", async ({
   page,
   request,
 }) => {
@@ -233,8 +231,10 @@ test("AC6 official and confirm email differing only in case are accepted", async
 
   const zoneId = await firstZoneId(request);
   await fillPage1(page, zoneId, {
-    officialEmail: "A@B.com",
-    confirmEmail: "a@b.com",
+    hrEmail: "A@B.com",
+    confirmHrEmail: "a@b.com",
+    financeEmail: "F@B.com",
+    confirmFinanceEmail: "f@b.com",
   });
 
   await page.getByRole("button", { name: "Next" }).click();
@@ -242,46 +242,6 @@ test("AC6 official and confirm email differing only in case are accepted", async
   await expect(page.getByRole("heading", { name: "Commercial Details" })).toBeVisible();
 
   await page.getByRole("button", { name: "Cancel" }).click();
-});
-
-test("AC4 selecting LAN shows the LAN variant and no mobile input", async ({ page }) => {
-  await signIn(page, accountFor("ADMIN"));
-  await page.goto("/companies/new");
-  await discardLeftoverDraft(page);
-
-  // Mobile is the default, so both boxes invite a mobile number.
-  await expect(page.getByLabel("HR Contact Number")).toHaveAttribute(
-    "placeholder",
-    "10-digit mobile number",
-  );
-
-  await page.getByRole("radio", { name: "LAN No" }).check();
-
-  // Switching with the boxes still empty needs no confirmation.
-  await expect(page.getByLabel("HR Contact Number")).toHaveAttribute("placeholder", "LAN number");
-  await expect(page.getByLabel("Finance Head Contact Number")).toHaveAttribute(
-    "placeholder",
-    "LAN number",
-  );
-});
-
-test("AC5 switching Contact Type after typing warns, then clears both numbers", async ({
-  page,
-  request,
-}) => {
-  await signIn(page, accountFor("ADMIN"));
-  await page.goto("/companies/new");
-  await discardLeftoverDraft(page);
-
-  const zoneId = await firstZoneId(request);
-  await fillPage1(page, zoneId);
-
-  // Accept the confirmation the switch raises.
-  page.once("dialog", (dialog) => void dialog.accept());
-  await page.getByRole("radio", { name: "LAN No" }).check();
-
-  await expect(page.getByLabel("HR Contact Number")).toHaveValue("");
-  await expect(page.getByLabel("Finance Head Contact Number")).toHaveValue("");
 });
 
 // ---------------------------------------------------------------------------
@@ -299,20 +259,16 @@ async function goToPage2(page: Page, request: APIRequestContext) {
   await expect(page.getByRole("heading", { name: "Commercial Details" })).toBeVisible();
 }
 
-test("AC1 a 24-month and a 2-year tenure from the same start date compute the same end date", async ({
+test("AC1 a 24-month tenure computes the end date; there is no unit to choose (D157)", async ({
   page,
   request,
 }) => {
   await goToPage2(page, request);
 
   await page.getByLabel("MOU Start Date").fill("2026-01-01");
-  await page.getByLabel("Tenure").fill("24");
-  await page.getByLabel("Unit").selectOption("MONTHS");
+  await page.getByLabel(/Tenure/).fill("24");
   await expect(page.getByText("2027-12-31")).toBeVisible();
-
-  await page.getByLabel("Tenure").fill("2");
-  await page.getByLabel("Unit").selectOption("YEARS");
-  await expect(page.getByText("2027-12-31")).toBeVisible();
+  await expect(page.getByLabel("Unit")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Cancel" }).click();
 });
@@ -415,7 +371,7 @@ test("AC9 Next with no PDF uploaded is blocked", async ({ page, request }) => {
   await goToPage2(page, request);
 
   await page.getByLabel("MOU Start Date").fill(VALID_PAGE2.mouStartDate);
-  await page.getByLabel("Tenure").fill(VALID_PAGE2.tenureValue);
+  await page.getByLabel(/Tenure/).fill(VALID_PAGE2.tenureValue);
   await page.getByLabel("Attendance Cycle").fill(VALID_PAGE2.attendanceCycle);
   await page.getByLabel("Stipend Date").fill(VALID_PAGE2.stipendDate);
   // Deliberately no PDF upload.
@@ -446,47 +402,15 @@ async function goToPage3(page: Page, request: APIRequestContext) {
   await expect(page.getByRole("heading", { name: "Payroll Details" })).toBeVisible();
 }
 
-test("AC1 answering No to one item still presents every other remaining item", async ({ page, request }) => {
+test("D158 Page 3 asks only for trainee categories - no payroll item to answer", async ({ page, request }) => {
   await goToPage3(page, request);
 
-  await page.getByRole("radio", { name: "No" }).first().check();
-
-  // Every item's Yes/No pair is still present and answerable - nothing was
-  // skipped by answering the first one.
-  await expect(page.getByRole("radio", { name: "Yes" })).toHaveCount(22);
-  await expect(page.getByRole("radio", { name: "No" })).toHaveCount(22);
-
-  await page.getByRole("button", { name: "Back" }).click();
-  await page.getByRole("button", { name: "Back" }).click();
-  await page.getByRole("button", { name: "Cancel" }).click();
-});
-
-test("AC2 Save is disabled until every payroll item is answered", async ({ page, request }) => {
-  await goToPage3(page, request);
-
-  await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
-  await expect(page.getByText(/0 of 22 answered/)).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Yes" })).toHaveCount(0);
+  await expect(page.getByText("Fixed Payroll Items")).toHaveCount(0);
+  await expect(page.getByText("Other Payroll Items")).toHaveCount(0);
 
   await fillPage3(page);
-
-  await expect(page.getByText(/22 of 22 answered/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Save" })).toBeEnabled();
-
-  await page.getByRole("button", { name: "Back" }).click();
-  await page.getByRole("button", { name: "Back" }).click();
-  await page.getByRole("button", { name: "Cancel" }).click();
-});
-
-test("AC3 answering Yes with an empty amount blocks Save", async ({ page, request }) => {
-  await goToPage3(page, request);
-  await fillPage3(page);
-
-  // Switch the first item to Yes without entering an amount.
-  await page.getByRole("radio", { name: "Yes" }).first().check();
-  await page.getByRole("button", { name: "Save" }).click();
-
-  await expect(page.getByRole("heading", { name: "Payroll Details" })).toBeVisible();
-  await expect(page.getByText("Required")).toBeVisible();
 
   await page.getByRole("button", { name: "Back" }).click();
   await page.getByRole("button", { name: "Back" }).click();

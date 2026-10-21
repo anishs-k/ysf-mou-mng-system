@@ -3,14 +3,16 @@
  * shows - calendar dates ("31 Mar 2027", parsed as a date, never shifted by the
  * time zone), scheme and MoU-status enum codes as labels, and the derived
  * "Expiring" status for an active MoU ending within EXPIRING_SOON_DAYS. One
- * module, so the Dashboard, Zone Dashboard and Alerts screens cannot disagree.
+ * module, so the Dashboard, Zone Dashboard and Alerts screens cannot disagree;
+ * the Expiring rule itself is @mou/domain's displayMouStatus (SPEC-23 D146), so
+ * the server-side record PDF derives it identically.
  */
 
-import { MOU_STATUS_LABELS, SCHEME_LABELS } from "@mou/domain";
+import { EXPIRING_SOON_DAYS, MOU_STATUS_LABELS, SCHEME_LABELS, displayMouStatus } from "@mou/domain";
 import type { MouStatus, Scheme } from "@mou/domain";
 
-/** An ACTIVE MoU ending within this many days is "Expiring" - the API's EXPIRING_SOON_DAYS too. */
-export const EXPIRING_SOON_DAYS = 90;
+/** An ACTIVE MoU ending within this many days is "Expiring" - shared with the API via @mou/domain. */
+export { EXPIRING_SOON_DAYS };
 
 /** Shown in place of a value the API has not answered with, or does not have. */
 export const PENDING_FIGURE = "—";
@@ -74,8 +76,5 @@ export function formatFileSize(bytes: number): string {
 
 /** The status the design shows: "Expiring" for an active MoU ending within the window. */
 export function displayStatus(status: string, endDate: string, today: string = todayIso()): string {
-  const label = mouStatusLabel(status);
-  if (label !== MOU_STATUS_LABELS.ACTIVE) return label;
-  const days = daysUntil(endDate, today);
-  return days >= 0 && days <= EXPIRING_SOON_DAYS ? "Expiring" : label;
+  return displayMouStatus(status, endDate, today);
 }

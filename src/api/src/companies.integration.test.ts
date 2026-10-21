@@ -205,10 +205,12 @@ function completePayload(
       contactType: "MOBILE",
       hrContactNumber: "9876543210",
       financeHeadContactNumber: "9876543211",
-      officialEmail: "test@example.com",
-      // Confirm Email is UI-only (there is no column for it) but SPEC-04 makes
-      // it a required Page 1 field, so the final save must see it.
-      confirmEmail: "test@example.com",
+      hrEmail: "test@example.com",
+      financeEmail: "test@example.com",
+      // The confirm emails are UI-only (there is no column for them) but SPEC-04 makes
+      // them required Page 1 fields, so the final save must see them.
+      confirmHrEmail: "test@example.com",
+      confirmFinanceEmail: "test@example.com",
       plantName: "Main Plant",
     },
     page2: {
@@ -422,17 +424,18 @@ test("AC5: a save that fails inside the transaction leaves zero rows", async () 
   const zoneId = await insertZone(pool);
   const cookie = await login(user.username, user.password);
 
-  // An Other row's itemType is only checked for being non-blank by
-  // validatePayrollDetails (the user's own free choice of Allowance/
+  // An Other charge row's itemType is only checked for being non-blank by
+  // validateCommercialDetails (the user's own free choice of Allowance/
   // Deduction), so a garbage value slips past every pre-transaction
   // validation and only fails at the database's item_type CHECK constraint,
-  // deep inside the transaction (the payroll_item insert, after company,
-  // plant, mou and commercial_item have all already been inserted) - exactly
-  // the "fails inside the transaction" case this test is for.
+  // deep inside the transaction (the commercial_item insert, after company,
+  // plant and mou have all already been inserted) - exactly the "fails inside
+  // the transaction" case this test is for. (D158: payroll Other rows are now
+  // refused before the transaction, so the commercial row carries the case.)
   const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
     ...payload,
-    page3: {
-      ...payload.page3,
+    page2: {
+      ...payload.page2,
       otherItems: [
         { label: "Bad Row", amount: "100", itemType: "NOT_A_REAL_TYPE" },
       ],
@@ -553,8 +556,10 @@ function validPage1(zoneId: string) {
     contactType: "MOBILE",
     hrContactNumber: "9876543210",
     financeHeadContactNumber: "9123456780",
-    officialEmail: "hr@acme.example",
-    confirmEmail: "hr@acme.example",
+    hrEmail: "hr@acme.example",
+    financeEmail: "hr@acme.example",
+    confirmHrEmail: "hr@acme.example",
+    confirmFinanceEmail: "hr@acme.example",
   };
 }
 
@@ -1121,7 +1126,96 @@ test("SPEC-06 AC6 two categories named Trainee and trainee are rejected as dupli
   assert.ok(body.errors?.traineeCategoryRows?.[1]);
 });
 
-test("SPEC-06 AC7 exactly 22 payroll_item rows exist for the fixed keys, plus one per Other row", async () => {
+test("SPEC-23 AC2/AC3 PF and ESI save as percentages and TDS As applicable saves with no amount", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page3: {
+      ...payload.page3,
+      items: {
+        ...allPayrollItemsAnsweredNo(),
+        PF: { isApplicable: true, amount: "12" },
+        ESI: { isApplicable: true, amount: "0.75" },
+        TDS: { isApplicable: true, amount: "" },
+      },
+    },
+  }));
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 201);
+  const { companyId } = (await submitResponse.json()) as { companyId: string };
+  const configId = await payrollConfigIdForMou(await mouIdForCompany(companyId));
+
+  const { rows } = await pool.query<{ item_key: string; is_applicable: boolean; amount: string | null }>(
+    `SELECT item_key, is_applicable, amount FROM payroll_item
+      WHERE payroll_config_id = $1 AND item_key IN ('PF', 'ESI', 'TDS') ORDER BY item_key`,
+    [configId],
+  );
+  assert.deepEqual(
+    rows.map((row) => [row.item_key, row.is_applicable, row.amount]),
+    [
+      ["ESI", true, "0.75"],
+      ["PF", true, "12.00"],
+      ["TDS", true, null],
+    ],
+  );
+});
+
+test("SPEC-23 D148 a wizard save that never mentions PF, ESI or TDS stores the defaults", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+  const { PF: _pf, ESI: _esi, TDS: _tds, ...withoutStatutory } = allPayrollItemsAnsweredNo();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page3: { ...payload.page3, items: withoutStatutory },
+  }));
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 201);
+  const { companyId } = (await submitResponse.json()) as { companyId: string };
+  const configId = await payrollConfigIdForMou(await mouIdForCompany(companyId));
+
+  const { rows } = await pool.query<{ item_key: string; is_applicable: boolean; amount: string | null }>(
+    `SELECT item_key, is_applicable, amount FROM payroll_item
+      WHERE payroll_config_id = $1 AND item_key IN ('PF', 'ESI', 'TDS') ORDER BY item_key`,
+    [configId],
+  );
+  assert.deepEqual(
+    rows.map((row) => [row.item_key, row.is_applicable, row.amount]),
+    [
+      ["ESI", true, "0.75"],
+      ["PF", true, "12.00"],
+      ["TDS", true, null],
+    ],
+  );
+});
+
+test("D158 a save stores exactly the PF, ESI and TDS payroll rows, at their defaults", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId);
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 201);
+  const { companyId } = (await submitResponse.json()) as { companyId: string };
+  const configId = await payrollConfigIdForMou(await mouIdForCompany(companyId));
+
+  const { rows } = await pool.query<{ item_key: string; is_applicable: boolean; amount: string | null }>(
+    `SELECT item_key, is_applicable, amount FROM payroll_item WHERE payroll_config_id = $1 ORDER BY item_key`,
+    [configId],
+  );
+  assert.deepEqual(
+    rows.map((row) => [row.item_key, row.is_applicable, row.amount]),
+    [
+      ["ESI", true, "0.75"],
+      ["PF", true, "12.00"],
+      ["TDS", true, null],
+    ],
+  );
+});
+
+test("D158 an Other payroll row is refused and nothing is saved", async () => {
   const zoneId = await insertZone(pool);
   const cookie = await authorCookie();
 
@@ -1135,22 +1229,10 @@ test("SPEC-06 AC7 exactly 22 payroll_item rows exist for the fixed keys, plus on
     },
   }));
   const submitResponse = await submitCompany(cookie, draftId);
-  assert.equal(submitResponse.status, 201);
-  const { companyId } = (await submitResponse.json()) as { companyId: string };
-  const mouId = await mouIdForCompany(companyId);
-  const configId = await payrollConfigIdForMou(mouId);
+  assert.equal(submitResponse.status, 422);
 
-  const { rows: fixedRows } = await pool.query(
-    `SELECT count(*)::int AS c FROM payroll_item WHERE payroll_config_id = $1 AND item_key <> 'OTHER'`,
-    [configId],
-  );
-  assert.equal(fixedRows[0].c, PAYROLL_FIXED_ITEM_KEYS.length);
-
-  const { rows: otherRows } = await pool.query(
-    `SELECT count(*)::int AS c FROM payroll_item WHERE payroll_config_id = $1 AND item_key = 'OTHER'`,
-    [configId],
-  );
-  assert.equal(otherRows[0].c, 1);
+  const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  assert.equal(rows[0].c, 0);
 });
 
 test("SPEC-06 AC8 two saves in the same zone and year produce consecutive generated codes", async () => {
@@ -1194,8 +1276,8 @@ test("SPEC-16 every saved payroll item carries its catalogue item type", async (
     `SELECT item_key, item_type FROM payroll_item WHERE payroll_config_id = $1 AND item_key <> 'OTHER'`,
     [configId],
   );
-  // SPEC-16 D105 replaced SPEC-01 section 4's 22-item catalogue with 23 fixed keys
-  // (8 allowances, 15 deductions), so the saved rows are checked against the
+  // The catalogue has changed size several times (SPEC-16 D105, SPEC-23, D151,
+  // D158: now PF, ESI and TDS), so the saved rows are checked against the
   // catalogue itself rather than a hardcoded split.
   assert.equal(rows.length, PAYROLL_FIXED_ITEM_KEYS.length);
   for (const row of rows) {

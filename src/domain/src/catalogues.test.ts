@@ -1,11 +1,12 @@
 /**
  * Purpose: Unit tests for the master reference lists and item catalogues - SPEC-01
  * acceptance criterion AC4, as amended by SPEC-16. Asserts the exact catalogue sizes
- * (17 commercial, 24 payroll), that keys, labels and display order are stable and
+ * (10 commercial, 4 payroll), that keys, labels and display order are stable and
  * complete, that display order is the section `#` column, and that the allowance /
  * deduction split matches SPEC-16 section 2.6. It also guards the invariants the
  * database CHECK constraints and partial unique indexes depend on, and that every
- * scheme carries the five guideline fields the wizard's panel renders.
+ * scheme carries the five guideline fields the wizard's panel renders. SPEC-23
+ * adds PF, ESI and TDS and the per-item value kind (D142, D143).
  */
 
 import { test } from "node:test";
@@ -18,21 +19,23 @@ import {
   COMMERCIAL_ITEMS,
 } from "./commercial-items.ts";
 import {
-  INSURANCE_ITEM_KEY,
   PAYROLL_FIXED_ITEM_KEYS,
   PAYROLL_ITEM_BY_KEY,
   PAYROLL_ITEM_KEYS,
   PAYROLL_ITEMS,
+  PERCENT_ITEM_KEYS,
+  STATUS_ITEM_KEYS,
+  STATUTORY_ITEM_KEYS,
 } from "./payroll-items.ts";
 import {
   COMMERCIAL_BASIS_OPTIONS,
   COMMERCIAL_PERIOD_OPTIONS,
+  COMPANY_DOCUMENT_TYPE_OPTIONS,
   COMPANY_TYPE_OPTIONS,
   COMPANY_TYPES,
   CONTACT_TYPE_OPTIONS,
   EDIT_AGREEMENT_REASON_OPTIONS,
   ENUM_SETS,
-  INSURANCE_TYPE_OPTIONS,
   ITEM_TYPE_OPTIONS,
   MOU_STATUS_OPTIONS,
   REGISTRATION_TYPE_OPTIONS,
@@ -45,14 +48,14 @@ import {
 } from "./enums.ts";
 import type { EnumOption } from "./enums.ts";
 
-test("AC4 commercial catalogue has exactly 17 entries", () => {
-  assert.equal(COMMERCIAL_ITEMS.length, 17);
-  assert.equal(COMMERCIAL_ITEM_KEYS.length, 17);
+test("AC4 commercial catalogue has exactly 10 entries after D153 kept the 9 core charges", () => {
+  assert.equal(COMMERCIAL_ITEMS.length, 10);
+  assert.equal(COMMERCIAL_ITEM_KEYS.length, 10);
 });
 
-test("AC4 payroll catalogue has exactly 24 entries", () => {
-  assert.equal(PAYROLL_ITEMS.length, 24);
-  assert.equal(PAYROLL_ITEM_KEYS.length, 24);
+test("AC4 payroll catalogue has exactly 4 entries after D158 kept only PF, ESI and TDS", () => {
+  assert.equal(PAYROLL_ITEMS.length, 4);
+  assert.equal(PAYROLL_ITEM_KEYS.length, 4);
 });
 
 test("AC4 the commercial catalogue matches its key tuple in order", () => {
@@ -102,53 +105,87 @@ test("AC4 every key has a fixed item type except OTHER, where the user chooses",
 
 test("commercial charges are all deductions, per the section 3 mapping", () => {
   const deductions = COMMERCIAL_ITEMS.filter((item) => item.itemType === "DEDUCTION");
-  assert.equal(deductions.length, 16);
+  assert.equal(deductions.length, 9);
 });
 
-test("SPEC-16 section 2.6 splits payroll into 8 allowances and 15 deductions", () => {
-  const allowances = PAYROLL_ITEMS.filter((item) => item.itemType === "ALLOWANCE");
-  const deductions = PAYROLL_ITEMS.filter((item) => item.itemType === "DEDUCTION");
-  assert.equal(allowances.length, 8, "allowance count");
-  assert.equal(deductions.length, 15, "deduction count");
+test("D158 the payroll catalogue is PF, ESI and TDS (deductions) plus OTHER - no allowances", () => {
+  assert.deepEqual([...PAYROLL_ITEM_KEYS], ["PF", "ESI", "TDS", "OTHER"]);
+  assert.equal(PAYROLL_ITEMS.filter((item) => item.itemType === "ALLOWANCE").length, 0);
   assert.deepEqual(
-    allowances.map((item) => item.key),
+    PAYROLL_ITEMS.filter((item) => item.itemType === "DEDUCTION").map((item) => item.key),
+    ["PF", "ESI", "TDS"],
+  );
+});
+
+test("SPEC-23 D143 PF and ESI are percentages, TDS is a status", () => {
+  assert.equal(PAYROLL_ITEM_BY_KEY.PF.valueKind, "PERCENT");
+  assert.equal(PAYROLL_ITEM_BY_KEY.ESI.valueKind, "PERCENT");
+  assert.equal(PAYROLL_ITEM_BY_KEY.TDS.valueKind, "STATUS");
+});
+
+test("SPEC-23 the key lists the database CHECKs are built from match the catalogue", () => {
+  assert.deepEqual([...PERCENT_ITEM_KEYS], ["PF", "ESI"]);
+  assert.deepEqual([...STATUS_ITEM_KEYS], ["TDS"]);
+  assert.deepEqual([...STATUTORY_ITEM_KEYS], ["PF", "ESI", "TDS"]);
+});
+
+test("SPEC-23 D145 company documents are GST and Registration certificates", () => {
+  assert.deepEqual(
+    COMPANY_DOCUMENT_TYPE_OPTIONS.map((option) => [option.value, option.label]),
     [
-      "ATTENDANCE_BONUS",
-      "ACCOMMODATION_ALLOWANCE",
-      "CONVEYANCE",
-      "HRA",
-      "BONUS",
-      "NIGHT_SHIFT_ALLOWANCE",
-      "EDUCATION_ALLOWANCE",
+      ["GST_CERTIFICATE", "GST Certificate"],
+      ["REGISTRATION_CERTIFICATE", "Registration Certificate"],
+    ],
+  );
+});
+
+test("D151 / D158 the demo deductions and the 13 allowance / deduction items are gone from the payroll catalogue", () => {
+  const removed = [
+    "ADVANCE",
+    "CANTEEN_DEDUCTION",
+    "COURSE_REGISTRATION_FEE",
+    "DOCUMENT_FEE",
+    "EXAM_FEE",
+    "INSURANCE_DEDUCTION",
+    "LEFT_DEDUCTION",
+    "SHOES_DEDUCTION",
+    "TRANSPORTATION_DEDUCTION",
+    "UNIFORM_DEDUCTION",
+    // D158
+    "ATTENDANCE_BONUS",
+    "ACCOMMODATION_ALLOWANCE",
+    "CONVEYANCE",
+    "HRA",
+    "BONUS",
+    "NIGHT_SHIFT_ALLOWANCE",
+    "EDUCATION_ALLOWANCE",
+    "INSURANCE",
+    "ADMISSION_DEDUCTION",
+    "COUPON_AMOUNT",
+    "EDUCATION_FEE",
+    "JOINING_FEE_DEDUCTION",
+    "SKILL_DIPLOMA_FEES",
+  ];
+  const keys: readonly string[] = PAYROLL_ITEM_KEYS;
+  for (const key of removed) assert.ok(!keys.includes(key), key);
+});
+
+test("D153 the commercial catalogue holds only the 9 core charges plus OTHER", () => {
+  assert.deepEqual(
+    [...COMMERCIAL_ITEM_KEYS],
+    [
+      "ADMIN_CHARGES",
       "INSURANCE",
+      "SHOES_AND_UNIFORM",
+      "SUPERVISOR_CHARGES",
+      "SOURCING_CHARGES",
+      "EDUCATION_CHARGES",
+      "TRAINING_CHARGES",
+      "ASSESSMENT_CHARGES",
+      "ONE_TIME_REGISTRATION_FEES",
+      "OTHER",
     ],
   );
-  assert.deepEqual(
-    deductions.map((item) => item.key),
-    [
-      "ADMISSION_DEDUCTION",
-      "ADVANCE",
-      "CANTEEN_DEDUCTION",
-      "COUPON_AMOUNT",
-      "COURSE_REGISTRATION_FEE",
-      "DOCUMENT_FEE",
-      "EDUCATION_FEE",
-      "EXAM_FEE",
-      "INSURANCE_DEDUCTION",
-      "JOINING_FEE_DEDUCTION",
-      "LEFT_DEDUCTION",
-      "SHOES_DEDUCTION",
-      "SKILL_DIPLOMA_FEES",
-      "TRANSPORTATION_DEDUCTION",
-      "UNIFORM_DEDUCTION",
-    ],
-  );
-});
-
-test("INSURANCE is the only key that carries the D108 sub-model", () => {
-  assert.equal(INSURANCE_ITEM_KEY, "INSURANCE");
-  assert.equal(PAYROLL_ITEM_BY_KEY.INSURANCE.itemType, "ALLOWANCE");
-  assert.ok(PAYROLL_ITEM_KEYS.includes(INSURANCE_ITEM_KEY));
 });
 
 test("the key lookups resolve every catalogue entry", () => {
@@ -169,8 +206,8 @@ test("the fixed key lists used by the partial unique indexes exclude OTHER", () 
     [...PAYROLL_FIXED_ITEM_KEYS],
     PAYROLL_ITEM_KEYS.filter((key) => key !== "OTHER"),
   );
-  assert.equal(COMMERCIAL_FIXED_ITEM_KEYS.length, 16);
-  assert.equal(PAYROLL_FIXED_ITEM_KEYS.length, 23);
+  assert.equal(COMMERCIAL_FIXED_ITEM_KEYS.length, 9);
+  assert.equal(PAYROLL_FIXED_ITEM_KEYS.length, 3);
 });
 
 test("AC4 every reference list is served with a label for each value", () => {
@@ -187,7 +224,6 @@ test("AC4 every reference list is served with a label for each value", () => {
     { options: SECTOR_OPTIONS, size: 17 },
     { options: COMMERCIAL_PERIOD_OPTIONS, size: 4 },
     { options: COMMERCIAL_BASIS_OPTIONS, size: 5 },
-    { options: INSURANCE_TYPE_OPTIONS, size: 3 },
   ];
 
   for (const { options, size } of expectedSizes) {
@@ -263,10 +299,6 @@ test("SPEC-16 D108 the new sub-attribute lists are exactly as specified", () => 
     COMMERCIAL_BASIS_OPTIONS.map((option) => option.value),
     ["FLAT", "PER_TRAINEE_PER_MONTH", "PRO_RATA", "ON_PAYABLE_STIPEND", "OTHER"],
   );
-  assert.deepEqual(
-    INSURANCE_TYPE_OPTIONS.map((option) => option.value),
-    ["TOPUP", "RECOVERY", "BOTH"],
-  );
   // The v2 source misspelled two of these; a typo must never become a stored value.
   const basisLabels = COMMERCIAL_BASIS_OPTIONS.map((option) => option.label);
   assert.ok(basisLabels.includes("Pro-rata"), "PRO_RATA must read Pro-rata");
@@ -276,14 +308,13 @@ test("SPEC-16 D108 the new sub-attribute lists are exactly as specified", () => 
   );
 });
 
-test("the aggregate served by /api/enums covers all thirteen reference lists", () => {
+test("the aggregate served by /api/enums covers all twelve reference lists", () => {
   assert.deepEqual(Object.keys(ENUM_SETS).sort(), [
     "commercialBases",
     "commercialPeriods",
     "companyTypes",
     "contactTypes",
     "editAgreementReasons",
-    "insuranceTypes",
     "itemTypes",
     "mouStatuses",
     "registrationTypes",

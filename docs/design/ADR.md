@@ -638,3 +638,67 @@ user may be assigned several zones. Full rules in
 | D133 | Admin lock-out | A super admin **cannot delete or demote themselves**, and no change may leave **zero active super admins** (checked under row lock in the same transaction) | With sign-up gone there is no way back in except the CLI; the lock stops two admins demoting each other concurrently |
 | D134 | Which roles a super admin may grant | **Any role and scope, including another super admin**. Supersedes D126 | D126 kept admin rights out of an approval queue for strangers; provisioning is itself the deliberate act D126 asked for |
 | D135 | When admin edits take effect | Role / zone / identity: **next request** (D118 kept). Password change or delete: **that user's sessions are deleted** | Scope is already read per request; a reset password must end the sessions opened with the old one |
+
+## SPEC-22 — Bulk Company Upload
+
+Authoring users onboard many companies from one Excel sheet on the Add New
+Company page. Full rules in `docs/specifications/SPEC-22-bulk-company-upload.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D136 | Where the templates come from | **Server-generated** from one column list, `BULK_COMPANY_COLUMNS` in `@mou/domain`: Excel with `exceljs`, PDF with `pdfkit` (both already used by SPEC-13); no jsPDF in the web app | One list drives the Excel headers, the PDF and the parser, so they cannot drift; the Excel dropdowns need the live zone list of the uploader anyway; no new dependency |
+| D137 | What one sheet row holds | **One company + plant + MOU**: Page 1, the core Page 2 fields with one amount column per fixed charge, the trainee categories in one cell and one column per fixed payroll item. Not in the sheet: confirm-email fields, charge period/basis, "Other" rows, the MOU PDF | Keeps the sheet one flat row per company; everything left out is optional and editable later (Edit Agreement, Upload MoU) |
+| D138 | MOU PDF for a bulk-created MOU | **Not required** — SPEC-05 §3's PDF rule is skipped for bulk rows; no `mou_document` row is written | A sheet cannot carry a PDF; SPEC-09's Upload MoU already attaches one to an existing MOU |
+| D139 | A file with some bad rows | **All or nothing**: every row is validated (domain rules, DB clashes, in-file duplicates) before any write; all rows are inserted in one transaction | Client choice. A partial import makes a corrected re-upload create duplicates |
+| D140 | Upload limits and matching | `.xlsx` only, **5 MB**, **500** data rows; headers matched by text (order free); list cells accept label or code, case-insensitive; Zone by name or code within the uploader's scope | Bounded request time and memory; tolerant of the ways people fill sheets without weakening any rule |
+| D141 | Payroll item cells | **Blank / "No" = not applicable, an amount = Yes with that amount**, "Yes" alone is an error | The wizard needs an explicit Yes/No per item (SPEC-06 AC2); in a sheet an empty cell is the natural "No", and a Yes always needs its amount |
+
+## SPEC-23 — Existing Company: PF / ESI / TDS, Company Documents and the Record PDF
+
+Closes the gaps between the finalised Existing Company design and the data model.
+Full rules in `docs/specifications/SPEC-23-existing-company-data-gaps.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D142 | PF, ESI, TDS | **Three new fixed DEDUCTION payroll keys** (`PF`, `ESI`, `TDS`; 23 → 26 fixed). PF / ESI are a **percentage of the stipend**, stored and shown only — no calculation. AMOUNT payroll values are shown as monthly (`/mo`) | Client answers 2026-10-20. Calculation needs rules (ceilings, rounding, employer share) nobody has specified, so it is left out rather than guessed |
+| D143 | How a percentage and a fixed text answer are stored | **No new columns.** Each catalogue item carries a `valueKind` (`AMOUNT` / `PERCENT` / `STATUS`). PERCENT goes in the existing `amount` (CHECK ≤ 100 for PF / ESI). TDS (STATUS) is `is_applicable` true = "As applicable", false = "Not applicable", with `amount` always NULL (CHECK). Migration 0013 changes CHECKs only | The unit belongs to the item, not to the row, so a per-row `value_kind` would only duplicate the catalogue. With two fixed TDS options, a free-text column would invite values nobody can validate. Same pattern as the INSURANCE-only CHECKs of D108 |
+| D144 | MOUs saved before D142 | **No backfill.** They have no PF / ESI / TDS rows; the payroll view and record PDF always list the three statutory items and show "Not recorded" for a missing row (amended 2026-10-20 on client request — the design shows them in every Deductions list), and the next Edit Agreement must answer all three | Any backfilled value would be invented. SPEC-06 AC2's explicit-answer rule already covers the edit |
+| D145 | Where GST / Registration certificates live | **New table `company_document`** (company-level, `document_type` CHECK in GST_CERTIFICATE / REGISTRATION_CERTIFICATE, mime type, size, uploaded at / by). PDF / JPEG / PNG proved by magic bytes, 10 MB, every upload adds a row. `mou_document` is unchanged | The certificates belong to the company, not to one agreement (client), and `mou_document.mou_id` is NOT NULL. Append-only matches SPEC-09 §3.1 |
+| D146 | Where the "Expiring" display rule lives | **`displayMouStatus` in `@mou/domain`**, used by the web formatter and the record PDF. Behaviour unchanged (ACTIVE and 0–90 days to end = Expiring) | The server-side PDF needs the same rule, and two copies of it would drift |
+| D147 | The record view's Export PDF | **New `GET /api/mous/:mouId/record.pdf`**: a designed pdfkit document (logo header, five bordered sections, repeated table headers, page x of y). `/print` stays SPEC-07 §4.4's Page 1 + 2. The YSF logo is a copy of the web app's `logo-ysf.png` kept in `src/api/assets/` | SPEC-07 Q10 already reserves the full record (with payroll) for Export PDF, so `/print` must not change. pdfkit is already in use (SPEC-13, SPEC-22), so no new dependency. The API build cannot read the web app's hashed asset |
+| D148 | PF / ESI / TDS defaults (2026-10-20, **replaces D144's no-backfill**) | **PF 12%, ESI 0.75%, TDS As applicable** (`STATUTORY_DEFAULTS` / `withStatutoryDefaults` in `@mou/domain`). The wizard does not ask for them; the final save, the company writer (so bulk upload too) and the Edit Agreement load fill any unanswered one. Migration 0015 inserts them for every existing payroll config that lacks a row (insert-only). A blank bulk cell takes the default; an explicit answer, No included, is always kept. Edit Agreement is where they are changed | Client decision: the statutory rates are the same for nearly every company, so asking in the wizard added work without information, and an empty "Not recorded" in every existing MOU was worse than a correctable default |
+
+## SPEC-24 — Bulk Record PDF from the Existing Companies List
+
+One PDF of every MoU the list's filters select. Full rules in
+`docs/specifications/SPEC-24-bulk-record-pdf.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D149 | How many records one bulk PDF may hold, and how they load | **No limit.** Every view loader in `mou-view.ts` gains a batch form (`inArray`, a fixed number of queries whatever the count); the one-record functions become its one-id case. The PDF is streamed from the request, with no export job | Client choice over a 100-record cap. One-record loading cost ~1 s per MoU against Supabase (minutes for the full list); batch loading takes ~3 s for all 374. Making the single path the batch's one-id case means the record view and the bulk export cannot drift (verified identical on all 374 live MoUs) |
+| D150 | Bulk PDF layout | **The SPEC-23 §5 template once per record**, each record from a new page with its own header band; continuation pages carry that record's running header; one "Page x of y" across the file. Same filters, zone scope and order as `/api/search` (`parseSearchFilters`, `searchMous`) | The client asked for the same template; reusing the list's own query layer is what makes the PDF hold exactly the rows on screen |
+
+## 2026-10-21 — Payroll catalogue cleanup and bulk templates
+
+Client instruction, 2026-10-21. Amends SPEC-16 §2.6, SPEC-22 §3 and SPEC-23 §2.6.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D151 | The ten demo payroll deductions (Advance, Canteen Deduction, Course Registration Fee, Document Fee, Exam Fee, Insurance Deduction, Left Deduction, Shoes Deduction, Transportation Deduction, Uniform Deduction) | **Removed from the catalogue and deleted.** Migration `0016` deletes their `payroll_item` rows from every MOU (3,740 on live Supabase, backed up to JSON first) and rebuilds `payroll_item_key_chk` without them; the catalogue keeps 16 fixed keys plus `OTHER`, display order renumbered 1–17. `agreement_history` snapshots are left as they are — every reader walks the catalogue, so the old keys are simply not shown. The commercial charges of the same names (SPEC-01 §3) are untouched | Replaces the 2026-10-20 cleanup that set them to Not applicable. Deleting only the rows would not hold: the wizard lists every catalogue item and every save writes one row per fixed key, so they would come back on the next save |
+| D152 | PF / ESI / TDS and the bulk templates | **No PF, ESI or TDS column** in the bulk sheet; every row takes the D148 defaults (PF 12%, ESI 0.75%, TDS As applicable), and such a column in an older template is ignored. The PDF template is drawn with the record PDF's layout — YSF band with the logo, instructions, one table per section, repeated table headers, "Page x of y" — from a shared `db/pdf-layout.ts` | Client decision: the statutory rates are the same for nearly every company, so they are changed per MOU in Edit Agreement, as for the wizard (D148). One layout module keeps the two PDFs from drifting apart |
+
+## SPEC-25 — Add New Company: Form Alignment, Blank PDF Form and Excel Template
+
+Client instruction, 2026-10-21, with the client's UI screenshots. Full rules in
+`docs/specifications/SPEC-25-add-company-form-alignment.md`.
+
+| #    | Decision | Choice | Rationale |
+| ---- | -------- | ------ | --------- |
+| D153 | Commercial charge catalogue | **The 9 core charges** (Admin, Insurance, Shoes and Uniform, Supervisor, Sourcing, Education, Training, Assessment, One Time Registration Fees) plus Other. The 7 payroll-style deductions leave the catalogue, the charge dropdown and the templates; migration `0017` deletes their rows (none on live) and rebuilds the CHECK | The client did not want them on the form; no MOU used them |
+| D154 | Required marker in the templates | **"Imp / Yes"** for a required column, **"No"** for an optional one, in the Excel header note and Instructions sheet (and `*` on the blank PDF form, D159). `bulkRequiredLabel` in `@mou/domain` | Client wording |
+| D155 | Company emails | **`hr_email` and `finance_email`** (both NOT NULL) replace `official_email`; each has a Confirm box in the wizard. Migration `0018` copies the official email into both, `0019` drops it (two steps, so drizzle-kit never asks about a rename) | The client's UI asks HR and Finance separately |
+| D156 | Contact Type | **No longer asked.** `contact_type` becomes nullable (existing values kept); with no type each number is accepted as a mobile or a LAN number on its own | The client's UI has no Mobile / LAN choice, and HR and Finance numbers can differ in kind |
+| D157 | Tenure unit | **Months only**: "MoU Tenure (Months)", 1–120; a blank unit means Months, `YEARS` is refused. Migration `0018` restates Years tenures as months (`× 12`), which leaves the generated `end_date` unchanged. The `tenure_unit` column and enum stay for history | The client's UI asks months only; restating keeps one rule for every MOU |
+| D158 | Payroll items | **PF, ESI and TDS only.** The 13 remaining allowance / deduction items and the D108 insurance sub-model (3 columns, 4 CHECKs) are removed; Other payroll rows are refused. Migration `0018` deletes every other `payroll_item` row (4,862 on live, 1,099 of them Yes, backed up first). The `OTHER` key stays in the CHECK so the table's other CHECKs keep their shape | Client decision: the payroll step shows only trainee categories; PF / ESI / TDS keep their D148 defaults and are changed in Edit Agreement |
+| D159 | Bulk templates | **One column list in four sections** (Basic Information & Address, Contact Information, Commercial Details, Payroll Details) with the fields of SPEC-25 §6.1; Excel keeps one header row (one amount column per charge, one Trainee Categories cell). The PDF becomes a **blank hand-fillable form** in the record PDF's look - labelled blank cells two to a row, numbered 5-row tables for charges (Charge Name, Amount, Period, Basis) and trainee categories - from `blankFieldGrid` / `blankTable` in `db/pdf-layout.ts` | Client request: the PDF is filled by hand and typed into the Excel template later |
+

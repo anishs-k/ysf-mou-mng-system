@@ -348,8 +348,10 @@ function companyPage1(zoneId: string) {
     contactType: "MOBILE",
     hrContactNumber: "9876543210",
     financeHeadContactNumber: "9123456780",
-    officialEmail: "hr@gamma.example",
-    confirmEmail: "hr@gamma.example",
+    hrEmail: "hr@gamma.example",
+    financeEmail: "hr@gamma.example",
+    confirmHrEmail: "hr@gamma.example",
+    confirmFinanceEmail: "hr@gamma.example",
   };
 }
 

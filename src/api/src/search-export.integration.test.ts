@@ -628,3 +628,58 @@ test("the Expiry Report is the Excel export with status=EXPIRING, combinable wit
   });
   assert.equal(badFilter.status, 422);
 });
+
+// --- SPEC-24: the bulk record PDF of the Existing Companies list --------------------
+
+test("SPEC-24 the bulk record PDF downloads every MoU the list filters select, as one PDF", async () => {
+  const cookie = await viewerCookie();
+  await seedCompanyWithMou("Alpha Bulk Co");
+  await seedCompanyWithMou("Beta Bulk Co");
+
+  const response = await fetch(`${baseUrl}/api/export/records.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/pdf");
+  assert.match(response.headers.get("content-disposition") ?? "", /^attachment; filename="companies-\d{4}-\d{2}-\d{2}\.pdf"$/);
+  assert.equal(response.headers.get("x-record-count"), "2");
+  assert.equal(Buffer.from(await response.arrayBuffer()).subarray(0, 4).toString("latin1"), "%PDF");
+});
+
+test("SPEC-24 the bulk record PDF honours the same filters as the list", async () => {
+  const cookie = await viewerCookie();
+  await seedCompanyWithMou("Alpha Bulk Co", { scheme: "NAPS" });
+  await seedCompanyWithMou("Beta Bulk Co", { scheme: "WILP" });
+
+  const byScheme = await fetch(`${baseUrl}/api/export/records.pdf?scheme=NAPS`, { headers: { Cookie: cookie } });
+  assert.equal(byScheme.headers.get("x-record-count"), "1");
+  const byName = await fetch(`${baseUrl}/api/export/records.pdf?by=company&q=beta`, { headers: { Cookie: cookie } });
+  assert.equal(byName.headers.get("x-record-count"), "1");
+});
+
+test("SPEC-24 no matching MoU answers 422 instead of an empty PDF", async () => {
+  const cookie = await viewerCookie();
+  await seedCompanyWithMou("Alpha Bulk Co");
+  const response = await fetch(`${baseUrl}/api/export/records.pdf?by=company&q=zzzz`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 422);
+});
+
+test("SPEC-24 invalid filters are refused exactly as /search refuses them", async () => {
+  const cookie = await viewerCookie();
+  const response = await fetch(`${baseUrl}/api/export/records.pdf?by=company&q=a`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 422);
+});
+
+test("SPEC-24 a zonal user's bulk PDF holds only their zones' MoUs", async () => {
+  const first = await seedCompanyWithMou("Alpha Bulk Co");
+  await seedCompanyWithMou("Beta Bulk Co");
+  const { rows } = await pool.query<{ zone_id: string }>(`SELECT zone_id FROM company WHERE id = $1`, [first.companyId]);
+  const zonal = await insertUserWithPassword(pool, { username: "zonal-bulk", password: "pass", role: "VIEWER", zoneIds: [rows[0]?.zone_id ?? ""] });
+  const cookie = await login(zonal.username, zonal.password);
+
+  const response = await fetch(`${baseUrl}/api/export/records.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(response.headers.get("x-record-count"), "1");
+});
+
+test("SPEC-24 the bulk record PDF needs a session", async () => {
+  const response = await fetch(`${baseUrl}/api/export/records.pdf`);
+  assert.equal(response.status, 401);
+});

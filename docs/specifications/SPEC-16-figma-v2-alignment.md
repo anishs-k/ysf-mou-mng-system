@@ -17,6 +17,8 @@ Implementation not started.
 > need no work at all; the change is concentrated in `App.tsx`'s wizard, its
 > master data, and one new page.
 
+> **Amended 2026-10-21 by SPEC-25 (D158: the §2.6 catalogue is reduced to PF, ESI and TDS, and the D108 insurance sub-model is removed).**
+
 ---
 
 ## 0. Resolved decisions
@@ -155,21 +157,28 @@ Two new enumerable lists, applied to every `commercial_item` row including
 | 7 | `EDUCATION_ALLOWANCE` | Education Allowance | ALLOWANCE |
 | 8 | `INSURANCE` | Insurance | ALLOWANCE |
 | 9 | `ADMISSION_DEDUCTION` | Admission Deduction | DEDUCTION |
-| 10 | `ADVANCE` | Advance | DEDUCTION |
-| 11 | `CANTEEN_DEDUCTION` | Canteen Deduction | DEDUCTION |
+| 10 | ~~`ADVANCE`~~ | ~~Advance~~ — removed (D151) | DEDUCTION |
+| 11 | ~~`CANTEEN_DEDUCTION`~~ | ~~Canteen Deduction~~ — removed (D151) | DEDUCTION |
 | 12 | `COUPON_AMOUNT` | Coupon Amount | DEDUCTION |
-| 13 | `COURSE_REGISTRATION_FEE` | Course Registration Fee | DEDUCTION |
-| 14 | `DOCUMENT_FEE` | Document Fee | DEDUCTION |
+| 13 | ~~`COURSE_REGISTRATION_FEE`~~ | ~~Course Registration Fee~~ — removed (D151) | DEDUCTION |
+| 14 | ~~`DOCUMENT_FEE`~~ | ~~Document Fee~~ — removed (D151) | DEDUCTION |
 | 15 | `EDUCATION_FEE` | Education Fee | DEDUCTION |
-| 16 | `EXAM_FEE` | Exam Fee | DEDUCTION |
-| 17 | `INSURANCE_DEDUCTION` | Insurance Deduction | DEDUCTION |
+| 16 | ~~`EXAM_FEE`~~ | ~~Exam Fee~~ — removed (D151) | DEDUCTION |
+| 17 | ~~`INSURANCE_DEDUCTION`~~ | ~~Insurance Deduction~~ — removed (D151) | DEDUCTION |
 | 18 | `JOINING_FEE_DEDUCTION` | Joining Fee Deduction | DEDUCTION |
-| 19 | `LEFT_DEDUCTION` | Left Deduction | DEDUCTION |
-| 20 | `SHOES_DEDUCTION` | Shoes Deduction | DEDUCTION |
+| 19 | ~~`LEFT_DEDUCTION`~~ | ~~Left Deduction~~ — removed (D151) | DEDUCTION |
+| 20 | ~~`SHOES_DEDUCTION`~~ | ~~Shoes Deduction~~ — removed (D151) | DEDUCTION |
 | 21 | `SKILL_DIPLOMA_FEES` | Skill Diploma Fees | DEDUCTION |
-| 22 | `TRANSPORTATION_DEDUCTION` | Transportation Deduction | DEDUCTION |
-| 23 | `UNIFORM_DEDUCTION` | Uniform Deduction | DEDUCTION |
+| 22 | ~~`TRANSPORTATION_DEDUCTION`~~ | ~~Transportation Deduction~~ — removed (D151) | DEDUCTION |
+| 23 | ~~`UNIFORM_DEDUCTION`~~ | ~~Uniform Deduction~~ — removed (D151) | DEDUCTION |
 | 24 | `OTHER` | Other (custom label + amount) | user-selected |
+
+> **Amended 2026-10-21 (D151).** The ten struck-through deductions were demo items
+> and are removed from the catalogue; migration `0016` deletes their rows from every
+> MOU and rebuilds the `item_key` CHECK without them. With PF, ESI and TDS added by
+> SPEC-23 the catalogue now holds **16 fixed keys plus `OTHER`**, numbered 1–17 in
+> the order above (the `#` column here is historical). The struck rows also leave
+> the accepted duplication note below.
 
 23 fixed keys plus one shared `OTHER`. Every item answered No — or unchecked —
 still produces a row (§3.4). `INSURANCE` (8) is the only key that carries the
