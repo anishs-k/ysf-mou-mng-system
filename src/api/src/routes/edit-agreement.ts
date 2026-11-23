@@ -1,25 +1,30 @@
 /**
  * Purpose: SPEC-10's two endpoints - request an edit (reason, optional proof,
  * optional remark) and apply one (token + edited payload + loaded version).
- * ADMIN only (section 6). The token from the first endpoint is what makes an
- * edit with no recorded reason structurally impossible (section 7): a PUT
+ * Admin, HR and Finance (section 6, widened by SPEC-26). The token from the
+ * first endpoint is what makes an edit with no recorded reason structurally impossible (section 7): a PUT
  * without a valid, unconsumed token for this MOU is rejected outright.
  *
  * Re-validation reuses `validateCommercialDetails`/`validatePayrollDetails`
  * unchanged from SPEC-05/06 (section 4's "the same code path, not a second
- * copy"). Company identity, `generated_code` and the scheme are never part of
+ * copy"). SPEC-28 adds the company's HR and Finance contacts, checked by
+ * Page 1's own rules. Company identity, `generated_code` and the scheme are never part of
  * the editable payload this route reads from the client - the scheme is
  * always re-derived from the MOU's own current row, so sending a different
  * one has no effect (AC6).
  */
 
 import {
+  AGREEMENT_EDIT_ROLES,
+  COMPANY_CONTACT_FIELDS,
   EDIT_AGREEMENT_REASONS,
   validateCommercialDetails,
+  validateCompanyContacts,
   validatePayrollDetails,
 } from "@mou/domain";
 import type {
   CommercialDetails,
+  CompanyContacts,
   EditAgreementReason,
   OtherChargeRow,
   PayrollDetails,
@@ -48,6 +53,7 @@ import {
 import {
   agreementHistory,
   commercialItem,
+  company,
   mou,
   mouEditRequest,
   payrollConfig,
@@ -86,16 +92,36 @@ function readOtherItems(value: unknown): OtherChargeRow[] {
   });
 }
 
+/**
+ * SPEC-28: the HR and Finance contacts from the PUT body, trimmed. A client that
+ * sends no contacts (one built before SPEC-28) leaves them as they are.
+ */
+function readContacts(value: unknown, current: CompanyContacts): CompanyContacts {
+  if (value === undefined || value === null) return current;
+  const record = asRecord(value);
+  const contacts: Record<string, string> = {};
+  for (const field of COMPANY_CONTACT_FIELDS) {
+    const raw = record[field];
+    contacts[field] = raw === undefined || raw === null ? current[field] : String(raw).trim();
+  }
+  return contacts as CompanyContacts;
+}
+
+function sameContacts(a: CompanyContacts, b: CompanyContacts): boolean {
+  return COMPANY_CONTACT_FIELDS.every((field) => a[field] === b[field]);
+}
+
 export function createEditAgreementRouter(db: Database, pool: Pool): Router {
   const router = Router();
   const requireAuthSession = requireSession(pool);
-  const requireAdmin = requireRole("ADMIN");
+  /** SPEC-26: Admin, HR and Finance. */
+  const requireEditor = requireRole(...AGREEMENT_EDIT_ROLES);
 
   /** POST /api/mous/:mouId/edit-request — SPEC-10 section 7. */
   router.post(
     "/mous/:mouId/edit-request",
     requireAuthSession,
-    requireAdmin,
+    requireEditor,
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     (request: Request, response: Response, next: NextFunction) => {
       proofUpload.single("proof")(request, response, (error: unknown) => {
@@ -205,6 +231,7 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
         version: payload.version,
         commercial: payload.commercial,
         payroll: payload.payroll,
+        contacts: payload.contacts,
       });
     },
   );
@@ -213,7 +240,7 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
   router.put(
     "/mous/:mouId",
     requireAuthSession,
-    requireAdmin,
+    requireEditor,
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
@@ -349,6 +376,20 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
         return;
       }
 
+      // SPEC-28: the HR and Finance contacts, held to Page 1's own rules.
+      const contacts = readContacts(body["contacts"], current.contacts);
+      const contactErrors = validateCompanyContacts(contacts);
+      if (Object.keys(contactErrors).length > 0) {
+        response
+          .status(422)
+          .json({
+            error: "Contact details are not valid",
+            errors: contactErrors,
+          });
+        return;
+      }
+      const contactsUnchanged = sameContacts(contacts, current.contacts);
+
       const newCommercialRows = deriveCommercialItemRows(
         commercialDetails.charges,
         commercialDetails.otherItems,
@@ -379,6 +420,7 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
       // AC12: applying with nothing changed is rejected outright.
       if (
         scalarUnchanged &&
+        contactsUnchanged &&
         sameDerivedRows(newCommercialRows, currentCommercialRows) &&
         sameDerivedRows(newPayrollRows, currentPayrollRows) &&
         sameTraineeCategories(
@@ -432,9 +474,18 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
               scheme: current.scheme,
               commercial: current.commercial,
               payroll: current.payroll,
+              contacts: current.contacts,
             },
             editedBy: auth.userId,
           });
+
+          // SPEC-28: the contacts live on the company, so a change is written there.
+          if (!contactsUnchanged) {
+            await tx
+              .update(company)
+              .set({ ...contacts, updatedAt: new Date() })
+              .where(eq(company.id, current.companyId));
+          }
 
           await tx
             .delete(commercialItem)

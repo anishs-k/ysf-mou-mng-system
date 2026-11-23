@@ -237,7 +237,8 @@ export const ITEM_TYPE_LABELS: Readonly<Record<ItemType, string>> = {
 
 export const ITEM_TYPE_OPTIONS = toOptions(ITEM_TYPES, ITEM_TYPE_LABELS);
 
-export const USER_ROLES = ["ADMIN", "DATA_ENTRY", "VIEWER"] as const;
+/** SPEC-26 appends HR and FINANCE; a super admin assigns every role (SPEC-21). */
+export const USER_ROLES = ["ADMIN", "DATA_ENTRY", "VIEWER", "HR", "FINANCE"] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
 
@@ -245,9 +246,36 @@ export const USER_ROLE_LABELS: Readonly<Record<UserRole, string>> = {
   ADMIN: "Admin",
   DATA_ENTRY: "Data Entry",
   VIEWER: "Viewer",
+  HR: "HR",
+  FINANCE: "Finance",
 };
 
 export const USER_ROLE_OPTIONS = toOptions(USER_ROLES, USER_ROLE_LABELS);
+
+/**
+ * Roles that may create and change records - add companies, upload documents,
+ * acknowledge alerts. SPEC-26: HR and Finance do everything Data Entry does.
+ * One list, so the API guards and the UI cannot drift apart.
+ */
+export const AUTHORING_ROLES: readonly UserRole[] = ["ADMIN", "DATA_ENTRY", "HR", "FINANCE"];
+
+/** SPEC-26: Edit Agreement is open to Admin, HR and Finance - not Data Entry. */
+export const AGREEMENT_EDIT_ROLES: readonly UserRole[] = ["ADMIN", "HR", "FINANCE"];
+
+export function canAuthorRecords(role: UserRole): boolean {
+  return AUTHORING_ROLES.includes(role);
+}
+
+export function canEditAgreement(role: UserRole): boolean {
+  return AGREEMENT_EDIT_ROLES.includes(role);
+}
+
+/** SPEC-29: the HR & client contacts list is personal data - Admin, HR and Finance only. */
+export const CONTACT_EXPORT_ROLES: readonly UserRole[] = ["ADMIN", "HR", "FINANCE"];
+
+export function canExportContacts(role: UserRole): boolean {
+  return CONTACT_EXPORT_ROLES.includes(role);
+}
 
 /**
  * SPEC-16 D107. The industry sector of a company, captured third on wizard Page 1.

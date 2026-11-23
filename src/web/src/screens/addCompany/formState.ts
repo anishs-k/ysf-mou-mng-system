@@ -20,6 +20,11 @@ export interface CompanyForm extends CompanyDetails {
   readonly purchaseEmail: string;
   /** Checked in the browser only; never stored. */
   readonly purchaseEmailConfirm: string;
+  /** SPEC-27: optional POC and Decision Maker - always a string in the form, blank when not given. */
+  readonly pocName: string;
+  readonly pocNumber: string;
+  readonly decisionMakerName: string;
+  readonly decisionMakerNumber: string;
   /** Shown on step 1 as in the design, stored as page3.scheme. */
   readonly scheme: string;
 }
@@ -138,6 +143,10 @@ const EMPTY_COMPANY: CompanyForm = {
   purchaseNumber: "",
   purchaseEmail: "",
   purchaseEmailConfirm: "",
+  pocName: "",
+  pocNumber: "",
+  decisionMakerName: "",
+  decisionMakerNumber: "",
   scheme: "",
 };
 

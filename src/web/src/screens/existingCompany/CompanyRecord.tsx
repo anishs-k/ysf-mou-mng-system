@@ -30,7 +30,7 @@ import {
   fetchMouPayroll,
 } from "../../api/client.ts";
 import type { CompanyOverview, MouChargeRow, MouCommercialDetail, MouPayrollItemRow } from "../../api/client.ts";
-import { canAuthor } from "../../ui/access.ts";
+import { canAuthor, canEditAgreement } from "../../ui/access.ts";
 import { saveBlob } from "../../ui/download.ts";
 import {
   PENDING_FIGURE,
@@ -123,6 +123,8 @@ function overviewItems(overview: CompanyOverview, commercial: MouCommercialDetai
     { label: "Finance Head", value: joinPresent([overview.financeHeadContactName, overview.financeHeadContactNumber], " · ") },
     { label: "Finance Email", value: overview.financeEmail },
     { label: "Purchase Contact", value: joinPresent([overview.purchaseName, overview.purchaseNumber, overview.purchaseEmail], " · ") },
+    { label: "POC", value: joinPresent([overview.pocName, overview.pocNumber], " · ") },
+    { label: "Decision Maker", value: joinPresent([overview.decisionMakerName, overview.decisionMakerNumber], " · ") },
     {
       label: "Address",
       value: joinPresent(
@@ -204,6 +206,11 @@ export function CompanyRecord({ selection, onBack }: { readonly selection: Recor
             {user !== null && canAuthor(user.role) && (
               <Button variant="accent" size="sm" onClick={() => navigate(`/upload-mou?mouId=${selection.mouId}`)}>
                 <Icon name="upload" /> Upload MoU
+              </Button>
+            )}
+            {user !== null && canEditAgreement(user.role) && (
+              <Button variant="accent" size="sm" onClick={() => navigate(`/agreements/edit?mouId=${selection.mouId}`)}>
+                <Icon name="edit" /> Edit MoU
               </Button>
             )}
           </div>

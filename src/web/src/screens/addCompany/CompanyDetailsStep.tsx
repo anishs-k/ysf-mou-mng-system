@@ -2,7 +2,8 @@
  * Purpose: Wizard step 1 - Basic Information (scheme with its toggleable guideline
  * card, zone, sector, company identity and tax numbers), the Registered Address and
  * the contacts: HR, Finance Head and the optional Purchase contact, each with its
- * name, number and email (with a confirm box). D155 / D156: HR and Finance have
+ * name, number and email (with a confirm box), then the optional POC and Decision
+ * Maker, a name and a mobile each (SPEC-27). D155 / D156: HR and Finance have
  * their own emails, and there is no Mobile / LAN toggle - a number may be either.
  * Every option list comes from /api/enums and /api/zones.
  */
@@ -65,6 +66,11 @@ const CONTACT_FIELDS: readonly TextFieldSpec[] = [
   { key: "purchaseNumber", label: "Purchase Number", placeholder: "Enter purchase contact number", type: "tel" },
   { key: "purchaseEmail", label: "Purchase Email ID", placeholder: "purchase@company.com", type: "email" },
   { key: "purchaseEmailConfirm", label: "Confirm Purchase Email ID", placeholder: "purchase@company.com", type: "email", hint: "Must match Purchase Email ID" },
+  // SPEC-27: optional Point of Contact and Decision Maker, a name and a mobile each.
+  { key: "pocName", label: "POC Name", placeholder: "Point of contact name" },
+  { key: "pocNumber", label: "POC Number", placeholder: "10-digit mobile", type: "tel" },
+  { key: "decisionMakerName", label: "Decision Maker Name", placeholder: "Decision maker name" },
+  { key: "decisionMakerNumber", label: "Decision Maker Number", placeholder: "10-digit mobile", type: "tel" },
 ];
 
 interface CompanyDetailsStepProps {

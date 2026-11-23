@@ -6,25 +6,30 @@
  * last step submits it and shows the generated MoU code. A saved draft is offered
  * for resume on arrival. AppShell already refuses VIEWERs on this path. SPEC-22:
  * a Manual / Bulk switch on top; Bulk Upload hides the whole wizard for BulkUploadPanel.
+ * SPEC-30: on the first step, "Fill from Excel / Template" reads one filled template
+ * into the form for the user to review and save.
  */
 
 import { formatMoUDisplayCode } from "@mou/domain";
-import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 
 import type { Draft } from "../api/client.ts";
 import {
   ApiError,
   deleteDraft,
+  downloadBulkTemplate,
   fetchEnums,
   fetchZones,
   getDraft,
+  prefillCompanyFromFile,
   saveDraft,
   submitCompany,
   uploadMouDocument,
   validatePage1,
 } from "../api/client.ts";
+import { saveBlob } from "../ui/download.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Button } from "../ui/primitives.tsx";
@@ -33,7 +38,7 @@ import { BulkUploadPanel, EntryModeSwitch } from "./addCompany/BulkUploadPanel.t
 import { CommercialDetailsStep } from "./addCompany/CommercialDetailsStep.tsx";
 import { CompanyDetailsStep } from "./addCompany/CompanyDetailsStep.tsx";
 import type { CommercialForm, CompanyForm, WizardForm, WizardReference } from "./addCompany/formState.ts";
-import { NO_REFERENCE, emptyForm, fromDraftPayload, toDraftPayload, toPage1 } from "./addCompany/formState.ts";
+import { NO_REFERENCE, blankCategory, blankChargeRow, emptyForm, fromDraftPayload, toDraftPayload, toPage1 } from "./addCompany/formState.ts";
 import { PayrollStep } from "./addCompany/PayrollStep.tsx";
 import { RegisteredState } from "./addCompany/RegisteredState.tsx";
 import { ReviewStep } from "./addCompany/ReviewStep.tsx";
@@ -51,6 +56,64 @@ const BACK_BUTTON =
 const ALERT_CLASS = "rounded-lg px-4 py-3 mb-4 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]";
 
 const FIX_FIELDS = "Fix the highlighted fields to continue.";
+const NOTICE_CLASS = "rounded-lg px-4 py-3 mb-4 text-sm font-medium bg-[#DCFCE7] text-[#166534] border border-[#BBF7D0]";
+
+/**
+ * SPEC-30: fill the form from one filled template instead of typing it. Download
+ * gives the same Excel and PDF templates Bulk Upload uses; the upload only reads
+ * the file (nothing is saved) and the form is then reviewed and saved as usual.
+ */
+function FillFromTemplate({ onFile, reading, disabled }: { readonly onFile: (file: File) => void; readonly reading: boolean; readonly disabled: boolean }) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState("");
+
+  const download = () => {
+    setDownloading(true);
+    setError("");
+    Promise.all((["xlsx", "pdf"] as const).map((format) => downloadBulkTemplate(format).then((blob) => ({ format, blob }))))
+      .then((files) => files.forEach(({ format, blob }) => saveBlob(blob, `company-template.${format}`)))
+      .catch((downloadError: unknown) => setError(downloadError instanceof Error ? downloadError.message : "Could not download the template."))
+      .finally(() => setDownloading(false));
+  };
+
+  const pick = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Cleared so picking the same (corrected) file again still fires a change.
+    event.target.value = "";
+    if (file !== undefined) onFile(file);
+  };
+
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-muted/40 px-4 py-3 mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex-1">
+        <p className="text-sm font-semibold text-foreground">Fill from Excel / Template</p>
+        <p className="text-xs text-muted-foreground">
+          Fill one company in the Excel or PDF template and upload it - the form below fills in automatically. Check it, attach the MoU PDF and save.
+        </p>
+        {error !== "" && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      </div>
+      <div className="flex gap-2">
+        <button type="button" className={BACK_BUTTON} disabled={downloading} onClick={download}>
+          <Icon name="download" className="w-4 h-4" />
+          {downloading ? "Preparing…" : "Download Template"}
+        </button>
+        <Button size="sm" disabled={disabled || reading} onClick={() => fileInput.current?.click()}>
+          <Icon name="upload" className="w-4 h-4" />
+          {reading ? "Reading…" : "Upload Filled Template"}
+        </Button>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".xlsx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          aria-label="Filled company template"
+          onChange={pick}
+        />
+      </div>
+    </div>
+  );
+}
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const NO_COMMERCIAL_ERRORS = { fields: {}, rows: {} } as const;
@@ -111,6 +174,8 @@ export function AddCompanyScreen() {
   const [banner, setBanner] = useState<string | null>(null);
   const [savedCode, setSavedCode] = useState<string | null>(null);
   const [mode, setMode] = useState<EntryMode>("manual");
+  const [reading, setReading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +332,31 @@ export function AddCompanyScreen() {
     setPendingDraft(null);
   }
 
+  /** SPEC-30: replaces the form with the file's values; an already uploaded MoU PDF is kept. */
+  function fillFromFile(file: File) {
+    setReading(true);
+    setBanner(null);
+    setNotice(null);
+    prefillCompanyFromFile(file)
+      .then(({ payload, rowCount }) => {
+        const filled = fromDraftPayload(payload, reference.enums.commercialItems.map((item) => item.key));
+        setForm((current) => ({
+          company: filled.company,
+          commercial: { ...filled.commercial, mouDocument: current.commercial.mouDocument },
+          charges: filled.charges.length > 0 ? filled.charges : [blankChargeRow()],
+          categories: filled.categories.length > 0 ? filled.categories : [blankCategory()],
+        }));
+        setStep(0);
+        setAttempted(NOT_ATTEMPTED);
+        setServerErrors({});
+        setServerWarnings({});
+        const extra = rowCount > 1 ? ` The file has ${rowCount} companies - only the first was used; use Bulk Upload for several.` : "";
+        setNotice(`Filled from ${file.name}. Check every step, fill anything left blank, attach the MoU PDF and save.${extra}`);
+      })
+      .catch((readError: unknown) => setBanner(messageOf(readError, "Could not read the file")))
+      .finally(() => setReading(false));
+  }
+
   function discard() {
     if (pendingDraft !== null) void deleteDraft(pendingDraft.id).catch(() => undefined);
     setPendingDraft(null);
@@ -281,6 +371,7 @@ export function AddCompanyScreen() {
     setServerWarnings({});
     setUploadError(null);
     setBanner(null);
+    setNotice(null);
     setSavedCode(null);
   }
 
@@ -310,7 +401,13 @@ export function AddCompanyScreen() {
       {pendingDraft !== null && (
         <ResumeDraftBanner onResume={resume} onDiscard={discard} disabled={reference === NO_REFERENCE} />
       )}
+      {step === 0 && <FillFromTemplate onFile={fillFromFile} reading={reading} disabled={reference === NO_REFERENCE || busy} />}
       <Stepper steps={STEPS} current={step} />
+      {notice !== null && (
+        <div role="status" className={NOTICE_CLASS}>
+          {notice}
+        </div>
+      )}
       {banner !== null && (
         <div role="alert" className={ALERT_CLASS}>
           {banner}

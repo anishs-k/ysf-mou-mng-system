@@ -6,7 +6,7 @@
  * that a certificate may be a PDF, JPEG or PNG, proved by its first bytes.
  */
 
-import { COMPANY_DOCUMENT_TYPES } from "@mou/domain";
+import { AUTHORING_ROLES, COMPANY_DOCUMENT_TYPES } from "@mou/domain";
 import type { CompanyDocumentType } from "@mou/domain";
 import { and, desc, eq } from "drizzle-orm";
 import { Router } from "express";
@@ -57,7 +57,7 @@ function receiveFile(request: Request, response: Response, next: NextFunction): 
 export function createCompanyDocumentsRouter(db: Database, pool: Pool): Router {
   const router = Router();
   const requireAuthSession = requireSession(pool);
-  const requireAuthoring = requireRole("ADMIN", "DATA_ENTRY");
+  const requireAuthoring = requireRole(...AUTHORING_ROLES);
 
   /** GET /api/companies/:id/documents — newest first. */
   router.get(

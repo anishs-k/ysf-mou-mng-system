@@ -8,8 +8,13 @@
  * reads them, and imports every row or none (D139), answering 400 for files that
  * are not the template, 422 with row / column / file errors, or 201 with each new
  * MoU code. Authoring roles only (SPEC-02 §3.3), checked before files are buffered.
+ * SPEC-30 adds POST /companies/bulk/prefill: one filled template (Excel or the
+ * fillable PDF) read into the wizard's draft pages, saving nothing, so the Add New
+ * Company form can be filled from it and reviewed before the usual save.
  */
 
+import { AUTHORING_ROLES, bulkRowToPrefill, formFieldsToBulkRow } from "@mou/domain";
+import type { ChargeMeta } from "@mou/domain";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
@@ -17,9 +22,10 @@ import multer from "multer";
 import type { Pool } from "pg";
 
 import { requireAuth, requireRole, requireSession } from "../auth/middleware.ts";
-import { zoneScopeOf } from "../auth/zone-scope.ts";
+import { zoneAllowed, zoneScopeOf } from "../auth/zone-scope.ts";
 import {
   BULK_MAX_MOU_PDFS,
+  MAX_BULK_SHEET_BYTES,
   buildBulkTemplatePdf,
   buildBulkTemplateWorkbook,
   readBulkSheet,
@@ -61,6 +67,25 @@ function receiveFiles(request: Request, response: Response, next: NextFunction):
   });
 }
 
+/** SPEC-30: the one filled template a prefill reads. */
+const prefillUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_UPLOAD_FILE_BYTES, files: 1 } });
+
+function receivePrefillFile(request: Request, response: Response, next: NextFunction): void {
+  prefillUpload.single("file")(request, response, (error: unknown) => {
+    if (error === undefined || error === null) {
+      next();
+      return;
+    }
+    const code = typeof error === "object" ? (error as { code?: string }).code : undefined;
+    response.status(400).json({
+      error: code === "LIMIT_FILE_SIZE" ? "The file must be 10 MB or smaller" : "Upload one filled template (.xlsx or .pdf)",
+    });
+  });
+}
+
+const isPdfFile = (file: Express.Multer.File): boolean =>
+  file.mimetype === "application/pdf" || file.originalname.toLowerCase().endsWith(".pdf");
+
 function uploadedFiles(request: Request): Express.Multer.File[] {
   const fields = (request.files ?? {}) as Record<string, Express.Multer.File[] | undefined>;
   return [...(fields["file"] ?? []), ...(fields["files"] ?? [])];
@@ -68,7 +93,7 @@ function uploadedFiles(request: Request): Express.Multer.File[] {
 
 export function createBulkCompaniesRouter(db: Database, pool: Pool): Router {
   const router = Router();
-  const requireAuthoring = [requireSession(pool), requireRole("ADMIN", "DATA_ENTRY")];
+  const requireAuthoring = [requireSession(pool), requireRole(...AUTHORING_ROLES)];
 
   /** GET /api/companies/bulk/template?format=xlsx|pdf */
   router.get("/companies/bulk/template", ...requireAuthoring, async (request: Request, response: Response) => {
@@ -93,6 +118,57 @@ export function createBulkCompaniesRouter(db: Database, pool: Pool): Router {
   });
 
   /** POST /api/companies/bulk — multipart `files` (or `file`): the filled Excel template plus any MoU PDFs. */
+  /**
+   * POST /api/companies/bulk/prefill — SPEC-30: one filled template (field `file`)
+   * read into {page1, page2, page3} for the Add New Company form. Saves nothing;
+   * an Excel file with several rows gives its first, and rowCount says how many.
+   */
+  router.post("/companies/bulk/prefill", ...requireAuthoring, receivePrefillFile, async (request: Request, response: Response) => {
+    const file = request.file;
+    if (file === undefined) {
+      response.status(400).json({ error: "Choose the filled Excel or PDF template" });
+      return;
+    }
+
+    let cells: Readonly<Record<string, string>>;
+    let chargeMeta: Readonly<Record<string, ChargeMeta>> = {};
+    let rowCount = 1;
+    if (isPdfFile(file)) {
+      const form = await readMouPdfForm(file.buffer);
+      if (form === undefined) {
+        response.status(400).json({ error: "This PDF is not a filled Add New Company template. Download the PDF template, fill it and upload it again." });
+        return;
+      }
+      const row = formFieldsToBulkRow(form);
+      cells = row.cells;
+      chargeMeta = row.chargeMeta;
+    } else {
+      if (file.size > MAX_BULK_SHEET_BYTES) {
+        response.status(400).json({ error: "The Excel file must be 5 MB or smaller" });
+        return;
+      }
+      const sheet = await readBulkSheet(file.buffer);
+      if (!sheet.ok) {
+        response.status(400).json({ error: sheet.error });
+        return;
+      }
+      const [first] = sheet.rows;
+      if (first === undefined) {
+        response.status(400).json({ error: "The sheet has no company rows." });
+        return;
+      }
+      cells = first.cells;
+      rowCount = sheet.rows.length;
+    }
+
+    // Only the uploader's own zones can be pre-selected; any other is left to choose.
+    const scope = zoneScopeOf(request);
+    const zones = (await db.select({ id: zone.id, code: zone.code, name: zone.name }).from(zone).where(eq(zone.isActive, true))).filter(
+      (candidate) => zoneAllowed(scope, candidate.id),
+    );
+    response.json({ payload: bulkRowToPrefill(cells, zones, chargeMeta), rowCount });
+  });
+
   router.post("/companies/bulk", ...requireAuthoring, receiveFiles, async (request: Request, response: Response) => {
     const auth = requireAuth(request);
     const files = uploadedFiles(request);

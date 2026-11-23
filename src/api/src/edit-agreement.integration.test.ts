@@ -13,6 +13,7 @@ import { once } from "node:events";
 import type { Server } from "node:http";
 
 import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "@mou/domain";
+import type { UserRole } from "@mou/domain";
 import type { Pool } from "pg";
 
 import { createApp } from "./index.ts";
@@ -75,7 +76,7 @@ async function login(username: string, password: string): Promise<string> {
 /** SPEC-23's three keys - the rows an MOU saved before D142 never got. */
 const SPEC_23_KEYS = ["PF", "ESI", "TDS"];
 
-async function setupMou(role: "ADMIN" | "DATA_ENTRY" | "VIEWER" = "ADMIN", savedBeforeSpec23 = false) {
+async function setupMou(role: UserRole = "ADMIN", savedBeforeSpec23 = false) {
   const zoneId = await insertZone(pool);
   const creator = await insertUserWithPassword(pool, { username: "creator", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, creator.id);
@@ -289,6 +290,71 @@ test("AC11 two users loading the same MOU: the second Apply receives the stale-v
 
   const { rows } = await pool.query<{ tenure_value: number }>(`SELECT tenure_value FROM mou WHERE id = $1`, [mouId]);
   assert.equal(rows[0]?.tenure_value, 24);
+});
+
+for (const role of ["HR", "FINANCE"] as const) {
+  test(`SPEC-26 a ${role} user may request and apply an edit`, async () => {
+    const { mouId, cookie } = await setupMou(role);
+    const edit = await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT");
+    assert.equal(edit.status, 201);
+    const body = (await edit.json()) as { token: string; version: number } & EditablePayload;
+    const apply = await applyEdit(mouId, cookie, body.token, body.version, { ...body.commercial, tenureValue: "36" }, body.payroll);
+    assert.equal(apply.status, 200);
+  });
+}
+
+async function putWithContacts(mouId: string, cookie: string, contacts: Record<string, string>): Promise<Response> {
+  const edit = await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT");
+  const body = (await edit.json()) as { token: string; version: number; contacts: Record<string, string> } & EditablePayload;
+  return fetch(`${baseUrl}/api/mous/${mouId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ token: body.token, version: body.version, commercial: body.commercial, payroll: body.payroll, contacts: { ...body.contacts, ...contacts } }),
+  });
+}
+
+test("SPEC-28 the edit request returns the company's HR and Finance contacts", async () => {
+  const { mouId, cookie } = await setupMou("HR");
+  const body = (await (await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT")).json()) as { contacts: Record<string, string> };
+  for (const field of ["hrContactName", "hrContactNumber", "hrEmail", "financeHeadContactName", "financeHeadContactNumber", "financeEmail"]) {
+    assert.equal(typeof body.contacts[field], "string", field);
+  }
+});
+
+test("SPEC-28 a contact-only edit updates the company and snapshots the old contacts", async () => {
+  const { mouId, cookie } = await setupMou("FINANCE");
+  const before = (await pool.query<{ hr_contact_name: string }>(
+    `SELECT c.hr_contact_name FROM company c JOIN mou m ON m.company_id = c.id WHERE m.id = $1`,
+    [mouId],
+  )).rows[0];
+  const response = await putWithContacts(mouId, cookie, { hrContactName: "Neha Joshi", financeEmail: "accounts@acme.example" });
+  assert.equal(response.status, 200);
+  const after = (await pool.query<{ hr_contact_name: string; finance_email: string }>(
+    `SELECT c.hr_contact_name, c.finance_email FROM company c JOIN mou m ON m.company_id = c.id WHERE m.id = $1`,
+    [mouId],
+  )).rows[0];
+  assert.equal(after?.hr_contact_name, "Neha Joshi");
+  assert.equal(after?.finance_email, "accounts@acme.example");
+  const history = (await pool.query<{ snapshot: { contacts?: Record<string, string> } }>(
+    `SELECT snapshot FROM agreement_history WHERE mou_id = $1`,
+    [mouId],
+  )).rows[0];
+  assert.equal(history?.snapshot.contacts?.["hrContactName"], before?.hr_contact_name);
+});
+
+test("SPEC-28 an invalid contact is refused with 422 and changes nothing", async () => {
+  const { mouId, cookie } = await setupMou("HR");
+  const response = await putWithContacts(mouId, cookie, { hrEmail: "not-an-email" });
+  assert.equal(response.status, 422);
+  const body = (await response.json()) as { errors: Record<string, string> };
+  assert.equal(body.errors["hrEmail"], "Enter a valid email address");
+});
+
+test("SPEC-26 a VIEWER user calling either endpoint receives 403", async () => {
+  const { mouId, cookie } = await setupMou("VIEWER");
+  assert.equal((await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT")).status, 403);
+  const putResponse = await applyEdit(mouId, cookie, "00000000-0000-0000-0000-000000000000", 1, {}, {});
+  assert.equal(putResponse.status, 403);
 });
 
 test("AC13 a DATA_ENTRY user calling either endpoint receives 403", async () => {

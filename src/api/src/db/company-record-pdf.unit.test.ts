@@ -56,6 +56,10 @@ function record(overrides: Partial<CompanyRecord> = {}): CompanyRecord {
       purchaseName: null,
       purchaseNumber: null,
       purchaseEmail: null,
+      pocName: "Rahul Sharma",
+      pocNumber: "9876512345",
+      decisionMakerName: null,
+      decisionMakerNumber: null,
       plants: [{ id: "p1", plantName: "Chakan Plant" }],
     },
     commercial: {
@@ -115,6 +119,12 @@ async function render(overrides: Partial<CompanyRecord> = {}, logo?: Buffer) {
 test("the record renders as a PDF", async () => {
   const { pdf } = await render();
   assert.equal(pdf.subarray(0, 4).toString("latin1"), "%PDF");
+});
+
+test("SPEC-27 the overview lists the POC with its name and number", async () => {
+  const { lines } = await render();
+  assert.ok(lines.includes("POC"), "POC label missing");
+  assert.ok(lines.includes("Rahul Sharma · 9876512345"));
 });
 
 test("AC8 the header carries the company name, zone and MoU code", async () => {

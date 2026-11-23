@@ -45,6 +45,13 @@ import {
   SECTOR_OPTIONS,
   TENURE_UNIT_OPTIONS,
   USER_ROLE_OPTIONS,
+  USER_ROLES,
+  AGREEMENT_EDIT_ROLES,
+  AUTHORING_ROLES,
+  canAuthorRecords,
+  canEditAgreement,
+  canExportContacts,
+  CONTACT_EXPORT_ROLES,
 } from "./enums.ts";
 import type { EnumOption } from "./enums.ts";
 
@@ -216,7 +223,7 @@ test("AC4 every reference list is served with a label for each value", () => {
     { options: SCHEME_OPTIONS, size: 7 },
     { options: TENURE_UNIT_OPTIONS, size: 2 },
     { options: ITEM_TYPE_OPTIONS, size: 2 },
-    { options: USER_ROLE_OPTIONS, size: 3 },
+    { options: USER_ROLE_OPTIONS, size: 5 },
     { options: MOU_STATUS_OPTIONS, size: 3 },
     { options: CONTACT_TYPE_OPTIONS, size: 2 },
     { options: REGISTRATION_TYPE_OPTIONS, size: 10 },
@@ -326,4 +333,30 @@ test("the aggregate served by /api/enums covers all twelve reference lists", () 
   assert.equal(ENUM_SETS.companyTypes, COMPANY_TYPE_OPTIONS);
   assert.equal(ENUM_SETS.schemes, SCHEME_OPTIONS);
   assert.equal(ENUM_SETS.sectors, SECTOR_OPTIONS);
+});
+
+test("SPEC-26 adds the HR and Finance roles, labelled for the user form", () => {
+  assert.deepEqual([...USER_ROLES], ["ADMIN", "DATA_ENTRY", "VIEWER", "HR", "FINANCE"]);
+  const labels = Object.fromEntries(USER_ROLE_OPTIONS.map((option) => [option.value, option.label]));
+  assert.equal(labels["HR"], "HR");
+  assert.equal(labels["FINANCE"], "Finance");
+});
+
+test("SPEC-26 HR and Finance author records like Data Entry; a Viewer does not", () => {
+  assert.deepEqual([...AUTHORING_ROLES], ["ADMIN", "DATA_ENTRY", "HR", "FINANCE"]);
+  for (const role of USER_ROLES) assert.equal(canAuthorRecords(role), role !== "VIEWER", role);
+});
+
+test("SPEC-26 only Admin, HR and Finance may edit an agreement", () => {
+  assert.deepEqual([...AGREEMENT_EDIT_ROLES], ["ADMIN", "HR", "FINANCE"]);
+  for (const role of USER_ROLES) {
+    assert.equal(canEditAgreement(role), role === "ADMIN" || role === "HR" || role === "FINANCE", role);
+  }
+});
+
+test("SPEC-29 only Admin, HR and Finance may export the contacts list", () => {
+  assert.deepEqual([...CONTACT_EXPORT_ROLES], ["ADMIN", "HR", "FINANCE"]);
+  for (const role of USER_ROLES) {
+    assert.equal(canExportContacts(role), role === "ADMIN" || role === "HR" || role === "FINANCE", role);
+  }
 });

@@ -483,6 +483,11 @@ export interface CompanyOverview {
   readonly purchaseName: string | null;
   readonly purchaseNumber: string | null;
   readonly purchaseEmail: string | null;
+  /** SPEC-27: optional POC and Decision Maker. */
+  readonly pocName: string | null;
+  readonly pocNumber: string | null;
+  readonly decisionMakerName: string | null;
+  readonly decisionMakerNumber: string | null;
   readonly plants: readonly {
     readonly id: string;
     readonly plantName: string;
@@ -931,11 +936,22 @@ export interface EditablePayroll {
   readonly otherItems: EditableOtherItem[];
 }
 
+/** SPEC-28: the company's HR and Finance contacts, editable with the agreement. */
+export interface EditableContacts {
+  readonly hrContactName: string;
+  readonly hrContactNumber: string;
+  readonly hrEmail: string;
+  readonly financeHeadContactName: string;
+  readonly financeHeadContactNumber: string;
+  readonly financeEmail: string;
+}
+
 export interface EditTokenResponse {
   readonly token: string;
   readonly version: number;
   readonly commercial: EditableCommercial;
   readonly payroll: EditablePayroll;
+  readonly contacts: EditableContacts;
 }
 
 /**
@@ -995,10 +1011,12 @@ export async function applyEdit(
   version: number,
   commercial: EditableCommercial,
   payroll: EditablePayroll,
+  /** SPEC-28: omitted, the contacts stay as they are. */
+  contacts?: EditableContacts,
 ): Promise<ApplyEditResult> {
   const response = await request(`/api/mous/${mouId}`, {
     method: "PUT",
-    body: JSON.stringify({ token, version, commercial, payroll }),
+    body: JSON.stringify({ token, version, commercial, payroll, contacts }),
   });
   const body = (await response.json().catch(() => ({}))) as {
     version?: number;
@@ -1333,6 +1351,50 @@ export async function startExcelExport(
     throw new Error(
       body.error ??
         `GET /api/export/excel failed with status ${response.status}`,
+    );
+  }
+  return (await response.json()) as ExportJobStatus;
+}
+
+export interface CompanyPrefill {
+  readonly payload: Draft["payload"];
+  /** How many company rows the file had; only the first is used. */
+  readonly rowCount: number;
+}
+
+/**
+ * SPEC-30: reads one filled template (.xlsx or the fillable .pdf) into the wizard's
+ * draft pages. Saves nothing. Throws with the server's message for a wrong file.
+ */
+export async function prefillCompanyFromFile(file: File): Promise<CompanyPrefill> {
+  const body = new FormData();
+  body.append("file", file);
+  const response = await apiFetch("/api/companies/bulk/prefill", {
+    method: "POST",
+    credentials: "include",
+    body,
+  });
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errorBody.error ?? `Reading the file failed with status ${response.status}`);
+  }
+  return (await response.json()) as CompanyPrefill;
+}
+
+/** SPEC-29: the HR & client contacts Excel for the given filters (Admin, HR, Finance). */
+export async function startContactsExport(
+  filters: SearchFilters,
+): Promise<ExportJobStatus> {
+  const response = await request(
+    `/api/export/contacts${searchFilterQuery(filters)}`,
+  );
+  if (!response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(
+      body.error ??
+        `GET /api/export/contacts failed with status ${response.status}`,
     );
   }
   return (await response.json()) as ExportJobStatus;

@@ -11,6 +11,8 @@
 
 import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY } from "./commercial-items.ts";
 import type { CommercialDetails } from "./commercial-details-validation.ts";
+import { COMPANY_CONTACT_FIELDS } from "./company-details-validation.ts";
+import type { CompanyContactField, CompanyContacts } from "./company-details-validation.ts";
 import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY } from "./payroll-items.ts";
 import type { PayrollDetails } from "./payroll-details-validation.ts";
 import { payrollAnswerText } from "./payroll-value.ts";
@@ -18,7 +20,19 @@ import { payrollAnswerText } from "./payroll-value.ts";
 export interface AgreementSnapshot {
   readonly commercial: CommercialDetails;
   readonly payroll: PayrollDetails;
+  /** SPEC-28: the company's HR and Finance contacts; absent in a snapshot saved before they were editable. */
+  readonly contacts?: CompanyContacts;
 }
+
+/** SPEC-28: the labels the diff shows for each contact field, as on the company form. */
+const CONTACT_LABELS: Readonly<Record<CompanyContactField, string>> = {
+  hrContactName: "HR Contact Name",
+  hrContactNumber: "HR Contact Number",
+  hrEmail: "HR Email",
+  financeHeadContactName: "Finance Head Name",
+  financeHeadContactNumber: "Finance Head Contact",
+  financeEmail: "Finance Email",
+};
 
 export interface DiffRow {
   readonly field: string;
@@ -49,6 +63,14 @@ function row(field: string, oldValue: string, newValue: string): DiffRow {
 /** Every field of both snapshots, each row flagged `changed` - AC6/AC7. */
 export function computeAgreementDiff(before: AgreementSnapshot, after: AgreementSnapshot): DiffRow[] {
   const rows: DiffRow[] = [];
+
+  // SPEC-28: contacts are compared only when both sides recorded them - an older
+  // snapshot never did, and listing its blanks as changes would be false history.
+  if (before.contacts !== undefined && after.contacts !== undefined) {
+    for (const field of COMPANY_CONTACT_FIELDS) {
+      rows.push(row(CONTACT_LABELS[field], before.contacts[field], after.contacts[field]));
+    }
+  }
 
   rows.push(row("MOU Start Date", before.commercial.mouStartDate, after.commercial.mouStartDate));
   rows.push(

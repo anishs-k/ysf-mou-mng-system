@@ -22,11 +22,11 @@ import {
   PAYROLL_ITEM_BY_KEY,
   withStatutoryDefaults,
 } from "@mou/domain";
-import type { CommercialDetails, OtherChargeRow, PayrollDetails, PayrollItemAnswer } from "@mou/domain";
+import type { CommercialDetails, CompanyContacts, OtherChargeRow, PayrollDetails, PayrollItemAnswer } from "@mou/domain";
 import { asc, eq } from "drizzle-orm";
 
 import type { Database } from "./client.ts";
-import { commercialItem, mou, payrollConfig, payrollItem, traineeCategory } from "./schema.ts";
+import { commercialItem, company, mou, payrollConfig, payrollItem, traineeCategory } from "./schema.ts";
 
 function firstRow<T>(rows: T[]): T | undefined {
   return rows[0];
@@ -37,6 +37,9 @@ export interface EditableMouPayload {
   readonly scheme: string;
   readonly commercial: CommercialDetails;
   readonly payroll: PayrollDetails;
+  /** SPEC-28: the company the MOU belongs to, and its HR and Finance contacts an edit may change. */
+  readonly companyId: string;
+  readonly contacts: CompanyContacts;
 }
 
 /** SPEC-10 section 7: the payload a PUT edits, in exactly the shape SPEC-05/06's own validators expect. */
@@ -50,8 +53,16 @@ export async function fetchEditablePayload(db: Database, mouId: string): Promise
       attendanceCycle: mou.attendanceCycle,
       stipendDate: mou.stipendDate,
       version: mou.version,
+      companyId: mou.companyId,
+      hrContactName: company.hrContactName,
+      hrContactNumber: company.hrContactNumber,
+      hrEmail: company.hrEmail,
+      financeHeadContactName: company.financeHeadContactName,
+      financeHeadContactNumber: company.financeHeadContactNumber,
+      financeEmail: company.financeEmail,
     })
     .from(mou)
+    .innerJoin(company, eq(company.id, mou.companyId))
     .where(eq(mou.id, mouId));
   const mouRow = firstRow(mouRows);
   if (mouRow === undefined) {
@@ -121,6 +132,15 @@ export async function fetchEditablePayload(db: Database, mouId: string): Promise
   return {
     version: mouRow.version,
     scheme: mouRow.scheme,
+    companyId: mouRow.companyId,
+    contacts: {
+      hrContactName: mouRow.hrContactName,
+      hrContactNumber: mouRow.hrContactNumber,
+      hrEmail: mouRow.hrEmail,
+      financeHeadContactName: mouRow.financeHeadContactName,
+      financeHeadContactNumber: mouRow.financeHeadContactNumber,
+      financeEmail: mouRow.financeEmail,
+    },
     commercial: {
       mouStartDate: mouRow.mouStartDate,
       tenureValue: String(mouRow.tenureValue),

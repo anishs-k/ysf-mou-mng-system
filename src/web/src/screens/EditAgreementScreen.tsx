@@ -1,7 +1,8 @@
 /**
- * Purpose: The Edit Agreement screen (ADMIN only; AppShell guards the route). A
- * zone -> company -> plant -> scheme cascade of real ids (each select appears once
- * the previous one is chosen) and OK open the agreement: a summary strip from the
+ * Purpose: The Edit Agreement screen (Admin, HR and Finance - SPEC-26; AppShell
+ * guards the route). A zone -> company -> plant -> scheme cascade of real ids (each
+ * select appears once the previous one is chosen) and OK open the agreement, or a
+ * ?mouId= deep link (the record view's Edit MoU button) opens it directly: a summary strip from the
  * MoU's commercial detail and history version, the SPEC-10 reason gate (proof
  * required only for Communication from HR) that fetches the edit token as soon as
  * the reason and any required proof are chosen, the previous/new value tabs
@@ -15,18 +16,27 @@ import {
   EDIT_AGREEMENT_REASON_OPTIONS,
   computeAgreementDiff,
   validateCommercialDetails,
+  validateCompanyContacts,
   validatePayrollDetails,
 } from "@mou/domain";
-import type { CommercialDetailErrors, EditAgreementReason, PayrollDetailErrors } from "@mou/domain";
+import type { CommercialDetailErrors, CompanyContactErrors, EditAgreementReason, PayrollDetailErrors } from "@mou/domain";
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
-import { applyEdit, fetchAgreementHistory, fetchEnums, fetchMouCommercial, requestEditToken } from "../api/client.ts";
+import {
+  applyEdit,
+  fetchAgreementHistory,
+  fetchCompanyOverview,
+  fetchEnums,
+  fetchMouCommercial,
+  requestEditToken,
+} from "../api/client.ts";
 import type {
   CommercialItemOption,
   EditTokenResponse,
   EditableCommercial,
+  EditableContacts,
   EditablePayroll,
   EnumOption,
   MouCommercialDetail,
@@ -131,6 +141,8 @@ interface EditDraft {
   readonly version: number;
   readonly commercial: EditableCommercial;
   readonly payroll: EditablePayroll;
+  /** SPEC-28; absent in a draft saved before contacts were editable. */
+  readonly contacts?: EditableContacts;
 }
 
 const draftKey = (mouId: string): string => `mou-edit-draft:${mouId}`;
@@ -176,6 +188,8 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
   const [edit, setEdit] = useState<EditTokenResponse | null>(null);
   const [commercial, setCommercial] = useState<EditableCommercial | null>(null);
   const [payroll, setPayroll] = useState<EditablePayroll | null>(null);
+  const [contacts, setContacts] = useState<EditableContacts | null>(null);
+  const [contactErrors, setContactErrors] = useState<CompanyContactErrors>({});
   const [commercialErrors, setCommercialErrors] = useState<CommercialDetailErrors>({});
   const [payrollErrors, setPayrollErrors] = useState<PayrollDetailErrors>({});
   const [tab, setTab] = useState<Tab>("Company Details");
@@ -213,8 +227,11 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
   const proofRequired = reason === "COMMUNICATION_FROM_HR";
   const reasonLabel = reason === null ? PENDING_FIGURE : EDIT_AGREEMENT_REASON_LABELS[reason];
   const changes =
-    edit !== null && commercial !== null && payroll !== null
-      ? computeAgreementDiff({ commercial: edit.commercial, payroll: edit.payroll }, { commercial, payroll }).filter((row) => row.changed)
+    edit !== null && commercial !== null && payroll !== null && contacts !== null
+      ? computeAgreementDiff(
+          { commercial: edit.commercial, payroll: edit.payroll, contacts: edit.contacts },
+          { commercial, payroll, contacts },
+        ).filter((row) => row.changed)
       : [];
 
   // The reason gate with no Start Editing step: once the reason (and, for
@@ -238,6 +255,7 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
           const draft = loadDraft(mouId, response.version);
           setCommercial(draft?.commercial ?? response.commercial);
           setPayroll(draft?.payroll ?? response.payroll);
+          setContacts(draft?.contacts ?? response.contacts);
           setDraftSaved(draft !== null);
           editedVersion.current = response.version;
         }
@@ -272,23 +290,30 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
     setPayroll(value);
     setDraftSaved(false);
   };
+  const editContacts = (value: EditableContacts) => {
+    setContacts(value);
+    setDraftSaved(false);
+  };
 
   const keepDraft = () => {
-    if (edit === null || commercial === null || payroll === null) return;
-    if (saveDraft(mouId, { version: edit.version, commercial, payroll })) setDraftSaved(true);
+    if (edit === null || commercial === null || payroll === null || contacts === null) return;
+    if (saveDraft(mouId, { version: edit.version, commercial, payroll, contacts })) setDraftSaved(true);
     else setError("Could not save the draft in this browser.");
   };
 
   /** Runs the domain rules; on failure shows the first tab with an error. */
   const validate = (): boolean => {
-    if (commercial === null || payroll === null) return false;
+    if (commercial === null || payroll === null || contacts === null) return false;
+    const contactResult = validateCompanyContacts(contacts);
     const commercialResult = validateCommercialDetails(commercial, todayIso());
     const payrollResult = validatePayrollDetails(payroll);
+    setContactErrors(contactResult);
     setCommercialErrors(commercialResult.errors);
     setPayrollErrors(payrollResult.errors);
-    if (hasErrors(commercialResult.errors)) setTab("Commercial Details");
+    if (hasErrors(contactResult)) setTab("Company Details");
+    else if (hasErrors(commercialResult.errors)) setTab("Commercial Details");
     else if (hasErrors(payrollResult.errors)) setTab("Payroll Details");
-    const valid = !hasErrors(commercialResult.errors) && !hasErrors(payrollResult.errors);
+    const valid = !hasErrors(contactResult) && !hasErrors(commercialResult.errors) && !hasErrors(payrollResult.errors);
     setError(valid ? "" : FIX_ERRORS);
     return valid;
   };
@@ -303,13 +328,13 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
       setModal("proof");
       return;
     }
-    if (edit === null || commercial === null || payroll === null || !validate()) return;
+    if (edit === null || commercial === null || payroll === null || contacts === null || !validate()) return;
     if (changes.length === 0) {
       setError(NO_CHANGES);
       return;
     }
     setApplying(true);
-    applyEdit(mouId, edit.token, edit.version, commercial, payroll)
+    applyEdit(mouId, edit.token, edit.version, commercial, payroll, contacts)
       .then((result) => {
         if (result.ok) {
           clearDraft(mouId);
@@ -459,6 +484,11 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
                 status,
                 endDate: loaded.detail.endDate,
               }}
+              contacts={
+                edit === null || contacts === null
+                  ? null
+                  : { previous: edit.contacts, value: contacts, errors: contactErrors, onChange: editContacts }
+              }
             />
           ) : locked ? (
             <p className="text-sm text-muted-foreground text-center py-8">
@@ -587,8 +617,42 @@ export function EditAgreementScreen() {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [opened, setOpened] = useState<{ readonly mouId: string; readonly names: AgreementNames; readonly key: number } | null>(null);
+  const [searchParams] = useSearchParams();
   const cascade = useCascadingSelectors({ onError: setError });
-  const { zones, zoneId, companies, companyId, plants, plantId, mous, mouId } = cascade;
+  const { zones, zoneId, companies, companyId, plants, plantId, mous, mouId, preselect } = cascade;
+
+  // A deep link from the record view: ?mouId= fills the cascade and opens that MoU.
+  useEffect(() => {
+    const linkedMouId = searchParams.get("mouId");
+    if (linkedMouId === null) return undefined;
+    let cancelled = false;
+    fetchMouCommercial(linkedMouId)
+      .then(async (mou) => {
+        const company = await fetchCompanyOverview(mou.companyId);
+        if (cancelled) return;
+        await preselect({
+          zoneId: company.zoneId,
+          companyId: mou.companyId,
+          plantId: mou.companyPlantId ?? undefined,
+          mouId: mou.mouId,
+        });
+        if (cancelled) return;
+        const plant = company.plants.find((candidate) => candidate.id === mou.companyPlantId);
+        setOpened({
+          mouId: mou.mouId,
+          key: Date.now(),
+          names: { company: company.companyName, zone: company.zoneName, plant: plant?.plantName ?? PENDING_FIGURE },
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setError("Could not open the linked MoU. Please choose it below.");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once: the link is read on arrival, later selections are the user's own.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Choosing any select clears the ones after it (the hook) and closes the opened agreement.
   const choose = (change: () => unknown) => {

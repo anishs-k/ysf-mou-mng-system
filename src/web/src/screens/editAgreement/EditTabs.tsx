@@ -1,6 +1,7 @@
 /**
  * Purpose: The tab bodies of the Edit Agreement screen in the prototype's
- * "Previous Value | New Value" row layout - Company Details with locked inputs, the typed
+ * "Previous Value | New Value" row layout - Company Details with locked inputs
+ * except the HR and Finance contacts (SPEC-28), the typed
  * Commercial and Payroll inputs over the SPEC-10 edit-token values (with the
  * domain validators' messages under each field), and the Review diff from
  * computeAgreementDiff. State lives in EditAgreementScreen; these only render it.
@@ -9,12 +10,21 @@
  */
 
 import { TENURE_UNITS, TENURE_UNIT_OPTIONS, computeEndDate, payrollAnswerText, payrollStatusLabel } from "@mou/domain";
-import type { CommercialDetailErrors, DiffRow, OtherChargeRowErrors, PayrollDetailErrors, TenureUnit } from "@mou/domain";
+import type {
+  CommercialDetailErrors,
+  CompanyContactErrors,
+  CompanyContactField,
+  DiffRow,
+  OtherChargeRowErrors,
+  PayrollDetailErrors,
+  TenureUnit,
+} from "@mou/domain";
 import type { ChangeEvent, ReactNode } from "react";
 
 import type {
   CommercialItemOption,
   EditableCommercial,
+  EditableContacts,
   EditableOtherItem,
   EditablePayroll,
   EnumOption,
@@ -199,7 +209,24 @@ export interface CompanyInfo {
  * SPEC-10 section 4 locks company identity, the MoU code is immutable, and
  * status and expiry are derived, so nothing typed here could ever be saved.
  */
-export function CompanyDetailsTab({ info }: { readonly info: CompanyInfo }) {
+/** SPEC-28: the contact fields an edit may change, labelled as on the company form. */
+const CONTACT_FIELDS: readonly (readonly [CompanyContactField, string, "text" | "tel" | "email"])[] = [
+  ["hrContactName", "HR Contact Name", "text"],
+  ["hrContactNumber", "HR Contact Number", "tel"],
+  ["hrEmail", "HR Email ID", "email"],
+  ["financeHeadContactName", "Finance Head Name", "text"],
+  ["financeHeadContactNumber", "Finance Head Contact", "tel"],
+  ["financeEmail", "Finance Email ID", "email"],
+];
+
+export interface ContactsEditor {
+  readonly previous: EditableContacts;
+  readonly value: EditableContacts;
+  readonly errors: CompanyContactErrors;
+  readonly onChange: (value: EditableContacts) => void;
+}
+
+export function CompanyDetailsTab({ info, contacts }: { readonly info: CompanyInfo; readonly contacts: ContactsEditor | null }) {
   const fields: readonly (readonly [string, string])[] = [
     ["Company Name", info.company],
     ["Zone", info.zone],
@@ -216,6 +243,22 @@ export function CompanyDetailsTab({ info }: { readonly info: CompanyInfo }) {
           <LockedInput label={label} />
         </CompareRow>
       ))}
+      {contacts === null ? (
+        <p className="text-xs text-muted-foreground pt-2">Choose a reason for the amendment to edit the HR and Finance contacts.</p>
+      ) : (
+        CONTACT_FIELDS.map(([field, label, type]) => (
+          <CompareRow key={field} label={label} previous={textOrDash(contacts.previous[field])} error={contacts.errors[field]}>
+            <input
+              type={type}
+              aria-label={`New ${label}`}
+              placeholder={`Enter new ${label.toLowerCase()}`}
+              value={contacts.value[field]}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => contacts.onChange({ ...contacts.value, [field]: event.target.value })}
+              className={INPUT_CLASS}
+            />
+          </CompareRow>
+        ))
+      )}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   gstFromPdfName,
   matchBulkMouPdfs,
   matchBulkHeaders,
+  bulkRowToPrefill,
   readBulkRow,
 } from "./bulk-company-sheet.ts";
 import type { BulkZone } from "./bulk-company-sheet.ts";
@@ -55,6 +56,10 @@ const VALID: Readonly<Record<string, string>> = {
   purchaseName: "",
   purchaseNumber: "",
   purchaseEmail: "",
+  pocName: "",
+  pocNumber: "",
+  decisionMakerName: "",
+  decisionMakerNumber: "",
   scheme: "NAPS",
   mouStartDate: "2026-10-01",
   tenureValue: "12",
@@ -88,7 +93,7 @@ const FORM_LAYOUT: ReadonlyArray<readonly [string, readonly string[]]> = [
   ],
   [
     "Contact Information",
-    ["HR Contact Name", "HR Contact Number", "HR Email ID", "Finance Head Name", "Finance Head Contact", "Finance Email ID", "Purchase Name", "Purchase Number", "Purchase Email ID"],
+    ["HR Contact Name", "HR Contact Number", "HR Email ID", "Finance Head Name", "Finance Head Contact", "Finance Email ID", "Purchase Name", "Purchase Number", "Purchase Email ID", "POC Name", "POC Number", "Decision Maker Name", "Decision Maker Number"],
   ],
   [
     "Commercial Details",
@@ -211,6 +216,23 @@ test("the MOU PDF is not required for a bulk row (D138)", () => {
 
 test("an invalid purchase email is refused; a blank one is fine", () => {
   assert.deepEqual(read({ purchaseEmail: "nope" }).errors, [{ column: headerOf("purchaseEmail"), message: "Enter a valid email address" }]);
+});
+
+test("SPEC-27 POC and Decision Maker are optional columns read into the company", () => {
+  for (const key of ["pocName", "pocNumber", "decisionMakerName", "decisionMakerNumber"]) {
+    assert.equal(BULK_COMPANY_COLUMNS.find((column) => column.key === key)?.required, false, key);
+  }
+  const company = read({ pocName: "Rahul Sharma", pocNumber: "9876512345", decisionMakerName: "Meena Gupta", decisionMakerNumber: "8123456789" }).value?.company;
+  assert.equal(company?.pocName, "Rahul Sharma");
+  assert.equal(company?.pocNumber, "9876512345");
+  assert.equal(company?.decisionMakerName, "Meena Gupta");
+  assert.equal(company?.decisionMakerNumber, "8123456789");
+});
+
+test("SPEC-27 an invalid POC number is refused against its column", () => {
+  assert.deepEqual(read({ pocName: "Rahul", pocNumber: "123" }).errors, [
+    { column: headerOf("pocNumber"), message: "Enter a 10-digit mobile number starting 6 to 9" },
+  ]);
 });
 
 test("in-file duplicates: same GST, or same company + plant + zone, flag the later row", () => {
@@ -351,4 +373,42 @@ test("D165 charge rows: unknown name, a name twice, an amount without a name, a 
     { column: "Charge row 5", message: "Enter the amount" },
     { column: "Charge row 5", message: "Weekly is not a period from the list" },
   ]);
+});
+
+// --- SPEC-30: one filled row pre-fills the Add New Company form ----------------
+
+test("SPEC-30 a filled row becomes the wizard's three draft pages, list labels turned into codes", () => {
+  const prefill = bulkRowToPrefill({ ...VALID, companyType: "Private Sector", sector: "Automobile", pocName: "Rahul" }, ZONES);
+  assert.equal(prefill.page1["companyName"], VALID.companyName);
+  assert.equal(prefill.page1["companyType"], "PRIVATE_SECTOR");
+  assert.equal(prefill.page1["sector"], "AUTOMOBILE");
+  assert.equal(prefill.page1["zoneId"], ZONES[0]?.id);
+  assert.equal(prefill.page1["confirmHrEmail"], VALID.hrEmail);
+  assert.equal(prefill.page1["confirmFinanceEmail"], VALID.financeEmail);
+  assert.equal(prefill.page1["pocName"], "Rahul");
+  assert.equal(prefill.page2.tenureValue, "12");
+  assert.equal(prefill.page2.attendanceCycle, "16th to 15th");
+  assert.deepEqual(prefill.page2.charges, { ADMIN_CHARGES: "1500" });
+  assert.equal(prefill.page3.scheme, "NAPS");
+  assert.deepEqual(prefill.page3.traineeCategories, ["ITI Fitter", "Diploma"]);
+  assert.deepEqual(prefill.page3.traineeCategoryDetails[0], { categoryName: "ITI Fitter", qualification: "ITI", stipendRate: "9000" });
+});
+
+test("SPEC-30 a day-first date becomes ISO", () => {
+  assert.equal(bulkRowToPrefill({ ...VALID, mouStartDate: "01-10-2026" }, ZONES).page2.mouStartDate, "2026-10-01");
+});
+
+test("SPEC-30 an incomplete or unknown value is left blank to fill in, never an error", () => {
+  const prefill = bulkRowToPrefill({ companyName: "Half Filled", zoneId: "Nowhere", sector: "Space Mining" }, ZONES);
+  assert.equal(prefill.page1["companyName"], "Half Filled");
+  assert.equal(prefill.page1["zoneId"], "");
+  assert.equal(prefill.page1["sector"], "");
+  assert.equal(prefill.page1["hrContactName"], "");
+  assert.equal(prefill.page3.scheme, "");
+  assert.deepEqual(prefill.page3.traineeCategories, []);
+});
+
+test("SPEC-30 a filled PDF form's charge period and basis are kept", () => {
+  const prefill = bulkRowToPrefill(VALID, ZONES, { ADMIN_CHARGES: { period: "MONTHLY", basis: "FLAT" } });
+  assert.deepEqual(prefill.page2.chargeMeta, { ADMIN_CHARGES: { period: "MONTHLY", basis: "FLAT" } });
 });

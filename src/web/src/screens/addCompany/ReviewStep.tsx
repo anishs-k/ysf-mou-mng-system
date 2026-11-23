@@ -85,6 +85,13 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
   if (join(company.purchaseName, company.purchaseNumber, company.purchaseEmail) !== "") {
     companyItems.push({ label: "Purchase Contact", value: join(company.purchaseName, company.purchaseNumber, company.purchaseEmail) });
   }
+  // SPEC-27: shown only when filled, like the Purchase contact.
+  if (join(company.pocName, company.pocNumber) !== "") {
+    companyItems.push({ label: "POC", value: join(company.pocName, company.pocNumber) });
+  }
+  if (join(company.decisionMakerName, company.decisionMakerNumber) !== "") {
+    companyItems.push({ label: "Decision Maker", value: join(company.decisionMakerName, company.decisionMakerNumber) });
+  }
 
   const commercialItems: ReviewItem[] = [
     { label: "Scheme", value: labelOf(enums.schemes, company.scheme) },

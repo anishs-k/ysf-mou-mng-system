@@ -3,13 +3,17 @@
  * status / start-date filters with a live "N records match" count from GET
  * /api/search, "Export Filtered Data" as a server Excel export of the same
  * filters, and the report cards: MoU Summary (Excel, no filters), Expiry (Excel,
- * status EXPIRING), an all-zones PDF report, and the bulk-documents ZIP, which
- * has no API yet and is shown disabled.
+ * status EXPIRING), an all-zones PDF report, the HR & client Contacts Report
+ * (Excel of the filters above; Admin, HR and Finance only - SPEC-29), and the
+ * bulk-documents ZIP, which has no API yet and is shown disabled.
  */
+
+import { canExportContacts } from "@mou/domain";
+import type { UserRole } from "@mou/domain";
 
 import { useEffect, useState } from "react";
 
-import { fetchSearch, startExcelExport, startPdfExport } from "../api/client.ts";
+import { fetchSearch, startContactsExport, startExcelExport, startPdfExport } from "../api/client.ts";
 import type { ExportJobStatus, SearchFilters } from "../api/client.ts";
 import { useExportDownload } from "../hooks/useExportDownload.ts";
 import { SCHEME_FILTER_OPTIONS, STATUS_FILTER_OPTIONS, useZoneOptions } from "../hooks/useSearchFilterOptions.ts";
@@ -17,6 +21,7 @@ import { Field, SelectInput, TextInput } from "../ui/form.tsx";
 import { PENDING_FIGURE } from "../ui/format.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
+import { useSession } from "../ui/session.ts";
 import { Badge, Button, Card, SectionTitle } from "../ui/primitives.tsx";
 import { BRAND } from "../ui/theme.ts";
 
@@ -34,8 +39,10 @@ interface Report {
   readonly title: string;
   readonly caption: string;
   readonly format: string;
-  /** Absent for a report the API cannot produce yet. */
-  readonly start?: () => Promise<ExportJobStatus>;
+  /** Absent for a report the API cannot produce yet. Given the screen's filters; most reports ignore them. */
+  readonly start?: (filters: SearchFilters) => Promise<ExportJobStatus>;
+  /** SPEC-29: shown only to a role this allows; absent means every role. */
+  readonly visibleTo?: (role: UserRole) => boolean;
 }
 
 const NO_FILTERS: Filters = { zoneId: "", scheme: "", company: "", status: "", from: "", to: "" };
@@ -68,6 +75,14 @@ const REPORTS: readonly Report[] = [
     format: "PDF (.pdf)",
     start: () => startPdfExport({ scope: "all_zones" }),
   },
+  {
+    key: "contacts",
+    title: "Contacts Report",
+    caption: "HR & client contacts (HR, Finance, Purchase, POC, Decision Maker) for the filters above",
+    format: "Excel (.xlsx)",
+    start: (filters) => startContactsExport(filters),
+    visibleTo: canExportContacts,
+  },
   { key: "zip", title: "MoU Documents Bulk", caption: "Bulk PDF download of signed MoUs", format: "ZIP (.zip)" },
 ];
 
@@ -91,6 +106,7 @@ function rangeIsValid(filters: Filters): boolean {
 export function ExportScreen() {
   const zones = useZoneOptions();
   const exporter = useExportDownload();
+  const { user } = useSession();
   const [filters, setFilters] = useState<Filters>(NO_FILTERS);
   const [counted, setCounted] = useState<{ readonly filters: Filters; readonly total: number } | null>(null);
   const [countError, setCountError] = useState("");
@@ -168,7 +184,7 @@ export function ExportScreen() {
       </Card>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        {REPORTS.map((report) => {
+        {REPORTS.filter((report) => report.visibleTo === undefined || (user !== null && report.visibleTo(user.role))).map((report) => {
           const start = report.start;
           return (
             <Card key={report.key} className="p-5 hover:shadow-md transition-shadow">
@@ -184,7 +200,7 @@ export function ExportScreen() {
                 size="sm"
                 className="w-full justify-center"
                 disabled={start === undefined || busy}
-                onClick={start === undefined ? undefined : () => void exporter.run(report.key, start)}
+                onClick={start === undefined ? undefined : () => void exporter.run(report.key, () => start(toSearchFilters(filters)))}
               >
                 <Icon name="download" />
                 {exporter.busyKey === report.key ? "Preparing…" : "Download"}

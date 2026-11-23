@@ -116,6 +116,11 @@ export async function insertCompanyWithMou(
       purchaseName: optional(input.purchaseName),
       purchaseNumber: optional(input.purchaseNumber),
       purchaseEmail: optional(input.purchaseEmail),
+      // SPEC-27: optional POC and Decision Maker; blank stored as NULL.
+      pocName: optional(details.pocName ?? ""),
+      pocNumber: optional(details.pocNumber ?? ""),
+      decisionMakerName: optional(details.decisionMakerName ?? ""),
+      decisionMakerNumber: optional(details.decisionMakerNumber ?? ""),
       createdBy,
     })
     .returning({ id: company.id });

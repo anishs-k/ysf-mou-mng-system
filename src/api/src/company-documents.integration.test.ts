@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import type { Server } from "node:http";
 
+import type { UserRole } from "@mou/domain";
 import type { Pool } from "pg";
 
 import { createApp } from "./index.ts";
@@ -67,7 +68,7 @@ async function login(username: string, password: string): Promise<string> {
   return setCookie;
 }
 
-async function setupCompany(role: "ADMIN" | "DATA_ENTRY" | "VIEWER" = "DATA_ENTRY") {
+async function setupCompany(role: UserRole = "DATA_ENTRY") {
   const zoneId = await insertZone(pool);
   const creator = await insertUserWithPassword(pool, { username: "creator", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, creator.id);
@@ -145,6 +146,13 @@ test("SPEC-23 an unknown document type is refused with 422", async () => {
   const response = await upload(companyId, cookie, PNG, "pan.png", "PAN_CARD");
   assert.equal(response.status, 422);
 });
+
+for (const role of ["HR", "FINANCE"] as const) {
+  test(`SPEC-26 a ${role} user may upload a company document like Data Entry`, async () => {
+    const { companyId, cookie } = await setupCompany(role);
+    assert.equal((await upload(companyId, cookie, PNG, "gst.png", "GST_CERTIFICATE")).status, 201);
+  });
+}
 
 test("SPEC-23 AC7 a VIEWER may list but not upload", async () => {
   const { companyId, cookie } = await setupCompany("VIEWER");

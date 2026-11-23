@@ -13,12 +13,14 @@
  */
 
 import {
+  COMPANY_CONTACT_FIELDS,
   computeAgreementDiff,
   EDIT_AGREEMENT_REASON_LABELS,
 } from "@mou/domain";
 import type {
   AgreementSnapshot,
   CommercialDetails,
+  CompanyContacts,
   OtherChargeRow,
   PayrollDetails,
   PayrollItemAnswer,
@@ -92,7 +94,16 @@ function parseSnapshot(raw: unknown): AgreementSnapshot {
     otherItems: readOtherItems(payrollRaw["otherItems"]),
   };
 
-  return { commercial, payroll };
+  // SPEC-28: contacts are only in snapshots saved since they became editable.
+  const contactsRaw = record["contacts"];
+  if (contactsRaw === undefined || contactsRaw === null) {
+    return { commercial, payroll };
+  }
+  const contactsRecord = asRecord(contactsRaw);
+  const contacts = Object.fromEntries(
+    COMPANY_CONTACT_FIELDS.map((field) => [field, String(contactsRecord[field] ?? "")]),
+  ) as CompanyContacts;
+  return { commercial, payroll, contacts };
 }
 
 const EXTENSION_CONTENT_TYPES: Readonly<Record<string, string>> = {
@@ -235,6 +246,7 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
             snapshot: {
               commercial: payload.commercial,
               payroll: payload.payroll,
+              contacts: payload.contacts,
             },
           };
         }

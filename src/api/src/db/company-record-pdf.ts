@@ -233,6 +233,8 @@ function overviewItems(record: CompanyRecord): readonly LabelledValue[] {
     { label: "HR Email", value: overview.hrEmail },
     { label: "Finance Email", value: overview.financeEmail },
     { label: "Purchase Contact", value: joinPresent([overview.purchaseName, overview.purchaseNumber, overview.purchaseEmail], " · ") },
+    { label: "POC", value: joinPresent([overview.pocName, overview.pocNumber], " · ") },
+    { label: "Decision Maker", value: joinPresent([overview.decisionMakerName, overview.decisionMakerNumber], " · ") },
     {
       label: "Address",
       value: joinPresent([overview.addressLine1, overview.addressLine2, overview.city, overview.district, `${overview.state} - ${overview.pinCode}`], ", "),

@@ -287,7 +287,8 @@ test("overview also returns the full Page 1 identity, address, zone name and pur
   const user = await insertUserWithPassword(pool, { username: "creator11", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, user.id, { sector: "AUTOMOBILE" });
   await pool.query(
-    `UPDATE company SET purchase_name = 'Buyer', purchase_number = '9000000000', purchase_email = 'buy@example.com' WHERE id = $1`,
+    `UPDATE company SET purchase_name = 'Buyer', purchase_number = '9000000000', purchase_email = 'buy@example.com',
+       poc_name = 'Rahul Sharma', poc_number = '9876512345' WHERE id = $1`,
     [companyId],
   );
 
@@ -312,6 +313,10 @@ test("overview also returns the full Page 1 identity, address, zone name and pur
   assert.equal(body["purchaseName"], "Buyer");
   assert.equal(body["purchaseNumber"], "9000000000");
   assert.equal(body["purchaseEmail"], "buy@example.com");
+  // SPEC-27: the POC comes back; a Decision Maker never given is null.
+  assert.equal(body["pocName"], "Rahul Sharma");
+  assert.equal(body["pocNumber"], "9876512345");
+  assert.equal(body["decisionMakerName"], null);
 });
 
 test("agreements lists every MoU of the company, active and inactive, newest start first", async () => {

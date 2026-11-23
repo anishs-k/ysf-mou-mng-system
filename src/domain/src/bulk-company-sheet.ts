@@ -94,6 +94,11 @@ export const BULK_COMPANY_COLUMNS: readonly BulkColumn[] = [
   contact("purchaseName", "Purchase Name", false, "Text"),
   contact("purchaseNumber", "Purchase Number", false, "Phone number"),
   contact("purchaseEmail", "Purchase Email ID", false, "Email address"),
+  // SPEC-27: optional POC and Decision Maker, a name and a 10-digit mobile each.
+  contact("pocName", "POC Name", false, "Full name"),
+  contact("pocNumber", "POC Number", false, "10-digit mobile"),
+  contact("decisionMakerName", "Decision Maker Name", false, "Full name"),
+  contact("decisionMakerNumber", "Decision Maker Number", false, "10-digit mobile"),
   commercial("mouStartDate", "MoU Start Date", true, "Date: YYYY-MM-DD or DD-MM-YYYY"),
   commercial("tenureValue", "MoU Tenure (Months)", true, "Whole number of months, 1-120"),
   commercial("attendanceCycle", "Attendance Cycle", true, "From the list", "attendanceCycle"),
@@ -296,6 +301,10 @@ export function readBulkRow(
     confirmHrEmail: hrEmail,
     financeEmail,
     confirmFinanceEmail: financeEmail,
+    pocName: cell("pocName"),
+    pocNumber: cell("pocNumber"),
+    decisionMakerName: cell("decisionMakerName"),
+    decisionMakerNumber: cell("decisionMakerNumber"),
   };
   for (const [field, message] of Object.entries(validateCompanyDetails(companyDetails).errors)) {
     // The zone cell has its own message above; a blank zone would otherwise be reported twice.
@@ -538,4 +547,87 @@ export function formFieldsToBulkRow(fields: Readonly<Record<string, string>>): B
     .map((parts) => parts.join(" | "))
     .join("; ");
   return { cells, chargeMeta, errors };
+}
+
+// --- SPEC-30: one filled row pre-fills the Add New Company form --------------------------
+
+/** The wizard's draft pages, as the draft API stores them (page1 / page2 / page3). */
+export interface BulkPrefill {
+  readonly page1: Readonly<Record<string, string>>;
+  readonly page2: {
+    readonly mouStartDate: string;
+    readonly tenureValue: string;
+    readonly tenureUnit: "MONTHS";
+    readonly attendanceCycle: string;
+    readonly stipendDate: string;
+    readonly charges: Readonly<Record<string, string>>;
+    readonly chargeMeta: Readonly<Record<string, ChargeMeta>>;
+    readonly otherItems: readonly [];
+  };
+  readonly page3: {
+    readonly scheme: string;
+    readonly traineeCategories: readonly string[];
+    readonly traineeCategoryDetails: readonly TraineeCategoryDetail[];
+  };
+}
+
+/** Page 1 list columns and their options; the zone is resolved separately. */
+const PAGE1_LISTS: Readonly<Record<string, readonly EnumOption[]>> = {
+  companyType: COMPANY_TYPE_OPTIONS,
+  registrationType: REGISTRATION_TYPE_OPTIONS,
+  sector: SECTOR_OPTIONS,
+};
+
+/**
+ * SPEC-30: one template row (Excel or filled PDF form) as the wizard's draft pages,
+ * so the user reviews it in the form and saves as usual. Lenient by design: nothing
+ * is validated here (the wizard does that); a list value or zone that matches
+ * nothing in `zones` is left blank for the user to choose, and a missing cell is "".
+ */
+export function bulkRowToPrefill(
+  cells: Readonly<Record<string, string>>,
+  zones: readonly BulkZone[],
+  chargeMeta: Readonly<Record<string, ChargeMeta>> = {},
+): BulkPrefill {
+  const cell = (key: string): string => (cells[key] ?? "").trim();
+  const listCode = (key: string, options: readonly EnumOption[]): string => matchOption(cell(key), options) ?? "";
+
+  const page1: Record<string, string> = {};
+  for (const column of BULK_COMPANY_COLUMNS) {
+    if (column.section !== "Basic Information & Address" && column.section !== "Contact Information") continue;
+    if (column.key === "scheme") continue;
+    const options = PAGE1_LISTS[column.key];
+    page1[column.key] = options === undefined ? cell(column.key) : listCode(column.key, options);
+  }
+  page1["zoneId"] = findBulkZone(cell("zoneId"), zones)?.id ?? "";
+  // The sheet holds each email once, so its confirmation is the value itself.
+  page1["confirmHrEmail"] = page1["hrEmail"] ?? "";
+  page1["confirmFinanceEmail"] = page1["financeEmail"] ?? "";
+
+  const charges: Record<string, string> = {};
+  for (const key of COMMERCIAL_FIXED_ITEM_KEYS) {
+    const amount = cell(`charge:${key}`);
+    if (amount !== "") charges[key] = amount;
+  }
+  const categories = traineeCategoriesOf(cell("traineeCategories"));
+  const mouStartDate = cell("mouStartDate");
+
+  return {
+    page1,
+    page2: {
+      mouStartDate: mouStartDate === "" ? "" : isoDate(mouStartDate),
+      tenureValue: cell("tenureValue"),
+      tenureUnit: "MONTHS",
+      attendanceCycle: listCode("attendanceCycle", ATTENDANCE_CYCLE_OPTIONS),
+      stipendDate: cell("stipendDate"),
+      charges,
+      chargeMeta,
+      otherItems: [],
+    },
+    page3: {
+      scheme: listCode("scheme", SCHEME_OPTIONS),
+      traineeCategories: categories.map((category) => category.categoryName),
+      traineeCategoryDetails: categories,
+    },
+  };
 }

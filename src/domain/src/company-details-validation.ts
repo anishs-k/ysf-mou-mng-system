@@ -44,6 +44,12 @@ export interface CompanyDetails {
   readonly confirmHrEmail: string;
   readonly financeEmail: string;
   readonly confirmFinanceEmail: string;
+  /** SPEC-27: optional Point of Contact - a name and a 10-digit mobile. */
+  readonly pocName?: string;
+  readonly pocNumber?: string;
+  /** SPEC-27: optional Decision Maker - a name and a 10-digit mobile. */
+  readonly decisionMakerName?: string;
+  readonly decisionMakerNumber?: string;
 }
 
 export type CompanyDetailField = keyof CompanyDetails;
@@ -124,6 +130,8 @@ const LAN_DIGITS_PATTERN = /^[0-9]{6,15}$/;
 const MIN_NAME = 2;
 const MAX_COMPANY_NAME = 150;
 const MAX_PLANT_NAME = 100;
+/** SPEC-27: the company table holds a POC / Decision Maker name in varchar(150). */
+const MAX_CONTACT_NAME = 150;
 
 function isMobile(value: string): boolean {
   return MOBILE_PATTERN.test(value);
@@ -286,6 +294,24 @@ export function validateCompanyDetails(
     errors.financeHeadContactNumber = financeNumberError;
   }
 
+  // SPEC-27: POC and Decision Maker are optional; a number must be a mobile and needs a name.
+  const optionalContacts = [
+    { name: "pocName", number: "pocNumber" },
+    { name: "decisionMakerName", number: "decisionMakerNumber" },
+  ] as const;
+  for (const fields of optionalContacts) {
+    const name = value(fields.name);
+    const number = value(fields.number);
+    if (name.length > MAX_CONTACT_NAME) {
+      errors[fields.name] = `Enter at most ${MAX_CONTACT_NAME} characters`;
+    } else if (name === "" && number !== "") {
+      errors[fields.name] = "Enter the name for this number";
+    }
+    if (number !== "" && !isMobile(number)) {
+      errors[fields.number] = "Enter a 10-digit mobile number starting 6 to 9";
+    }
+  }
+
   validateEmailPair(errors, { email: "hrEmail", confirm: "confirmHrEmail" }, value("hrEmail"), value("confirmHrEmail"), "HR email");
   validateEmailPair(
     errors,
@@ -306,4 +332,37 @@ export function validateCompanyDetails(
   }
 
   return { errors, warnings };
+}
+
+/** SPEC-28: the HR and Finance contacts an agreement edit may change - Page 1's own fields. */
+export const COMPANY_CONTACT_FIELDS = [
+  "hrContactName",
+  "hrContactNumber",
+  "hrEmail",
+  "financeHeadContactName",
+  "financeHeadContactNumber",
+  "financeEmail",
+] as const satisfies readonly CompanyDetailField[];
+
+export type CompanyContactField = (typeof COMPANY_CONTACT_FIELDS)[number];
+export type CompanyContacts = Readonly<Record<CompanyContactField, string>>;
+export type CompanyContactErrors = Partial<Record<CompanyContactField, string>>;
+
+/**
+ * SPEC-28: Page 1's contact rules applied to the contacts alone, so an edit runs
+ * exactly the rules the wizard does. An edit has no confirm boxes, so each email
+ * stands as its own confirmation; only contact-field errors are returned.
+ */
+export function validateCompanyContacts(contacts: CompanyContacts): CompanyContactErrors {
+  const { errors } = validateCompanyDetails({
+    ...contacts,
+    confirmHrEmail: contacts.hrEmail,
+    confirmFinanceEmail: contacts.financeEmail,
+  });
+  const result: CompanyContactErrors = {};
+  for (const field of COMPANY_CONTACT_FIELDS) {
+    const message = errors[field];
+    if (message !== undefined) result[field] = message;
+  }
+  return result;
 }

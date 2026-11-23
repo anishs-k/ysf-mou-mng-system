@@ -12,6 +12,7 @@
  */
 
 import {
+  canAuthorRecords,
   validateCommercialDetails,
   validateCompanyDetails,
   validatePayrollDetails,
@@ -24,6 +25,7 @@ import type {
   PayrollDetails,
   PayrollItemAnswer,
   TraineeCategoryDetail,
+  UserRole,
 } from "@mou/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Router } from "express";
@@ -60,9 +62,6 @@ import {
   writeTempDocument,
 } from "../upload/mou-document-storage.ts";
 
-/** The authoring roles that may use the wizard (SPEC-02 section 3.3). */
-const AUTHORING_ROLES = ["ADMIN", "DATA_ENTRY"] as const;
-
 /** SPEC-05 section 3: the MOU PDF is capped at 10 MB. */
 const MAX_MOU_DOCUMENT_BYTES = 10 * 1024 * 1024;
 
@@ -79,10 +78,9 @@ interface DraftPayload {
   readonly page3?: Record<string, unknown>;
 }
 
-function isAuthoringRole(
-  role: string,
-): role is (typeof AUTHORING_ROLES)[number] {
-  return (AUTHORING_ROLES as readonly string[]).includes(role);
+/** The authoring roles that may use the wizard (SPEC-02 section 3.3, SPEC-26). */
+function isAuthoringRole(role: UserRole): boolean {
+  return canAuthorRecords(role);
 }
 
 function validateUpsertBody(
@@ -808,6 +806,10 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
                 confirmHrEmail: page1Text("confirmHrEmail"),
                 financeEmail: page1Text("financeEmail"),
                 confirmFinanceEmail: page1Text("confirmFinanceEmail"),
+                pocName: page1Text("pocName"),
+                pocNumber: page1Text("pocNumber"),
+                decisionMakerName: page1Text("decisionMakerName"),
+                decisionMakerNumber: page1Text("decisionMakerNumber"),
                 zoneId,
                 plantName:
                   readJsonField<string>(page1, "plantName") ?? "Main Plant",

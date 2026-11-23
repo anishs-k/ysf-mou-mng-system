@@ -12,6 +12,7 @@ import { test } from "node:test";
 import {
   GST_STATE_NAMES,
   stateNameForGstCode,
+  validateCompanyContacts,
   validateCompanyDetails,
 } from "./company-details-validation.ts";
 import type { CompanyDetails } from "./company-details-validation.ts";
@@ -266,4 +267,71 @@ test("an unknown company type is rejected", () => {
 
 test("an unknown contact type is rejected", () => {
   assert.ok(errorsFor({ contactType: "FAX" }).contactType);
+});
+
+// --- SPEC-27: optional POC and Decision Maker (name + mobile) -----------------
+
+test("SPEC-27 POC and Decision Maker are optional - leaving them out is valid", () => {
+  assert.deepEqual(validateCompanyDetails(VALID).errors, {});
+  assert.deepEqual(errorsFor({ pocName: "", pocNumber: "", decisionMakerName: "", decisionMakerNumber: "" }), {});
+});
+
+test("SPEC-27 a POC and a Decision Maker with a valid mobile are accepted", () => {
+  const errors = errorsFor({
+    pocName: "Rahul Sharma",
+    pocNumber: "9876512345",
+    decisionMakerName: "Meena Gupta",
+    decisionMakerNumber: "8123456789",
+  });
+  assert.deepEqual(errors, {});
+});
+
+test("SPEC-27 a name alone, without a number, is accepted", () => {
+  assert.deepEqual(errorsFor({ pocName: "Rahul Sharma", decisionMakerName: "Meena Gupta" }), {});
+});
+
+test("SPEC-27 a POC or Decision Maker number must be a 10-digit mobile", () => {
+  assert.equal(errorsFor({ pocName: "Rahul", pocNumber: "12345" }).pocNumber, "Enter a 10-digit mobile number starting 6 to 9");
+  assert.equal(
+    errorsFor({ decisionMakerName: "Meena", decisionMakerNumber: "5123456789" }).decisionMakerNumber,
+    "Enter a 10-digit mobile number starting 6 to 9",
+  );
+});
+
+test("SPEC-27 a number without a name asks for the name", () => {
+  assert.equal(errorsFor({ pocNumber: "9876512345" }).pocName, "Enter the name for this number");
+  assert.equal(errorsFor({ decisionMakerNumber: "9876512345" }).decisionMakerName, "Enter the name for this number");
+});
+
+test("SPEC-27 a POC or Decision Maker name longer than 150 characters is rejected", () => {
+  assert.ok(errorsFor({ pocName: "A".repeat(151) }).pocName);
+  assert.ok(errorsFor({ decisionMakerName: "A".repeat(151) }).decisionMakerName);
+});
+
+// --- SPEC-28: the HR and Finance contacts on their own, for Edit Agreement ----
+
+const CONTACTS = {
+  hrContactName: "Rita Sharma",
+  hrContactNumber: "9876543210",
+  hrEmail: "hr@acme.example",
+  financeHeadContactName: "Arun Verma",
+  financeHeadContactNumber: "9123456780",
+  financeEmail: "finance@acme.example",
+};
+
+test("SPEC-28 valid HR and Finance contacts pass", () => {
+  assert.deepEqual(validateCompanyContacts(CONTACTS), {});
+});
+
+test("SPEC-28 the contact rules are Page 1's: names required, numbers and emails well formed", () => {
+  assert.deepEqual(validateCompanyContacts({ ...CONTACTS, hrContactName: "", financeHeadContactNumber: "12", financeEmail: "nope" }), {
+    hrContactName: "Required",
+    financeHeadContactNumber: "Enter a 10-digit mobile number, or a LAN number with its STD code",
+    financeEmail: "Enter a valid email address",
+  });
+});
+
+test("SPEC-28 a contact check reports only contact fields", () => {
+  const keys = Object.keys(validateCompanyContacts({ ...CONTACTS, hrEmail: "" }));
+  assert.deepEqual(keys, ["hrEmail"]);
 });

@@ -7,6 +7,7 @@
  * scope: only a super admin (an ADMIN with all zones) may open it.
  */
 
+import { canAuthorRecords, canEditAgreement as canEditAgreementRole } from "@mou/domain";
 import type { UserRole } from "@mou/domain";
 
 import type { AuthUser } from "../api/client.ts";
@@ -25,7 +26,12 @@ export function canOpenPath(user: Pick<AuthUser, "role" | "allZones">, path: str
   return entry === undefined || entry.roles.includes(user.role);
 }
 
-/** ADMIN and DATA_ENTRY may change records, e.g. acknowledge an alert or upload a document. */
+/** Admin, Data Entry, HR and Finance may change records, e.g. acknowledge an alert or upload a document (SPEC-26). */
 export function canAuthor(role: UserRole): boolean {
-  return role === "ADMIN" || role === "DATA_ENTRY";
+  return canAuthorRecords(role);
+}
+
+/** SPEC-26: Admin, HR and Finance may edit an agreement. */
+export function canEditAgreement(role: UserRole): boolean {
+  return canEditAgreementRole(role);
 }

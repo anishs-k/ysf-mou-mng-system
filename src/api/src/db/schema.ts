@@ -226,6 +226,11 @@ export const company = pgTable(
     purchaseName: varchar("purchase_name", { length: 150 }),
     purchaseNumber: varchar("purchase_number", { length: 20 }),
     purchaseEmail: varchar("purchase_email", { length: 255 }),
+    // SPEC-27: optional Point of Contact and Decision Maker, a name and a mobile each.
+    pocName: varchar("poc_name", { length: 150 }),
+    pocNumber: varchar("poc_number", { length: 20 }),
+    decisionMakerName: varchar("decision_maker_name", { length: 150 }),
+    decisionMakerNumber: varchar("decision_maker_number", { length: 20 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

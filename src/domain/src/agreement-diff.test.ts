@@ -104,3 +104,33 @@ test("SPEC-23 an old snapshot without TDS reads as unanswered, not as Not applic
   const tdsRow = computeAgreementDiff(before, after).find((r) => r.field === "TDS");
   assert.equal(tdsRow?.oldValue, "—");
 });
+
+// --- SPEC-28: the HR and Finance contacts are part of an edit -----------------
+
+const CONTACTS = {
+  hrContactName: "Rita Sharma",
+  hrContactNumber: "9876543210",
+  hrEmail: "hr@acme.example",
+  financeHeadContactName: "Arun Verma",
+  financeHeadContactNumber: "9123456780",
+  financeEmail: "finance@acme.example",
+};
+
+test("SPEC-28 a changed HR contact shows as a changed row", () => {
+  const before = { ...baseSnapshot(), contacts: CONTACTS };
+  const after = { ...baseSnapshot(), contacts: { ...CONTACTS, hrContactName: "Neha Joshi" } };
+  const changed = computeAgreementDiff(before, after).filter((row) => row.changed);
+  assert.deepEqual(changed, [{ field: "HR Contact Name", oldValue: "Rita Sharma", newValue: "Neha Joshi", changed: true }]);
+});
+
+test("SPEC-28 every contact field is listed when both sides carry contacts", () => {
+  const rows = computeAgreementDiff({ ...baseSnapshot(), contacts: CONTACTS }, { ...baseSnapshot(), contacts: CONTACTS });
+  for (const field of ["HR Contact Name", "HR Contact Number", "HR Email", "Finance Head Name", "Finance Head Contact", "Finance Email"]) {
+    assert.ok(rows.some((row) => row.field === field && !row.changed), field);
+  }
+});
+
+test("SPEC-28 a snapshot saved before contacts were recorded lists no contact rows", () => {
+  const rows = computeAgreementDiff(baseSnapshot(), { ...baseSnapshot(), contacts: CONTACTS });
+  assert.ok(!rows.some((row) => row.field === "HR Contact Name"));
+});

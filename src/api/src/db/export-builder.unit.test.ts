@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import type { ZoneSummaryPdfData } from "./export-builder.ts";
-import { renderZoneSummaryPdf } from "./export-builder.ts";
+import { buildContactsWorkbook, renderZoneSummaryPdf } from "./export-builder.ts";
 
 const LOGO = new URL("../../assets/logo-ysf.png", import.meta.url);
 
@@ -125,4 +125,84 @@ test("D166 every page carries the YSF footer with Page x of y; later pages a run
 test("D166 the YSF logo is embedded when given", async () => {
   const { pdf } = await render(data(), await readFile(LOGO));
   assert.match(pdf.toString("latin1"), /\/Subtype \/Image/);
+});
+
+// --- SPEC-29: the HR & client contacts workbook --------------------------------
+
+function overviewFor(companyId: string) {
+  return {
+    id: companyId,
+    companyName: "Acme Gears",
+    companyType: "PRIVATE_SECTOR",
+    sector: "AUTOMOBILE",
+    registrationType: "COMPANY",
+    tanNumber: "PNEA12345B",
+    gstNumber: "27AAACA1234A1Z5",
+    zoneId: "z1",
+    zoneName: "Pune",
+    addressLine1: "Plot 4",
+    addressLine2: null,
+    city: "Pune",
+    pinCode: "410501",
+    district: "Pune",
+    state: "Maharashtra",
+    contactType: null,
+    hrContactName: "Asha Rao",
+    hrContactNumber: "9876543210",
+    financeHeadContactName: "Ravi Iyer",
+    financeHeadContactNumber: "9876501234",
+    hrEmail: "hr@acme.in",
+    financeEmail: "accounts@acme.in",
+    purchaseName: null,
+    purchaseNumber: null,
+    purchaseEmail: null,
+    pocName: "Rahul Sharma",
+    pocNumber: "9876512345",
+    decisionMakerName: null,
+    decisionMakerNumber: null,
+    plants: [],
+  };
+}
+
+test("SPEC-29 the contacts workbook has one row per MoU with every contact column", async () => {
+  const rows = [mou(1, "z1", "ACTIVE"), mou(2, "z1", "EXPIRED")];
+  const overviews = new Map(rows.map((row) => [row.companyId, overviewFor(row.companyId)]));
+  const workbook = buildContactsWorkbook(rows, overviews);
+  const sheet = workbook.getWorksheet("Contacts");
+  assert.ok(sheet !== undefined);
+  const headers = (sheet.getRow(1).values as unknown[]).slice(1);
+  assert.deepEqual(headers, [
+    "Company Name",
+    "MoU Code",
+    "Zone",
+    "Plant",
+    "Scheme",
+    "Status",
+    "HR Contact Name",
+    "HR Contact Number",
+    "HR Email",
+    "Finance Head Name",
+    "Finance Head Number",
+    "Finance Email",
+    "Purchase Name",
+    "Purchase Number",
+    "Purchase Email",
+    "POC Name",
+    "POC Number",
+    "Decision Maker Name",
+    "Decision Maker Number",
+  ]);
+  assert.equal(sheet.rowCount, 3);
+  const first = sheet.getRow(2);
+  assert.equal(first.getCell(1).value, "Company 1");
+  assert.equal(first.getCell(7).value, "Asha Rao");
+  assert.equal(first.getCell(16).value, "Rahul Sharma");
+  assert.equal(first.getCell(18).value, "");
+});
+
+test("SPEC-29 a MoU whose company has no overview still lists its search row", () => {
+  const workbook = buildContactsWorkbook([mou(3, "z1", "ACTIVE")], new Map());
+  const row = workbook.getWorksheet("Contacts")?.getRow(2);
+  assert.equal(row?.getCell(1).value, "Company 3");
+  assert.equal(row?.getCell(7).value, "HR");
 });

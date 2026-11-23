@@ -8,7 +8,7 @@
  * acknowledgement, and an MoU with no row yet is acknowledged by creating one.
  */
 
-import { MOU_STATUS_LABELS } from "@mou/domain";
+import { AUTHORING_ROLES, MOU_STATUS_LABELS } from "@mou/domain";
 import type { MouStatus } from "@mou/domain";
 import { Router } from "express";
 import type { Request, Response } from "express";
@@ -186,11 +186,11 @@ export function createAlertsRouter(pool: Pool): Router {
     },
   );
 
-  /** POST /api/alerts/:alertId/acknowledge — ADMIN or DATA_ENTRY only. */
+  /** POST /api/alerts/:alertId/acknowledge — authoring roles only (SPEC-26 adds HR, Finance). */
   router.post(
     "/alerts/:alertId/acknowledge",
     requireAuthSession,
-    requireRole("ADMIN", "DATA_ENTRY"),
+    requireRole(...AUTHORING_ROLES),
     requireInScope(pool, "alert", "alertId", notFoundError("Alert not found")),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
@@ -213,7 +213,7 @@ export function createAlertsRouter(pool: Pool): Router {
   );
 
   /**
-   * POST /api/mous/:mouId/alerts/acknowledge — ADMIN or DATA_ENTRY only.
+   * POST /api/mous/:mouId/alerts/acknowledge — authoring roles only (SPEC-26 adds HR, Finance).
    * Acknowledges a listed MoU whether or not the job has raised a row for it:
    * upserts the row for the MoU's current 30/60/90 band, so a later job run
    * for that same threshold is a no-op (ON CONFLICT DO NOTHING) and only the
@@ -222,7 +222,7 @@ export function createAlertsRouter(pool: Pool): Router {
   router.post(
     "/mous/:mouId/alerts/acknowledge",
     requireAuthSession,
-    requireRole("ADMIN", "DATA_ENTRY"),
+    requireRole(...AUTHORING_ROLES),
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);

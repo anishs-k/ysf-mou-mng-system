@@ -141,6 +141,20 @@
       "when": 1792534950704,
       "tag": "0019_d155_drop_official_email",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795375905703,
+      "tag": "0020_spec26_hr_finance_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795385470881,
+      "tag": "0021_spec27_poc_decision_maker",
+      "breakpoints": true
     }
   ]
 }

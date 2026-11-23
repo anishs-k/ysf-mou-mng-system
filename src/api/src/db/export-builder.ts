@@ -25,7 +25,7 @@ import type { Pool } from "pg";
 import type { ZoneScope } from "../auth/zone-scope.ts";
 import type { Database } from "./client.ts";
 import { businessToday, fetchCompanyMous, fetchCompanyOverview, fetchMouCommercialDetail, fetchMouPayrollDetail } from "./mou-view.ts";
-import type { MouPayrollItemRow } from "./mou-view.ts";
+import type { CompanyOverview, MouPayrollItemRow } from "./mou-view.ts";
 import {
   BAND_HEIGHT,
   BOTTOM_MARGIN,
@@ -79,6 +79,10 @@ interface CompanyExportRow {
   readonly financeHeadContactNumber: string;
   readonly hrEmail: string;
   readonly financeEmail: string;
+  readonly pocName: string | null;
+  readonly pocNumber: string | null;
+  readonly decisionMakerName: string | null;
+  readonly decisionMakerNumber: string | null;
   readonly plantNames: string;
 }
 
@@ -119,8 +123,75 @@ async function fetchCompaniesWithPlants(db: Database, companyIds: readonly strin
     financeHeadContactNumber: c.financeHeadContactNumber,
     hrEmail: c.hrEmail,
     financeEmail: c.financeEmail,
+    pocName: c.pocName,
+    pocNumber: c.pocNumber,
+    decisionMakerName: c.decisionMakerName,
+    decisionMakerNumber: c.decisionMakerNumber,
     plantNames: (plantsByCompany.get(c.id) ?? []).join(", "),
   }));
+}
+
+/**
+ * SPEC-29: the HR & client contacts list - one row per MoU Search selects, with
+ * its company's HR, Finance Head, Purchase, POC and Decision Maker. Pure: the
+ * caller supplies the search rows and the company overviews. A company with no
+ * overview (deactivated meanwhile) still lists the HR contact its search row carries.
+ */
+export function buildContactsWorkbook(
+  mous: readonly SearchRow[],
+  overviews: ReadonlyMap<string, CompanyOverview>,
+): ExcelJS.Workbook {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Contacts");
+  sheet.columns = [
+    { header: "Company Name", key: "companyName", width: 28 },
+    { header: "MoU Code", key: "generatedCode", width: 20 },
+    { header: "Zone", key: "zoneName", width: 14 },
+    { header: "Plant", key: "plantName", width: 18 },
+    { header: "Scheme", key: "scheme", width: 10 },
+    { header: "Status", key: "status", width: 10 },
+    { header: "HR Contact Name", key: "hrContactName", width: 20 },
+    { header: "HR Contact Number", key: "hrContactNumber", width: 16 },
+    { header: "HR Email", key: "hrEmail", width: 26 },
+    { header: "Finance Head Name", key: "financeHeadContactName", width: 20 },
+    { header: "Finance Head Number", key: "financeHeadContactNumber", width: 16 },
+    { header: "Finance Email", key: "financeEmail", width: 26 },
+    { header: "Purchase Name", key: "purchaseName", width: 20 },
+    { header: "Purchase Number", key: "purchaseNumber", width: 16 },
+    { header: "Purchase Email", key: "purchaseEmail", width: 26 },
+    { header: "POC Name", key: "pocName", width: 20 },
+    { header: "POC Number", key: "pocNumber", width: 16 },
+    { header: "Decision Maker Name", key: "decisionMakerName", width: 22 },
+    { header: "Decision Maker Number", key: "decisionMakerNumber", width: 16 },
+  ];
+  sheet.views = [{ state: "frozen", ySplit: 1 }];
+  sheet.getRow(1).font = { bold: true };
+  const text = (value: string | null | undefined): string => value ?? "";
+  for (const m of mous) {
+    const c = overviews.get(m.companyId);
+    sheet.addRow({
+      companyName: m.companyName,
+      generatedCode: m.generatedCode,
+      zoneName: m.zoneName,
+      plantName: text(m.plantName),
+      scheme: m.scheme,
+      status: MOU_STATUS_LABELS[m.status as keyof typeof MOU_STATUS_LABELS] ?? m.status,
+      hrContactName: c?.hrContactName ?? m.hrContactName,
+      hrContactNumber: c?.hrContactNumber ?? m.hrContactNumber,
+      hrEmail: text(c?.hrEmail),
+      financeHeadContactName: text(c?.financeHeadContactName),
+      financeHeadContactNumber: text(c?.financeHeadContactNumber),
+      financeEmail: text(c?.financeEmail),
+      purchaseName: text(c?.purchaseName),
+      purchaseNumber: text(c?.purchaseNumber),
+      purchaseEmail: text(c?.purchaseEmail),
+      pocName: text(c?.pocName),
+      pocNumber: text(c?.pocNumber),
+      decisionMakerName: text(c?.decisionMakerName),
+      decisionMakerNumber: text(c?.decisionMakerNumber),
+    });
+  }
+  return workbook;
 }
 
 /** SPEC-13 section 3: the four-sheet workbook, scoped to whatever Search's filters select. */
@@ -156,6 +227,10 @@ export async function buildExportWorkbook(
     { header: "Finance Head Contact Number", key: "financeHeadContactNumber", width: 16 },
     { header: "HR Email", key: "hrEmail", width: 26 },
     { header: "Finance Email", key: "financeEmail", width: 26 },
+    { header: "POC Name", key: "pocName", width: 20 },
+    { header: "POC Number", key: "pocNumber", width: 14 },
+    { header: "Decision Maker Name", key: "decisionMakerName", width: 22 },
+    { header: "Decision Maker Number", key: "decisionMakerNumber", width: 16 },
   ];
   companiesSheet.views = [{ state: "frozen", ySplit: 1 }];
   for (const c of companies) {

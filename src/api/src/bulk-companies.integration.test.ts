@@ -374,3 +374,36 @@ test("AC9: a VIEWER can neither download a template nor upload", async () => {
   assert.equal(template.status, 403);
   assert.equal((await upload(cookie, await sheetFile([companyRow()]))).status, 403);
 });
+
+// --- SPEC-30: one filled template pre-fills the Add New Company form -------------
+
+async function prefill(cookie: string, file: Blob, filename = "company.xlsx") {
+  const body = new FormData();
+  body.append("file", file, filename);
+  const response = await fetch(`${baseUrl}/api/companies/bulk/prefill`, { method: "POST", headers: { Cookie: cookie }, body });
+  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+}
+
+test("SPEC-30 a filled Excel row comes back as the wizard's pages and saves nothing", async () => {
+  const { pune, cookie } = await setup();
+  const companies = await count("company");
+  const { status, body } = await prefill(cookie, await sheetFile([companyRow(), companyRow({ companyName: "Second Co" })]));
+  assert.equal(status, 200);
+  assert.equal(body["rowCount"], 2);
+  const payload = body["payload"] as { page1: Record<string, string>; page3: { scheme: string } };
+  assert.equal(payload.page1["companyName"], companyRow()["companyName"]);
+  assert.equal(payload.page1["zoneId"], pune);
+  assert.equal(await count("company"), companies);
+});
+
+test("SPEC-30 a zone outside the uploader's zones is left blank", async () => {
+  const { cookie } = await setup();
+  const { body } = await prefill(cookie, await sheetFile([companyRow({ zoneId: "Mumbai" })]));
+  assert.equal((body["payload"] as { page1: Record<string, string> }).page1["zoneId"], "");
+});
+
+test("SPEC-30 a file that is not the template is a 400", async () => {
+  const { cookie } = await setup();
+  const { status } = await prefill(cookie, new Blob(["not a pdf form"], { type: "application/pdf" }), "random.pdf");
+  assert.equal(status, 400);
+});

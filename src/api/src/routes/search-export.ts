@@ -4,20 +4,22 @@
  * job row (never streamed directly from the GET that requests it): under
  * the 5,000-company threshold (section 5) it is generated synchronously and
  * the job is inserted already `ready`; over it, the job starts `pending` and
- * a fire-and-forget generation finishes it later. Every route is open to any
- * authenticated role; nothing here writes to a record table. SPEC-19: every query
+ * a fire-and-forget generation finishes it later. Every route but the contacts
+ * export is open to any authenticated role; nothing here writes to a record table. SPEC-19: every query
  * runs under the caller's zone scope, and a job is visible only to its creator (D120).
  * SPEC-24 adds the Existing Companies list's bulk record PDF, streamed directly:
  * it is built in seconds from batch queries, so it needs no job row.
+ * SPEC-29 adds the HR & client contacts Excel - the one export limited by role
+ * (Admin, HR, Finance), since it is a list of people's numbers and emails.
  */
 
-import { MOU_STATUSES, SCHEMES } from "@mou/domain";
+import { CONTACT_EXPORT_ROLES, MOU_STATUSES, SCHEMES } from "@mou/domain";
 import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
-import { requireAuth, requireSession } from "../auth/middleware.ts";
+import { requireAuth, requireRole, requireSession } from "../auth/middleware.ts";
 import { recordInScope, zoneScopeOf } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { loadCompanyRecords, renderCompanyRecordsPdf } from "../db/company-record-pdf.ts";
@@ -25,8 +27,10 @@ import { loadYsfLogo } from "../db/pdf-layout.ts";
 import {
   buildAllZonesPdfBuffer,
   buildCompanyPdfBuffer,
+  buildContactsWorkbook,
   buildExportWorkbook,
 } from "../db/export-builder.ts";
+import { fetchCompanyOverviews } from "../db/mou-view.ts";
 import type { SearchFilters, SearchStatusFilter } from "../db/search.ts";
 import { searchMous } from "../db/search.ts";
 import { exportJob } from "../db/schema.ts";
@@ -309,6 +313,51 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
       response
         .status(202)
         .json({ jobId, status: jobStatusRows[0]?.status ?? "pending" });
+    },
+  );
+
+  /**
+   * GET /api/export/contacts — SPEC-29: the HR & client contacts Excel for the
+   * same filters as /search. Built from two batch queries, so it is always
+   * generated at once, as an excel job the shared download route serves.
+   */
+  router.get(
+    "/export/contacts",
+    requireAuthSession,
+    requireRole(...CONTACT_EXPORT_ROLES),
+    async (request: Request, response: Response) => {
+      const auth = requireAuth(request);
+      const { filters, error } = parseSearchFilters(request.query);
+      if (error !== undefined) {
+        response.status(422).json({ error });
+        return;
+      }
+
+      const { rows: mous } = await searchMous(pool, zoneScopeOf(request), filters);
+      const overviews = await fetchCompanyOverviews(db, [...new Set(mous.map((row) => row.companyId))]);
+      const workbook = buildContactsWorkbook(mous, overviews);
+      const buffer = await workbook.xlsx.writeBuffer();
+
+      const jobRows = await db
+        .insert(exportJob)
+        .values({
+          kind: "excel",
+          status: "pending",
+          createdBy: auth.userId,
+          expiresAt: new Date(Date.now() + EXPORT_EXPIRY_HOURS * 60 * 60 * 1000),
+        })
+        .returning({ id: exportJob.id });
+      const jobId = jobRows[0]?.id;
+      if (jobId === undefined) {
+        response.status(500).json({ error: "Failed to create export job" });
+        return;
+      }
+      const relativePath = await writeExportFile(jobId, "xlsx", Buffer.from(buffer));
+      await db
+        .update(exportJob)
+        .set({ status: "ready", filePath: relativePath })
+        .where(eq(exportJob.id, jobId));
+      response.status(202).json({ jobId, status: "ready" });
     },
   );
 

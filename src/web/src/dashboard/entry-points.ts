@@ -8,12 +8,10 @@
  * layout never has to be rebuilt.
  */
 
+import { AGREEMENT_EDIT_ROLES, AUTHORING_ROLES, USER_ROLES } from "@mou/domain";
 import type { UserRole } from "@mou/domain";
 
-export const ALL_ROLES: readonly UserRole[] = ["ADMIN", "DATA_ENTRY", "VIEWER"];
-
-/** Roles that may create or amend agreements - the section 3.3 "no" column for VIEWER. */
-const AUTHORING_ROLES: readonly UserRole[] = ["ADMIN", "DATA_ENTRY"];
+export const ALL_ROLES: readonly UserRole[] = USER_ROLES;
 
 export interface DashboardEntryPoint {
   readonly id: string;
@@ -70,7 +68,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
     label: "Edit Agreement",
     description: "Amend a saved agreement after stating a reason",
     path: "/agreements/edit",
-    roles: ["ADMIN"],
+    roles: AGREEMENT_EDIT_ROLES,
     available: true,
     spec: "SPEC-10",
   },

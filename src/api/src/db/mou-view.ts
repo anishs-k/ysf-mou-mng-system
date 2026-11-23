@@ -87,6 +87,10 @@ export interface CompanyOverview {
   readonly purchaseName: string | null;
   readonly purchaseNumber: string | null;
   readonly purchaseEmail: string | null;
+  readonly pocName: string | null;
+  readonly pocNumber: string | null;
+  readonly decisionMakerName: string | null;
+  readonly decisionMakerNumber: string | null;
   readonly plants: readonly { readonly id: string; readonly plantName: string }[];
 }
 
@@ -126,6 +130,10 @@ export async function fetchCompanyOverviews(
       purchaseName: company.purchaseName,
       purchaseNumber: company.purchaseNumber,
       purchaseEmail: company.purchaseEmail,
+      pocName: company.pocName,
+      pocNumber: company.pocNumber,
+      decisionMakerName: company.decisionMakerName,
+      decisionMakerNumber: company.decisionMakerNumber,
     })
     .from(company)
     .innerJoin(zone, eq(zone.id, company.zoneId))
