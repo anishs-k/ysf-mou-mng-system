@@ -13,7 +13,7 @@
  * Company form can be filled from it and reviewed before the usual save.
  */
 
-import { AUTHORING_ROLES, bulkRowToPrefill, formFieldsToBulkRow } from "@mou/domain";
+import { bulkRowToPrefill, formFieldsToBulkRow } from "@mou/domain";
 import type { ChargeMeta } from "@mou/domain";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { Router } from "express";
@@ -21,7 +21,7 @@ import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import type { Pool } from "pg";
 
-import { requireAuth, requireRole, requireSession } from "../auth/middleware.ts";
+import { requireAuth, requirePermission, requireSession } from "../auth/middleware.ts";
 import { zoneAllowed, zoneScopeOf } from "../auth/zone-scope.ts";
 import {
   BULK_MAX_MOU_PDFS,
@@ -93,7 +93,7 @@ function uploadedFiles(request: Request): Express.Multer.File[] {
 
 export function createBulkCompaniesRouter(db: Database, pool: Pool): Router {
   const router = Router();
-  const requireAuthoring = [requireSession(pool), requireRole(...AUTHORING_ROLES)];
+  const requireAuthoring = [requireSession(pool), requirePermission("company.create")];
 
   /** GET /api/companies/bulk/template?format=xlsx|pdf */
   router.get("/companies/bulk/template", ...requireAuthoring, async (request: Request, response: Response) => {

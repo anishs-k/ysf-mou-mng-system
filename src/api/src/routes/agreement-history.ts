@@ -10,6 +10,7 @@
  * longer has is ignored, and one it does not yet have defaults to blank,
  * so a stored JSON blob can never make this route throw as the live schema
  * evolves around it.
+ * SPEC-32: a role without "contacts.view" gets a compare with no contact rows.
  */
 
 import {
@@ -31,7 +32,8 @@ import type { Request, Response } from "express";
 import path from "node:path";
 import type { Pool } from "pg";
 
-import { requireSession } from "../auth/middleware.ts";
+import { requireAuth, requireSession } from "../auth/middleware.ts";
+import { snapshotFor } from "../auth/section-access.ts";
 import { notFoundError, requireInScope } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { fetchEditablePayload } from "../db/mou-edit.ts";
@@ -286,10 +288,12 @@ export function createAgreementHistoryRouter(db: Database, pool: Pool): Router {
         return;
       }
 
+      // SPEC-32: without "contacts.view" the compare lists no contact rows.
+      const auth = requireAuth(request);
       response.json({
         fromLabel: fromResolved.label,
         toLabel: toResolved.label,
-        rows: computeAgreementDiff(fromResolved.snapshot, toResolved.snapshot),
+        rows: computeAgreementDiff(snapshotFor(auth, fromResolved.snapshot), snapshotFor(auth, toResolved.snapshot)),
       });
     },
   );

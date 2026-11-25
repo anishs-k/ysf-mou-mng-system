@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { validateCommercialDetails } from "./commercial-details-validation.ts";
+import { MOU_DOCUMENT_REQUIRED, validateCommercialDetails } from "./commercial-details-validation.ts";
 import type { CommercialDetails } from "./commercial-details-validation.ts";
 
 const TODAY = "2026-09-12";
@@ -156,8 +156,9 @@ test("two different labels are both accepted", () => {
 
 // --- AC9: MOU PDF ------------------------------------------------------------------
 
-test("AC9 no MOU PDF blocks Next", () => {
-  assert.ok(validate({ hasMouDocument: false }).errors.mouDocument);
+test("client 2026-11-25: the MOU PDF is optional for now - none still passes", () => {
+  assert.equal(MOU_DOCUMENT_REQUIRED, false);
+  assert.equal(validate({ hasMouDocument: false }).errors.mouDocument, undefined);
 });
 
 test("a present MOU PDF passes", () => {
@@ -206,4 +207,51 @@ test("an unknown basis code is rejected on that charge", () => {
 test("chargeMeta for a key that is not a fixed charge is rejected", () => {
   const result = validate({ chargeMeta: { NOT_A_CHARGE: { period: "MONTHLY" } } });
   assert.ok(result.errors.chargeMeta?.["NOT_A_CHARGE"]);
+});
+
+// --- SPEC-31: sign status, mail confirmation, payment term, remark -------------
+
+test("SPEC-31 the MoU tracking fields are optional - leaving them out is valid", () => {
+  assert.deepEqual(validate({ signStatus: "", mailConfirmation: "", paymentTerm: "", remark: "" }).errors, {});
+});
+
+test("SPEC-31 known sign status and mail confirmation codes with text are accepted", () => {
+  const result = validate({
+    signStatus: "BOTH_SIGN",
+    mailConfirmation: "YES",
+    paymentTerm: "Invoice within 7 days, payment within 5 days",
+    remark: "Combined MoU for two plants",
+  });
+  assert.deepEqual(result.errors, {});
+});
+
+test("SPEC-31 an unknown sign status or mail confirmation is rejected", () => {
+  const { errors } = validate({ signStatus: "SIGNED", mailConfirmation: "MAYBE" });
+  assert.equal(errors.signStatus, "Choose a sign status from the list");
+  assert.equal(errors.mailConfirmation, "Choose Yes or No");
+});
+
+test("SPEC-31 a payment term or remark longer than 500 characters is rejected", () => {
+  const { errors } = validate({ paymentTerm: "x".repeat(501), remark: "y".repeat(501) });
+  assert.equal(errors.paymentTerm, "Enter at most 500 characters");
+  assert.equal(errors.remark, "Enter at most 500 characters");
+  assert.deepEqual(validate({ paymentTerm: "x".repeat(500) }).errors, {});
+});
+
+test("SPEC-31 the three YSI fees are amounts like any fixed charge", () => {
+  assert.deepEqual(validate({ charges: { EXAMINATION_FEES: "1250", EMPLOYABILITY_TEST_FEES: "500", MSBTE_AFFILIATION_FEES: "15000" } }).errors, {});
+  assert.ok(validate({ charges: { EXAMINATION_FEES: "abc" } }).errors.charges?.["EXAMINATION_FEES"]);
+});
+
+// --- SPEC-35: match with invoice, invoice remark ---------------------------------
+
+test("SPEC-35 match with invoice and invoice remark are optional", () => {
+  assert.deepEqual(validate({ invoiceMatch: "", invoiceRemark: "" }).errors, {});
+  assert.deepEqual(validate({ invoiceMatch: "NO_MATCH", invoiceRemark: "Training charges not added to the invoice" }).errors, {});
+});
+
+test("SPEC-35 an unknown match value or an invoice remark over 500 characters is rejected", () => {
+  const { errors } = validate({ invoiceMatch: "MAYBE", invoiceRemark: "z".repeat(501) });
+  assert.equal(errors.invoiceMatch, "Choose Match or No Match");
+  assert.equal(errors.invoiceRemark, "Enter at most 500 characters");
 });

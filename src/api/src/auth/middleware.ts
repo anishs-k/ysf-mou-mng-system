@@ -4,10 +4,13 @@
  * session row id - never a user id or role, both of which are re-read from the
  * database on every request. requireSession answers 401 and requireRole answers 403,
  * which is what lets SPEC-02 insist that hiding an entry point in the UI is not the
- * control: every endpoint is checked independently.
+ * control: every endpoint is checked independently. SPEC-32 adds requirePermission,
+ * which reads the role x permission matrix in @mou/domain instead of a role list.
+ * SPEC-33: it now checks the permissions the session carries (role_permission),
+ * and requireSuperAdmin moves here so User Management and Roles & Permissions share it.
  */
 
-import type { UserRole } from "@mou/domain";
+import type { Permission, UserRole } from "@mou/domain";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { Pool } from "pg";
 
@@ -127,6 +130,32 @@ export function requireRole(...allowed: readonly UserRole[]): RequestHandler {
     }
     next();
   };
+}
+
+/** SPEC-32: 401 without a session, 403 when the user's permissions (SPEC-33: from role_permission) lack `permission`. */
+export function requirePermission(permission: Permission): RequestHandler {
+  return (request: Request, response: Response, next: NextFunction): void => {
+    const auth = request.auth;
+    if (auth === undefined) {
+      response.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!auth.permissions.includes(permission)) {
+      response.status(403).json({ error: "Forbidden" });
+      return;
+    }
+    next();
+  };
+}
+
+/** SPEC-21 section 2.2: an ADMIN limited to zones is not a super admin. Use after requireSession(). */
+export function requireSuperAdmin(request: Request, response: Response, next: NextFunction): void {
+  const auth = request.auth;
+  if (auth === undefined || auth.role !== "ADMIN" || !auth.allZones) {
+    response.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
 }
 
 /** Reads the session user on a route already guarded by requireSession(). */

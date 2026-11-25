@@ -27,9 +27,16 @@ import type { Database } from "../db/client.ts";
 /** SPEC-02 section 2.1: one message for every failure, so nothing leaks. */
 const GENERIC_FAILURE_MESSAGE = "Invalid username or password.";
 
-/** The SPEC-02 login/me body plus the SPEC-21 section 3 zone scope. */
+/** The SPEC-02 login/me body plus the SPEC-21 section 3 zone scope and the SPEC-33 permissions. */
 function describe(auth: AuthenticatedUser) {
-  return { userId: auth.userId, username: auth.username, role: auth.role, allZones: auth.allZones, zoneIds: auth.zoneIds };
+  return {
+    userId: auth.userId,
+    username: auth.username,
+    role: auth.role,
+    allZones: auth.allZones,
+    zoneIds: auth.zoneIds,
+    permissions: auth.permissions,
+  };
 }
 
 let dummyHash: string | undefined;

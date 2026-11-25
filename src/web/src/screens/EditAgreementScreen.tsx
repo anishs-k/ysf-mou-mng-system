@@ -43,14 +43,16 @@ import type {
   PayrollItemOption,
 } from "../api/client.ts";
 import { useCascadingSelectors } from "../hooks/useCascadingSelectors.ts";
+import { can } from "../ui/access.ts";
 import { PENDING_FIGURE, displayStatus, formatCalendarDate, schemeLabel, todayIso } from "../ui/format.ts";
 import { Field } from "../ui/form.tsx";
 import type { SelectOption } from "../ui/form.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Badge, Button, Card, SectionTitle } from "../ui/primitives.tsx";
+import { useSession } from "../ui/session.ts";
 import { BRAND, statusTone } from "../ui/theme.ts";
-import { CommercialTab, CompanyDetailsTab, PayrollTab, ReviewTab } from "./editAgreement/EditTabs.tsx";
+import { CommercialTab, CompanyDetailsTab, PayrollTab, ReviewTab, ViewOnly } from "./editAgreement/EditTabs.tsx";
 
 const TABS = ["Company Details", "Commercial Details", "Payroll Details", "Review Changes"] as const;
 type Tab = (typeof TABS)[number];
@@ -179,6 +181,7 @@ function clearDraft(mouId: string): void {
 
 function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly names: AgreementNames }) {
   const navigate = useNavigate();
+  const { user } = useSession();
   const proofInput = useRef<HTMLInputElement>(null);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState("");
@@ -475,6 +478,7 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
         </div>
         <div className="p-5">
           {tab === "Company Details" ? (
+            <ViewOnly locked={!can(user, "contacts.edit")}>
             <CompanyDetailsTab
               info={{
                 company: names.company,
@@ -490,6 +494,7 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
                   : { previous: edit.contacts, value: contacts, errors: contactErrors, onChange: editContacts }
               }
             />
+            </ViewOnly>
           ) : locked ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               {requesting
@@ -499,6 +504,7 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
                   : "Choose a reason for the amendment to unlock these fields."}
             </p>
           ) : tab === "Commercial Details" ? (
+            <ViewOnly locked={!can(user, "commercial.edit")}>
             <CommercialTab
               scheme={edit.payroll.scheme}
               previous={edit.commercial}
@@ -508,7 +514,9 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
               itemTypes={loaded.itemTypes}
               onChange={editCommercial}
             />
+            </ViewOnly>
           ) : tab === "Payroll Details" ? (
+            <ViewOnly locked={!can(user, "payroll.edit")}>
             <PayrollTab
               previous={edit.payroll}
               value={payroll}
@@ -516,6 +524,7 @@ function AgreementEditor({ mouId, names }: { readonly mouId: string; readonly na
               items={loaded.payrollItems}
               onChange={editPayroll}
             />
+            </ViewOnly>
           ) : (
             <ReviewTab changes={changes} reasonLabel={reasonLabel} />
           )}

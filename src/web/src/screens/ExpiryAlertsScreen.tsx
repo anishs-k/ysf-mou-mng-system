@@ -1,7 +1,7 @@
 /**
  * Purpose: The MoU Expiry Alerts screen - three KPI tiles that toggle a filter
- * (30 days / 60 days / unacknowledged), the expiring-MoUs table with a CSV export of
- * the visible rows, and the detail dialog behind each row's eye button. Rows come
+ * (30 days / 60 days / unacknowledged), the expiring-MoUs table with an Excel export
+ * (Only MoU or Full Details) of every MoU expiring in the alert window, and the detail dialog behind each row's eye button. Rows come
  * from GET /api/alerts/expiring (every threshold, acknowledged or not), folded to one
  * per MoU; the dialog loads the HR contact from the company overview and lets ADMIN /
  * DATA_ENTRY acknowledge. Renew and "Initiate Renewal" open Upload MoU for the MoU.
@@ -10,9 +10,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { acknowledgeAlert, acknowledgeMouAlerts, fetchAlerts, fetchCompanyOverview } from "../api/client.ts";
+import { acknowledgeAlert, acknowledgeMouAlerts, fetchAlerts, fetchCompanyOverview, startExcelExport } from "../api/client.ts";
 import type { AlertRow, CompanyOverview } from "../api/client.ts";
-import { canAuthor, canOpenPath } from "../ui/access.ts";
+import { useExportDownload } from "../hooks/useExportDownload.ts";
+import { can, canOpenPath } from "../ui/access.ts";
+import { ExportMenu } from "../ui/ExportMenu.tsx";
 import { EXPIRING_SOON_DAYS, PENDING_FIGURE, formatCalendarDate, mouStatusLabel, schemeLabel } from "../ui/format.ts";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
@@ -60,12 +62,11 @@ const FILTER_TILES: readonly FilterTile[] = [
 ];
 
 const TABLE_HEADINGS = ["Company", "Zone", "MoU Code", "Expiry Date", "Days Left", "Status", "Action"];
-const CSV_HEADER = ["Company", "Zone", "Plant", "MoU Code", "Scheme", "Expiry Date", "Days Left", "Status", "Acknowledged"];
 /** Excel needs the BOM to read non-ASCII text as UTF-8. */
-const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
 const LOAD_ERROR = "Could not load expiry alerts. Please refresh the page.";
 const ACKNOWLEDGE_ERROR = "Could not acknowledge this alert. Please try again.";
 
+const EXPORT_KEY = "expiring";
 const SECONDARY_BUTTON =
   "inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg bg-secondary text-primary border-border hover:bg-blue-100";
 const ACCENT_BUTTON =
@@ -109,35 +110,7 @@ function daysLeftClass(days: number): string {
   return "text-blue-600";
 }
 
-function csvLine(cells: readonly string[]): string {
-  return cells.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",");
-}
 
-function exportCsv(rows: readonly MouAlert[]): void {
-  const lines = [
-    csvLine(CSV_HEADER),
-    ...rows.map((row) =>
-      csvLine([
-        row.company,
-        row.zone,
-        row.plant,
-        row.code,
-        row.scheme,
-        formatCalendarDate(row.endDate),
-        String(row.daysLeft),
-        row.status,
-        isUnacknowledged(row) ? "No" : "Yes",
-      ]),
-    ),
-  ];
-  const blob = new Blob([BYTE_ORDER_MARK + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "MoU_Expiry_Alerts.csv";
-  link.click();
-  URL.revokeObjectURL(url);
-}
 
 async function acknowledge(alert: MouAlert): Promise<void> {
   await Promise.all([
@@ -176,14 +149,16 @@ export function ExpiryAlertsScreen() {
   const rows = activeTile ? all.filter(activeTile.matches) : all;
   const selected = all.find((alert) => alert.mouId === selectedMouId);
   const canRenew = user !== null && canOpenPath(user, "/upload-mou");
-  const canAcknowledge = user !== null && canAuthor(user.role);
+  const canAcknowledge = can(user, "alerts.ack");
+  const exporter = useExportDownload();
+  const shownError = loadError !== "" ? loadError : exporter.error;
   const goToUpload = (mouId: string) => navigate(`/upload-mou?mouId=${mouId}`);
 
   return (
     <ScreenFrame title="MoU Expiry Alerts" subtitle="Upcoming expirations requiring action" contentClassName="p-4 md:p-6 space-y-4 md:space-y-5">
-      {loadError !== "" && (
+      {shownError !== "" && (
         <div role="alert" className="rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]">
-          {loadError}
+          {shownError}
         </div>
       )}
       <div className="grid sm:grid-cols-3 gap-4">
@@ -216,10 +191,15 @@ export function ExpiryAlertsScreen() {
             </h3>
             <span className="mono text-xs font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{rows.length}</span>
           </div>
-          <button type="button" onClick={() => exportCsv(rows)} className={`${SECONDARY_BUTTON} px-3 py-1.5 text-xs`}>
-            <Icon name="download" />
-            Export Excel
-          </button>
+          {/* Every MoU expiring within the alert window, as Only MoU or Full Details. */}
+          {can(user, "export.data") && (
+            <ExportMenu
+              label="Export Excel"
+              busy={exporter.busyKey === EXPORT_KEY}
+              onPick={(view) => void exporter.run(EXPORT_KEY, () => startExcelExport({ status: "EXPIRING" }, view))}
+              className={`${SECONDARY_BUTTON} px-3 py-1.5 text-xs`}
+            />
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

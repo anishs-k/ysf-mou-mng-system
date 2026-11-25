@@ -255,3 +255,31 @@ test("D148 other items are left exactly as given, and the input is not mutated",
   assert.deepEqual(filled["HRA"], { isApplicable: undefined, amount: "" });
   assert.equal("PF" in items, false);
 });
+
+// --- SPEC-31: left trainee recovery and who pays the education fee -------------
+
+test("SPEC-31 left trainee recovery and education fee payer are optional", () => {
+  assert.deepEqual(validate({ leftTraineeAmount: "", leftTraineeNote: "", educationFeePayer: "" }).errors, {});
+});
+
+test("SPEC-31 a recovery amount, note and known payer are accepted", () => {
+  const errors = validate({
+    leftTraineeAmount: "500",
+    leftTraineeNote: "Deducted from the last month stipend",
+    educationFeePayer: "DEDUCT_FROM_STIPEND",
+  }).errors;
+  assert.deepEqual(errors, {});
+});
+
+test("SPEC-31 a recovery amount must be a valid amount", () => {
+  assert.ok(validate({ leftTraineeAmount: "-5" }).errors.leftTraineeAmount);
+  assert.ok(validate({ leftTraineeAmount: "abc" }).errors.leftTraineeAmount);
+});
+
+test("SPEC-31 a recovery note longer than 500 characters is rejected", () => {
+  assert.equal(validate({ leftTraineeNote: "n".repeat(501) }).errors.leftTraineeNote, "Enter at most 500 characters");
+});
+
+test("SPEC-31 an unknown education fee payer is rejected", () => {
+  assert.equal(validate({ educationFeePayer: "STUDENT" }).errors.educationFeePayer, "Choose who pays the education fee");
+});

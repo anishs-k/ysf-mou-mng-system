@@ -14,7 +14,8 @@
  * D155: the single official email became an HR email and a Finance email, each
  * with its confirmation. D156: Contact Type is no longer asked - a number is
  * accepted as a mobile or as a LAN number on its own; a stored or supplied type
- * still narrows the check to that kind.
+ * still narrows the check to that kind. SPEC-31 adds a required free-text
+ * Zonal Manager (a contacts-only edit, SPEC-28, does not ask for it).
  */
 
 import { COMPANY_TYPES, CONTACT_TYPES, REGISTRATION_TYPES } from "./enums.ts";
@@ -50,6 +51,11 @@ export interface CompanyDetails {
   /** SPEC-27: optional Decision Maker - a name and a 10-digit mobile. */
   readonly decisionMakerName?: string;
   readonly decisionMakerNumber?: string;
+  /**
+   * SPEC-31: required on a new company - the zonal manager looking after it, free
+   * text. Optional in the type so companies saved before it stay readable.
+   */
+  readonly zonalManager?: string;
 }
 
 export type CompanyDetailField = keyof CompanyDetails;
@@ -310,6 +316,12 @@ export function validateCompanyDetails(
     if (number !== "" && !isMobile(number)) {
       errors[fields.number] = "Enter a 10-digit mobile number starting 6 to 9";
     }
+  }
+
+  // SPEC-31: Zonal Manager is required free text, held in varchar(150).
+  required("zonalManager");
+  if (value("zonalManager").length > MAX_CONTACT_NAME) {
+    errors.zonalManager = `Enter at most ${MAX_CONTACT_NAME} characters`;
   }
 
   validateEmailPair(errors, { email: "hrEmail", confirm: "confirmHrEmail" }, value("hrEmail"), value("confirmHrEmail"), "HR email");

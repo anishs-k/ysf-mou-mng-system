@@ -78,8 +78,14 @@ async function viewerCookie(): Promise<string> {
   return login(user.username, user.password);
 }
 
+/** SPEC-32: Data Entry may see contacts and export; a Viewer may do neither. */
+async function dataEntryCookie(): Promise<string> {
+  const user = await insertUserWithPassword(pool, { username: "data-entry", password: "pass", role: "DATA_ENTRY" });
+  return login(user.username, user.password);
+}
+
 test("AC2 overview shows plant, GST, and both contact names and numbers", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const zoneId = await insertZone(pool);
   const user = await insertUserWithPassword(pool, { username: "creator", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, user.id, { companyName: "Acme Industries" });
@@ -282,7 +288,7 @@ test("SPEC-07 every read endpoint is reachable by a VIEWER (no role restriction)
 });
 
 test("overview also returns the full Page 1 identity, address, zone name and purchase contact", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const zoneId = await insertZone(pool, "WEST", "West");
   const user = await insertUserWithPassword(pool, { username: "creator11", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, user.id, { sector: "AUTOMOBILE" });
@@ -415,8 +421,8 @@ test("an unauthenticated request is refused", async () => {
 
 // --- SPEC-23 §5: the record PDF behind Export PDF ------------------------------------
 
-test("SPEC-23 AC8 the record PDF is served inline as a PDF named after the MoU code, to a VIEWER too", async () => {
-  const cookie = await viewerCookie();
+test("SPEC-23 AC8 the record PDF is served inline as a PDF named after the MoU code", async () => {
+  const cookie = await dataEntryCookie();
   const zoneId = await insertZone(pool);
   const user = await insertUserWithPassword(pool, { username: "creator-pdf", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, user.id);
@@ -434,7 +440,7 @@ test("SPEC-23 AC8 the record PDF is served inline as a PDF named after the MoU c
 });
 
 test("SPEC-23 an unknown MoU answers 404 to the record PDF", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const response = await fetch(`${baseUrl}/api/mous/00000000-0000-4000-8000-000000000000/record.pdf`, { headers: { Cookie: cookie } });
   assert.equal(response.status, 404);
 });
@@ -445,11 +451,42 @@ test("SPEC-23 an MoU outside the user's zones answers 404 to the record PDF", as
   const user = await insertUserWithPassword(pool, { username: "creator-pdf2", password: "pass" });
   const companyId = await insertCompany(pool, zoneId, user.id);
   const mouId = await insertMou(pool, companyId, await insertPlant(pool, companyId));
-  const zonal = await insertUserWithPassword(pool, { username: "zonal-pdf", password: "pass", role: "VIEWER", zoneIds: [otherZone] });
+  const zonal = await insertUserWithPassword(pool, { username: "zonal-pdf", password: "pass", role: "DATA_ENTRY", zoneIds: [otherZone] });
   const cookie = await login(zonal.username, zonal.password);
 
   const response = await fetch(`${baseUrl}/api/mous/${mouId}/record.pdf`, { headers: { Cookie: cookie } });
   assert.equal(response.status, 404);
+});
+
+// --- SPEC-32: section-wise access ---------------------------------------------------
+
+test("SPEC-32 a VIEWER's overview carries the company but none of its contacts", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-rbac", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id, { companyName: "Hidden Contacts Ltd" });
+
+  const response = await fetch(`${baseUrl}/api/companies/${companyId}/overview`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as Record<string, unknown>;
+  assert.equal(body["companyName"], "Hidden Contacts Ltd");
+  for (const field of ["hrContactName", "hrContactNumber", "financeHeadContactName", "financeHeadContactNumber", "hrEmail", "financeEmail"]) {
+    assert.equal(body[field], "", field);
+  }
+  for (const field of ["pocName", "pocNumber", "decisionMakerName", "decisionMakerNumber", "zonalManager", "purchaseName"]) {
+    assert.equal(body[field], null, field);
+  }
+});
+
+test("SPEC-32 a VIEWER may not export the record PDF", async () => {
+  const cookie = await viewerCookie();
+  const zoneId = await insertZone(pool);
+  const user = await insertUserWithPassword(pool, { username: "creator-rbac2", password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, user.id);
+  const mouId = await insertMou(pool, companyId, await insertPlant(pool, companyId));
+
+  const response = await fetch(`${baseUrl}/api/mous/${mouId}/record.pdf`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 403);
 });
 
 // --- SPEC-24: the batch loaders give exactly what the one-record loaders give ---------

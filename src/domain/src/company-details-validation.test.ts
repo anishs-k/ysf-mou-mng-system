@@ -41,6 +41,7 @@ const VALID: CompanyDetails = {
   confirmHrEmail: "hr@acme.example",
   financeEmail: "finance@acme.example",
   confirmFinanceEmail: "finance@acme.example",
+  zonalManager: "Abhishek B.",
 };
 
 function errorsFor(overrides: Partial<CompanyDetails>) {
@@ -334,4 +335,28 @@ test("SPEC-28 the contact rules are Page 1's: names required, numbers and emails
 test("SPEC-28 a contact check reports only contact fields", () => {
   const keys = Object.keys(validateCompanyContacts({ ...CONTACTS, hrEmail: "" }));
   assert.deepEqual(keys, ["hrEmail"]);
+});
+
+// --- SPEC-31: optional Zonal Manager (free text) ---------------------------------
+
+test("SPEC-31 Zonal Manager is required free text", () => {
+  assert.equal(errorsFor({ zonalManager: "" }).zonalManager, "Required");
+  assert.equal(errorsFor({ zonalManager: "   " }).zonalManager, "Required");
+  assert.deepEqual(errorsFor({ zonalManager: "Abhishek B." }), {});
+});
+
+test("SPEC-31 a contacts-only edit does not ask for the Zonal Manager", () => {
+  const contacts = {
+    hrContactName: "Rita Sharma",
+    hrContactNumber: "9876543210",
+    hrEmail: "hr@acme.example",
+    financeHeadContactName: "Arun Verma",
+    financeHeadContactNumber: "9123456780",
+    financeEmail: "finance@acme.example",
+  };
+  assert.deepEqual(validateCompanyContacts(contacts), {});
+});
+
+test("SPEC-31 a Zonal Manager longer than 150 characters is rejected", () => {
+  assert.equal(errorsFor({ zonalManager: "Z".repeat(151) }).zonalManager, "Enter at most 150 characters");
 });

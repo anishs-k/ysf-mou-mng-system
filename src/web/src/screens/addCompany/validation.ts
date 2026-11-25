@@ -4,10 +4,17 @@
  * payroll details) over the draft payload, then maps the payload-keyed errors back
  * onto the rows the screen shows - a charge key to its charge row, the n-th Other
  * item to the n-th Other row - plus the few browser-only rules (sector, scheme,
- * purchase email, a charge row without a head) the design adds.
+ * purchase email, a charge row without a head) the design adds. SPEC-34: the
+ * YSF / YSI rules (validateOrganisationFields) on the scheme, fees and fee payer.
  */
 
-import { validateCommercialDetails, validateCompanyDetails, validatePayrollDetails, withStatutoryDefaults } from "@mou/domain";
+import {
+  validateCommercialDetails,
+  validateCompanyDetails,
+  validateOrganisationFields,
+  validatePayrollDetails,
+  withStatutoryDefaults,
+} from "@mou/domain";
 
 import { todayIso } from "../../ui/format.ts";
 import type { CompanyForm, WizardForm } from "./formState.ts";
@@ -22,10 +29,15 @@ export interface CompanyValidation {
   readonly warnings: CompanyErrors;
 }
 
-export function validateCompanyStep(company: CompanyForm): CompanyValidation {
+export function validateCompanyStep(company: CompanyForm, organisation = ""): CompanyValidation {
   const { errors, warnings } = validateCompanyDetails(toPage1(company));
   const all: { -readonly [K in keyof CompanyForm]?: string } = { ...errors };
-  if (company.scheme === "") all.scheme = "Choose a scheme";
+  if (company.scheme === "") {
+    all.scheme = "Choose a scheme";
+  } else {
+    const schemeError = validateOrganisationFields({ organisation, scheme: company.scheme, charges: {} }).scheme;
+    if (schemeError !== undefined) all.scheme = schemeError;
+  }
   if (company.sector === "") all.sector = "Choose a sector";
   const purchaseEmail = company.purchaseEmail.trim();
   if (purchaseEmail !== "" && !EMAIL_PATTERN.test(purchaseEmail)) {
@@ -40,7 +52,20 @@ export type ChargeRowErrors = Partial<Record<"head" | "amount" | "period" | "bas
 
 export interface CommercialValidation {
   readonly fields: Partial<
-    Record<"mouStartDate" | "tenureValue" | "attendanceCycle" | "stipendDate" | "mouDocument", string>
+    Record<
+      | "mouStartDate"
+      | "tenureValue"
+      | "attendanceCycle"
+      | "stipendDate"
+      | "mouDocument"
+      | "signStatus"
+      | "mailConfirmation"
+      | "paymentTerm"
+      | "remark"
+      | "invoiceMatch"
+      | "invoiceRemark",
+      string
+    >
   >;
   /** Keyed by charge row id. */
   readonly rows: Readonly<Record<number, ChargeRowErrors>>;
@@ -75,6 +100,22 @@ export function validateCommercialStep(form: WizardForm): CommercialValidation {
     const rowErrors = errors.otherItems?.[index];
     if (rowErrors !== undefined) add(row.id, { ...rowErrors });
   });
+  // SPEC-34: a YSI-only fee left on a YSF form (e.g. from a template) is flagged on its row.
+  const organisationErrors = validateOrganisationFields({
+    organisation: form.organisation,
+    scheme: form.company.scheme,
+    charges: page2.charges,
+    otherItems: page2.otherItems,
+  });
+  for (const row of form.charges) {
+    const message = organisationErrors.charges?.[row.head];
+    if (message !== undefined) add(row.id, { head: message });
+  }
+  // SPEC-35: an Other row named like a YSI-only fee, on a YSF form.
+  otherRows.forEach((row, index) => {
+    const message = organisationErrors.otherItems?.[index];
+    if (message !== undefined) add(row.id, { label: message });
+  });
 
   return {
     fields: {
@@ -83,6 +124,12 @@ export function validateCommercialStep(form: WizardForm): CommercialValidation {
       attendanceCycle: errors.attendanceCycle,
       stipendDate: errors.stipendDate,
       mouDocument: errors.mouDocument,
+      signStatus: errors.signStatus,
+      mailConfirmation: errors.mailConfirmation,
+      paymentTerm: errors.paymentTerm,
+      remark: errors.remark,
+      invoiceMatch: errors.invoiceMatch,
+      invoiceRemark: errors.invoiceRemark,
     },
     rows,
     startDateWarning: warnings.mouStartDate,
@@ -95,6 +142,8 @@ export interface PayrollValidation {
   readonly categories: string | undefined;
   /** Keyed by category card id. */
   readonly cards: Readonly<Record<number, CategoryErrors>>;
+  /** SPEC-31: the optional payroll terms. */
+  readonly terms: Partial<Record<"leftTraineeAmount" | "leftTraineeNote" | "educationFeePayer", string>>;
 }
 
 export function validatePayrollStep(form: WizardForm): PayrollValidation {
@@ -112,7 +161,21 @@ export function validatePayrollStep(form: WizardForm): PayrollValidation {
       cards[card.id] = { ...cards[card.id], qualification: detail.qualification, stipendRate: detail.stipendRate };
     }
   });
-  return { categories: errors.traineeCategories, cards };
+  const organisationErrors = validateOrganisationFields({
+    organisation: form.organisation,
+    scheme: form.company.scheme,
+    charges: {},
+    educationFeePayer: form.payrollTerms.educationFeePayer,
+  });
+  return {
+    categories: errors.traineeCategories,
+    cards,
+    terms: {
+      leftTraineeAmount: errors.leftTraineeAmount,
+      leftTraineeNote: errors.leftTraineeNote,
+      educationFeePayer: errors.educationFeePayer ?? organisationErrors.educationFeePayer,
+    },
+  };
 }
 
 /** Appended to TextInput's classes so an invalid field's border turns red. */

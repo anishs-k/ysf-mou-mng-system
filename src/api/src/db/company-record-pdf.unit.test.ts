@@ -60,6 +60,7 @@ function record(overrides: Partial<CompanyRecord> = {}): CompanyRecord {
       pocNumber: "9876512345",
       decisionMakerName: null,
       decisionMakerNumber: null,
+      zonalManager: "Abhishek B.",
       plants: [{ id: "p1", plantName: "Chakan Plant" }],
     },
     commercial: {
@@ -80,6 +81,12 @@ function record(overrides: Partial<CompanyRecord> = {}): CompanyRecord {
         { itemKey: "INSURANCE", label: "Insurance", amount: null, period: null, basis: null },
       ],
       otherItems: [{ label: "Safety Kit", amount: "250.00", itemType: "DEDUCTION" }],
+      signStatus: "BOTH_SIGN",
+      mailConfirmation: "YES",
+      paymentTerm: "Within 7 days",
+      invoiceMatch: "NO_MATCH",
+      invoiceRemark: "Uniform cost not deducted",
+      remark: "Combined MoU",
       document: undefined,
     },
     payroll: {
@@ -91,6 +98,9 @@ function record(overrides: Partial<CompanyRecord> = {}): CompanyRecord {
         { itemKey: "ESI", label: "ESI", valueKind: "PERCENT", amount: "0.75", isApplicable: true },
         { itemKey: "TDS", label: "TDS", valueKind: "STATUS", amount: null, isApplicable: true },
       ],
+      leftTraineeAmount: "500.00",
+      leftTraineeNote: "From last stipend",
+      educationFeePayer: "DEDUCT_FROM_STIPEND",
     },
     agreements: [agreement(1)],
     documents: [
@@ -125,6 +135,50 @@ test("SPEC-27 the overview lists the POC with its name and number", async () => 
   const { lines } = await render();
   assert.ok(lines.includes("POC"), "POC label missing");
   assert.ok(lines.includes("Rahul Sharma · 9876512345"));
+});
+
+test("SPEC-31 the overview lists the Zonal Manager", async () => {
+  const { lines } = await render();
+  assert.ok(lines.includes("ZONAL MANAGER"));
+  assert.ok(lines.includes("Abhishek B."));
+});
+
+test("SPEC-35 the commercial section shows match with invoice and the invoice remark", async () => {
+  const { lines } = await render();
+  for (const text of ["MATCH WITH INVOICE", "No Match", "INVOICE REMARK", "Uniform cost not deducted"]) {
+    assert.ok(lines.includes(text), text);
+  }
+});
+
+test("Only MoU view: the MoU and its commercial terms, without contacts, payroll, history or documents", async () => {
+  const pdf = await renderCompanyRecordPdf(record(), { compress: false, view: "mou" });
+  const lines = pdfText(pdf);
+  for (const text of ["MOU-NAPS-2026-0001", "Acme Gears Pvt Ltd", "27AAACA1234A1Z5", "Abhishek B.", "Both Sign", "No Match", "Rs. 500.00 · From last stipend"]) {
+    assert.ok(lines.includes(text), text);
+  }
+  for (const text of ["Asha Rao", "accounts@acme.in", "Provident Fund (PF)", "signed-mou.pdf", "PAYROLL", "DOCUMENTS", "HISTORY"]) {
+    assert.ok(!lines.includes(text), text);
+  }
+});
+
+test("SPEC-34 the commercial section names the organisation the scheme belongs to", async () => {
+  const { lines } = await render();
+  assert.ok(lines.includes("ORGANISATION"));
+  assert.ok(lines.includes("YSF - Yuvashakti Foundation"));
+});
+
+test("SPEC-31 the commercial section shows the sign status, mail confirmation, payment term and remark", async () => {
+  const { lines } = await render();
+  for (const text of ["SIGN STATUS", "Both Sign", "MAIL CONFIRMATION", "Yes", "PAYMENT TERM", "Within 7 days", "REMARK", "Combined MoU"]) {
+    assert.ok(lines.includes(text), text);
+  }
+});
+
+test("SPEC-31 the payroll section shows the left trainee recovery and education fee payer", async () => {
+  const { lines } = await render();
+  for (const text of ["LEFT TRAINEE RECOVERY", "Rs. 500.00 · From last stipend", "EDUCATION FEE PAID BY", "Deduct from stipend"]) {
+    assert.ok(lines.includes(text), text);
+  }
 });
 
 test("AC8 the header carries the company name, zone and MoU code", async () => {

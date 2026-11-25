@@ -6,8 +6,13 @@
  * traineeCategories + traineeCategoryDetails) and fromDraftPayload() rebuilds them.
  * D157 / D158: the tenure is always months and the wizard asks no payroll item -
  * page 3 carries the scheme and trainee categories, PF / ESI / TDS default on save.
+ * SPEC-31: step 1 adds the (required) Zonal Manager, step 2 the optional MoU
+ * tracking fields and step 3 the optional left-trainee recovery and education fee payer.
+ * SPEC-34: the form starts with YSF / YSI (organisation), kept in the draft's page 3.
  */
 
+import { isOrganisation, organisationOfScheme } from "@mou/domain";
+import type { Organisation } from "@mou/domain";
 import type { CommercialDetails, CompanyDetails, PayrollDetails } from "@mou/domain";
 
 import type { Draft, EnumsResponse, MouDocumentMeta, ZoneOption } from "../../api/client.ts";
@@ -25,6 +30,8 @@ export interface CompanyForm extends CompanyDetails {
   readonly pocNumber: string;
   readonly decisionMakerName: string;
   readonly decisionMakerNumber: string;
+  /** SPEC-31: required free text. */
+  readonly zonalManager: string;
   /** Shown on step 1 as in the design, stored as page3.scheme. */
   readonly scheme: string;
 }
@@ -37,6 +44,21 @@ export interface CommercialForm {
   readonly attendanceCycle: string;
   readonly stipendDate: string;
   readonly mouDocument: MouDocumentMeta | undefined;
+  /** SPEC-31: optional - list codes for the first two, free text for the rest. */
+  readonly signStatus: string;
+  readonly mailConfirmation: string;
+  readonly paymentTerm: string;
+  readonly remark: string;
+  /** SPEC-35: optional INVOICE_MATCHES code and invoice remark. */
+  readonly invoiceMatch: string;
+  readonly invoiceRemark: string;
+}
+
+/** SPEC-31: step 3's optional payroll terms. */
+export interface PayrollTermsForm {
+  readonly leftTraineeAmount: string;
+  readonly leftTraineeNote: string;
+  readonly educationFeePayer: string;
 }
 
 /** "OTHER" as the head marks a custom-labelled charge; any other non-blank head is a fixed commercial key. */
@@ -69,10 +91,13 @@ interface OtherRow {
 }
 
 export interface WizardForm {
+  /** SPEC-34: YSF or YSI, asked before anything else; "" until chosen. Stored as page3.organisation. */
+  readonly organisation: Organisation | "";
   readonly company: CompanyForm;
   readonly commercial: CommercialForm;
   readonly charges: readonly ChargeRow[];
   readonly categories: readonly CategoryCard[];
+  readonly payrollTerms: PayrollTermsForm;
 }
 
 /** Every option list the steps render, all from GET /api/enums and /api/zones. */
@@ -147,6 +172,7 @@ const EMPTY_COMPANY: CompanyForm = {
   pocNumber: "",
   decisionMakerName: "",
   decisionMakerNumber: "",
+  zonalManager: "",
   scheme: "",
 };
 
@@ -156,14 +182,24 @@ const EMPTY_COMMERCIAL: CommercialForm = {
   attendanceCycle: "",
   stipendDate: "",
   mouDocument: undefined,
+  signStatus: "",
+  mailConfirmation: "",
+  paymentTerm: "",
+  remark: "",
+  invoiceMatch: "",
+  invoiceRemark: "",
 };
+
+export const EMPTY_PAYROLL_TERMS: PayrollTermsForm = { leftTraineeAmount: "", leftTraineeNote: "", educationFeePayer: "" };
 
 export function emptyForm(): WizardForm {
   return {
+    organisation: "",
     company: EMPTY_COMPANY,
     commercial: EMPTY_COMMERCIAL,
     charges: [blankChargeRow()],
     categories: [blankCategory()],
+    payrollTerms: EMPTY_PAYROLL_TERMS,
   };
 }
 
@@ -221,11 +257,16 @@ export function toPage3(form: WizardForm): PayrollDetails {
     // D158: no payroll item is asked; the server saves PF / ESI / TDS defaults.
     items: {},
     otherItems: [],
+    ...form.payrollTerms,
   };
 }
 
 export function toDraftPayload(form: WizardForm): Draft["payload"] {
-  return { page1: toPage1(form.company), page2: { ...toPage2(form) }, page3: { ...toPage3(form) } };
+  return {
+    page1: toPage1(form.company),
+    page2: { ...toPage2(form) },
+    page3: { ...toPage3(form), organisation: form.organisation },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -301,17 +342,27 @@ export function fromDraftPayload(payload: Draft["payload"], commercialOrder: rea
   const draftTenure = text(page2, "tenureValue");
   const tenureValue = text(page2, "tenureUnit") === "YEARS" && /^\d+$/.test(draftTenure) ? String(Number(draftTenure) * 12) : draftTenure;
 
+  const scheme = text(page3, "scheme");
+  const savedOrganisation = text(page3, "organisation");
   return {
+    // SPEC-34: a draft from before the question was asked takes it from its scheme.
+    organisation: isOrganisation(savedOrganisation) ? savedOrganisation : (organisationOfScheme(scheme) ?? ""),
     company: {
       ...company,
       purchaseEmailConfirm: purchaseEmail,
-      scheme: text(page3, "scheme"),
+      scheme,
     },
     commercial: {
       mouStartDate: text(page2, "mouStartDate"),
       tenureValue,
       attendanceCycle: text(page2, "attendanceCycle"),
       stipendDate: text(page2, "stipendDate"),
+      signStatus: text(page2, "signStatus"),
+      mailConfirmation: text(page2, "mailConfirmation"),
+      paymentTerm: text(page2, "paymentTerm"),
+      remark: text(page2, "remark"),
+      invoiceMatch: text(page2, "invoiceMatch"),
+      invoiceRemark: text(page2, "invoiceRemark"),
       mouDocument:
         text(mouDocument, "originalFilename") === ""
           ? undefined
@@ -319,5 +370,10 @@ export function fromDraftPayload(payload: Draft["payload"], commercialOrder: rea
     },
     charges: chargeRows.length > 0 ? chargeRows : [blankChargeRow()],
     categories: categories.length > 0 ? categories : [blankCategory()],
+    payrollTerms: {
+      leftTraineeAmount: text(page3, "leftTraineeAmount"),
+      leftTraineeNote: text(page3, "leftTraineeNote"),
+      educationFeePayer: text(page3, "educationFeePayer"),
+    },
   };
 }

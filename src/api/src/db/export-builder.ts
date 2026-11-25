@@ -7,11 +7,21 @@
  * @mou/domain's formatter (SPEC-23 §2.4), so a PF percentage never reads as rupees.
  * D166: the Zone-wise MoU Summary PDF is drawn in the YSF layout of pdf-layout.ts
  * (navy band with the logo, section bars, tables, running header, footers).
+ * SPEC-31 adds the Zonal Manager (Companies, Contacts), the MoU tracking fields
+ * (Commercial) and the left-trainee recovery and education fee payer (Payroll).
+ * SPEC-34 adds the organisation (YSF / YSI) of each MoU to the MOUs sheet.
+ * SPEC-35 adds match with invoice and the invoice remark to the Commercial sheet.
+ * Every sheet's header row is bold (styleHeaderRow, excel-style.ts).
  */
 
 import {
   COMMERCIAL_FIXED_ITEM_KEYS,
   COMMERCIAL_ITEM_BY_KEY,
+  EDUCATION_FEE_PAYER_LABELS,
+  MAIL_CONFIRMATION_LABELS,
+  INVOICE_MATCH_LABELS,
+  MOU_SIGN_STATUS_LABELS,
+  organisationOfScheme,
   SCHEME_LABELS,
   displayMouStatus,
   formatPayrollValue,
@@ -38,6 +48,7 @@ import {
   sectionHeading,
   table,
 } from "./pdf-layout.ts";
+import { styleHeaderRow } from "./excel-style.ts";
 import { company, companyPlant } from "./schema.ts";
 import type { SearchFilters, SearchRow } from "./search.ts";
 import { searchMous } from "./search.ts";
@@ -83,7 +94,13 @@ interface CompanyExportRow {
   readonly pocNumber: string | null;
   readonly decisionMakerName: string | null;
   readonly decisionMakerNumber: string | null;
+  readonly zonalManager: string | null;
   readonly plantNames: string;
+}
+
+/** A stored list code as its label; blank when not recorded. */
+function codeLabel(labels: Readonly<Record<string, string>>, code: string | null): string {
+  return code === null ? "" : (labels[code] ?? code);
 }
 
 async function fetchCompaniesWithPlants(db: Database, companyIds: readonly string[]): Promise<CompanyExportRow[]> {
@@ -127,6 +144,7 @@ async function fetchCompaniesWithPlants(db: Database, companyIds: readonly strin
     pocNumber: c.pocNumber,
     decisionMakerName: c.decisionMakerName,
     decisionMakerNumber: c.decisionMakerNumber,
+    zonalManager: c.zonalManager,
     plantNames: (plantsByCompany.get(c.id) ?? []).join(", "),
   }));
 }
@@ -163,9 +181,9 @@ export function buildContactsWorkbook(
     { header: "POC Number", key: "pocNumber", width: 16 },
     { header: "Decision Maker Name", key: "decisionMakerName", width: 22 },
     { header: "Decision Maker Number", key: "decisionMakerNumber", width: 16 },
+    { header: "Zonal Manager", key: "zonalManager", width: 20 },
   ];
-  sheet.views = [{ state: "frozen", ySplit: 1 }];
-  sheet.getRow(1).font = { bold: true };
+  styleHeaderRow(sheet);
   const text = (value: string | null | undefined): string => value ?? "";
   for (const m of mous) {
     const c = overviews.get(m.companyId);
@@ -189,26 +207,15 @@ export function buildContactsWorkbook(
       pocNumber: text(c?.pocNumber),
       decisionMakerName: text(c?.decisionMakerName),
       decisionMakerNumber: text(c?.decisionMakerNumber),
+      zonalManager: text(c?.zonalManager),
     });
   }
   return workbook;
 }
 
-/** SPEC-13 section 3: the four-sheet workbook, scoped to whatever Search's filters select. */
-export async function buildExportWorkbook(
-  db: Database,
-  pool: Pool,
-  scope: ZoneScope,
-  filters: SearchFilters,
-): Promise<ExcelJS.Workbook> {
-  const { rows: mous } = await searchMous(pool, scope, filters);
-  const companyIds = [...new Set(mous.map((row) => row.companyId))];
-  const companies = await fetchCompaniesWithPlants(db, companyIds);
-
-  const workbook = new ExcelJS.Workbook();
-
-  const companiesSheet = workbook.addWorksheet("Companies");
-  companiesSheet.columns = [
+/** SPEC-13 section 3.1 columns; SPEC-32 leaves out the contact columns for a role without "contacts.export". */
+export function companiesSheetColumns(includeContacts: boolean): Partial<ExcelJS.Column>[] {
+  const columns: (Partial<ExcelJS.Column> & { readonly contact?: true })[] = [
     { header: "Company Name", key: "companyName", width: 30 },
     { header: "Company Type", key: "companyType", width: 16 },
     { header: "Registration Type", key: "registrationType", width: 16 },
@@ -221,18 +228,38 @@ export async function buildExportWorkbook(
     { header: "PIN Code", key: "pinCode", width: 10 },
     { header: "State", key: "state", width: 16 },
     { header: "District", key: "district", width: 16 },
-    { header: "HR Contact Name", key: "hrContactName", width: 20 },
-    { header: "HR Contact Number", key: "hrContactNumber", width: 16 },
-    { header: "Finance Head Contact Name", key: "financeHeadContactName", width: 24 },
-    { header: "Finance Head Contact Number", key: "financeHeadContactNumber", width: 16 },
-    { header: "HR Email", key: "hrEmail", width: 26 },
-    { header: "Finance Email", key: "financeEmail", width: 26 },
-    { header: "POC Name", key: "pocName", width: 20 },
-    { header: "POC Number", key: "pocNumber", width: 14 },
-    { header: "Decision Maker Name", key: "decisionMakerName", width: 22 },
-    { header: "Decision Maker Number", key: "decisionMakerNumber", width: 16 },
+    { header: "HR Contact Name", key: "hrContactName", width: 20, contact: true },
+    { header: "HR Contact Number", key: "hrContactNumber", width: 16, contact: true },
+    { header: "Finance Head Contact Name", key: "financeHeadContactName", width: 24, contact: true },
+    { header: "Finance Head Contact Number", key: "financeHeadContactNumber", width: 16, contact: true },
+    { header: "HR Email", key: "hrEmail", width: 26, contact: true },
+    { header: "Finance Email", key: "financeEmail", width: 26, contact: true },
+    { header: "POC Name", key: "pocName", width: 20, contact: true },
+    { header: "POC Number", key: "pocNumber", width: 14, contact: true },
+    { header: "Decision Maker Name", key: "decisionMakerName", width: 22, contact: true },
+    { header: "Decision Maker Number", key: "decisionMakerNumber", width: 16, contact: true },
+    { header: "Zonal Manager", key: "zonalManager", width: 20, contact: true },
   ];
-  companiesSheet.views = [{ state: "frozen", ySplit: 1 }];
+  return columns.filter((column) => includeContacts || column.contact !== true).map(({ contact: _contact, ...column }) => column);
+}
+
+/** SPEC-13 section 3: the four-sheet workbook, scoped to whatever Search's filters select. SPEC-32: `includeContacts` is the caller's "contacts.export". */
+export async function buildExportWorkbook(
+  db: Database,
+  pool: Pool,
+  scope: ZoneScope,
+  filters: SearchFilters,
+  includeContacts: boolean,
+): Promise<ExcelJS.Workbook> {
+  const { rows: mous } = await searchMous(pool, scope, filters);
+  const companyIds = [...new Set(mous.map((row) => row.companyId))];
+  const companies = await fetchCompaniesWithPlants(db, companyIds);
+
+  const workbook = new ExcelJS.Workbook();
+
+  const companiesSheet = workbook.addWorksheet("Companies");
+  companiesSheet.columns = companiesSheetColumns(includeContacts);
+  styleHeaderRow(companiesSheet);
   for (const c of companies) {
     companiesSheet.addRow(c);
   }
@@ -241,6 +268,7 @@ export async function buildExportWorkbook(
   mousSheet.columns = [
     { header: "MOU Code", key: "generatedCode", width: 16 },
     { header: "Plant", key: "plantName", width: 18 },
+    { header: "Organisation", key: "organisation", width: 12 },
     { header: "Scheme", key: "scheme", width: 14 },
     { header: "MOU Start Date", key: "mouStartDate", width: 14 },
     { header: "Tenure Value", key: "tenureValue", width: 12 },
@@ -250,11 +278,12 @@ export async function buildExportWorkbook(
     { header: "Attendance Cycle", key: "attendanceCycle", width: 16 },
     { header: "Stipend Date", key: "stipendDate", width: 12 },
   ];
-  mousSheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleHeaderRow(mousSheet);
   for (const m of mous) {
     const row = mousSheet.addRow({
       generatedCode: m.generatedCode,
       plantName: m.plantName ?? "",
+      organisation: organisationOfScheme(m.scheme) ?? "",
       scheme: m.scheme,
       tenureValue: m.tenureValue,
       tenureUnit: m.tenureUnit,
@@ -277,6 +306,12 @@ export async function buildExportWorkbook(
     { header: "MOU Code", key: "generatedCode", width: 16 },
     { header: "Plant", key: "plantName", width: 18 },
     { header: "Scheme", key: "scheme", width: 14 },
+    { header: "MoU Sign Status", key: "signStatus", width: 14 },
+    { header: "Mail Confirmation", key: "mailConfirmation", width: 12 },
+    { header: "Payment Term", key: "paymentTerm", width: 30 },
+    { header: "Remark", key: "remark", width: 30 },
+    { header: "Match with Invoice", key: "invoiceMatch", width: 12 },
+    { header: "Invoice Remark", key: "invoiceRemark", width: 30 },
     ...COMMERCIAL_FIXED_ITEM_KEYS.map((key) => ({ header: COMMERCIAL_ITEM_BY_KEY[key].label, key, width: 18 })),
   ];
   for (let i = 0; i < maxOtherItems; i++) {
@@ -287,13 +322,23 @@ export async function buildExportWorkbook(
     );
   }
   commercialSheet.columns = commercialColumns;
-  commercialSheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleHeaderRow(commercialSheet);
   for (const m of mous) {
     const detail = detailByMouId.get(m.mouId);
     if (detail === undefined) {
       continue;
     }
-    const values: Record<string, unknown> = { generatedCode: m.generatedCode, plantName: m.plantName ?? "", scheme: m.scheme };
+    const values: Record<string, unknown> = {
+      generatedCode: m.generatedCode,
+      plantName: m.plantName ?? "",
+      scheme: m.scheme,
+      signStatus: codeLabel(MOU_SIGN_STATUS_LABELS, detail.signStatus),
+      mailConfirmation: codeLabel(MAIL_CONFIRMATION_LABELS, detail.mailConfirmation),
+      paymentTerm: detail.paymentTerm ?? "",
+      remark: detail.remark ?? "",
+      invoiceMatch: codeLabel(INVOICE_MATCH_LABELS, detail.invoiceMatch),
+      invoiceRemark: detail.invoiceRemark ?? "",
+    };
     for (const charge of detail.charges) {
       values[charge.itemKey] = amountCell(charge.amount);
     }
@@ -313,8 +358,11 @@ export async function buildExportWorkbook(
     { header: "Item Label", key: "itemLabel", width: 24 },
     { header: "Item Type", key: "itemType", width: 12 },
     { header: "Amount", key: "amount", width: 14 },
+    { header: "Left Trainee Recovery", key: "leftTraineeAmount", width: 14 },
+    { header: "Left Trainee Note", key: "leftTraineeNote", width: 30 },
+    { header: "Education Fee Paid By", key: "educationFeePayer", width: 20 },
   ];
-  payrollSheet.views = [{ state: "frozen", ySplit: 1 }];
+  styleHeaderRow(payrollSheet);
   for (const m of mous) {
     const payroll = await fetchMouPayrollDetail(db, m.mouId);
     if (payroll === undefined) {
@@ -333,6 +381,9 @@ export async function buildExportWorkbook(
         itemLabel: item.label,
         itemType: item.itemType,
         amount: payrollValueCell(item),
+        leftTraineeAmount: amountCell(payroll.leftTraineeAmount),
+        leftTraineeNote: payroll.leftTraineeNote ?? "",
+        educationFeePayer: codeLabel(EDUCATION_FEE_PAYER_LABELS, payroll.educationFeePayer),
       });
     }
   }

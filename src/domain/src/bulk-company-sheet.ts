@@ -13,11 +13,17 @@
  * D165: the fillable PDF form names its fields after the same columns (plus 5
  * charge and 5 trainee table rows); formFieldsToBulkRow turns a filled form into
  * the same cells, so a PDF row is checked by exactly the rules an Excel row is.
+ * SPEC-31 adds the client sheet's columns: a required Zonal Manager, the MoU sign
+ * status, mail confirmation, payment term and remark, three YSI fee charges, and
+ * the left-trainee recovery and education fee payer on the payroll section.
+ * SPEC-34 adds an optional Organisation (YSF / YSI) column and the YSF / YSI field rules.
+ * SPEC-35 adds Match with Invoice and Invoice Remark, marks the YSI-only fee columns,
+ * and lets a renamed fee match its old header or PDF name.
  */
 
 import type { ChargeMeta, CommercialDetails } from "./commercial-details-validation.ts";
 import { ATTENDANCE_CYCLES, validateCommercialDetails } from "./commercial-details-validation.ts";
-import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY } from "./commercial-items.ts";
+import { COMMERCIAL_FIXED_ITEM_KEYS, COMMERCIAL_ITEM_BY_KEY, COMMERCIAL_ITEM_LEGACY_LABELS } from "./commercial-items.ts";
 import type { CompanyDetails } from "./company-details-validation.ts";
 import { isGstNumber, validateCompanyDetails } from "./company-details-validation.ts";
 import type { EnumOption } from "./enums.ts";
@@ -25,11 +31,16 @@ import {
   COMMERCIAL_BASIS_OPTIONS,
   COMMERCIAL_PERIOD_OPTIONS,
   COMPANY_TYPE_OPTIONS,
+  EDUCATION_FEE_PAYER_OPTIONS,
+  MAIL_CONFIRMATION_OPTIONS,
+  INVOICE_MATCH_OPTIONS,
+  MOU_SIGN_STATUS_OPTIONS,
   REGISTRATION_TYPE_OPTIONS,
   SCHEME_OPTIONS,
   SECTOR_OPTIONS,
 } from "./enums.ts";
 import type { PayrollDetails, TraineeCategoryDetail } from "./payroll-details-validation.ts";
+import { ORGANISATION_OPTIONS, organisationOfScheme, validateOrganisationFields, YSI_ONLY_CHARGE_KEYS } from "./organisations.ts";
 import { validatePayrollDetails, withStatutoryDefaults } from "./payroll-details-validation.ts";
 
 /** The sheet the template writes and the upload reads. */
@@ -43,7 +54,18 @@ export const BULK_SECTIONS = ["Basic Information & Address", "Contact Informatio
 export type BulkSection = (typeof BULK_SECTIONS)[number];
 
 /** A list column's dropdown; "zone" is filled with the uploader's zones at template time. */
-export type BulkListName = "companyType" | "registrationType" | "sector" | "scheme" | "attendanceCycle" | "zone";
+export type BulkListName =
+  | "companyType"
+  | "registrationType"
+  | "sector"
+  | "organisation"
+  | "scheme"
+  | "attendanceCycle"
+  | "signStatus"
+  | "mailConfirmation"
+  | "invoiceMatch"
+  | "educationFeePayer"
+  | "zone";
 
 export interface BulkColumn {
   /** A CompanyDetails / CommercialDetails / PayrollDetails field, or `charge:<KEY>`. */
@@ -54,6 +76,8 @@ export interface BulkColumn {
   /** What the cell accepts, printed in the PDF and the Instructions sheet. */
   readonly format: string;
   readonly list?: BulkListName;
+  /** SPEC-35: older headers this column still matches (a renamed fee). */
+  readonly aliases?: readonly string[];
 }
 
 const AMOUNT_FORMAT = "Amount, e.g. 1500.00; blank = not applicable";
@@ -67,9 +91,24 @@ const field = (section: BulkSection) => (key: string, header: string, required: 
 const basic = field("Basic Information & Address");
 const contact = field("Contact Information");
 const commercial = field("Commercial Details");
+const payroll = field("Payroll Details");
+const NOTE_FORMAT = "Text, up to 500 characters";
+
+/**
+ * A fee column: SPEC-34 / SPEC-35 mark the YSI-only fees in their format, and a
+ * renamed fee keeps matching its old header.
+ */
+function chargeColumn(key: (typeof COMMERCIAL_FIXED_ITEM_KEYS)[number]): BulkColumn {
+  const ysiOnly = (YSI_ONLY_CHARGE_KEYS as readonly string[]).includes(key);
+  const base = commercial(`charge:${key}`, COMMERCIAL_ITEM_BY_KEY[key].label, false, ysiOnly ? `${AMOUNT_FORMAT}. YSI only - leave blank for YSF` : AMOUNT_FORMAT);
+  const aliases = COMMERCIAL_ITEM_LEGACY_LABELS[key];
+  return aliases === undefined ? base : { ...base, aliases };
+}
 
 /** D159: the form's fields section by section, in its order. */
 export const BULK_COMPANY_COLUMNS: readonly BulkColumn[] = [
+  // SPEC-34: optional - the scheme decides the organisation when it is left blank.
+  basic("organisation", "Organisation (YSF / YSI)", false, "YSF or YSI; blank = from the scheme", "organisation"),
   basic("scheme", "Scheme", true, "From the list", "scheme"),
   basic("zoneId", "Zone", true, "One of your zones (name or code)", "zone"),
   basic("sector", "Sector", true, "From the list", "sector"),
@@ -85,6 +124,8 @@ export const BULK_COMPANY_COLUMNS: readonly BulkColumn[] = [
   basic("district", "District", true, "Text"),
   basic("pinCode", "PIN Code", true, "6 digits"),
   basic("state", "State", true, "Text"),
+  // SPEC-31: required, first in the contact section as on the form.
+  contact("zonalManager", "Zonal Manager", true, "Full name"),
   contact("hrContactName", "HR Contact Name", true, "Full name"),
   contact("hrContactNumber", "HR Contact Number", true, NUMBER_FORMAT),
   contact("hrEmail", "HR Email ID", true, "Email address"),
@@ -103,8 +144,18 @@ export const BULK_COMPANY_COLUMNS: readonly BulkColumn[] = [
   commercial("tenureValue", "MoU Tenure (Months)", true, "Whole number of months, 1-120"),
   commercial("attendanceCycle", "Attendance Cycle", true, "From the list", "attendanceCycle"),
   commercial("stipendDate", "Stipend Date", true, "Day of month, 1-31"),
-  ...COMMERCIAL_FIXED_ITEM_KEYS.map((key) => commercial(`charge:${key}`, COMMERCIAL_ITEM_BY_KEY[key].label, false, AMOUNT_FORMAT)),
-  column("traineeCategories", "Trainee Categories", "Payroll Details", true, "Name | Qualification | Stipend Rate; ... (qualification and rate optional)"),
+  commercial("signStatus", "MoU Sign Status", false, "From the list", "signStatus"),
+  commercial("mailConfirmation", "Mail Confirmation", false, "From the list", "mailConfirmation"),
+  // SPEC-35: the sheet's Match with Invoice, and its invoice remark.
+  commercial("invoiceMatch", "Match with Invoice", false, "From the list", "invoiceMatch"),
+  commercial("paymentTerm", "Payment Term", false, NOTE_FORMAT),
+  commercial("remark", "Remark", false, NOTE_FORMAT),
+  commercial("invoiceRemark", "Invoice Remark", false, NOTE_FORMAT),
+  ...COMMERCIAL_FIXED_ITEM_KEYS.map((key) => chargeColumn(key)),
+  payroll("traineeCategories", "Trainee Categories", true, "Name | Qualification | Stipend Rate; ... (qualification and rate optional)"),
+  payroll("leftTraineeAmount", "Left Trainee Recovery Amount", false, AMOUNT_FORMAT),
+  payroll("leftTraineeNote", "Left Trainee Recovery Note", false, NOTE_FORMAT),
+  payroll("educationFeePayer", "Education Fee Paid By", false, "From the list", "educationFeePayer"),
 ];
 
 /** D154: how the templates mark a column - "Imp / Yes" when it must be filled, "No" when it may stay blank. */
@@ -119,8 +170,13 @@ export const BULK_LIST_OPTIONS: Readonly<Record<Exclude<BulkListName, "zone">, r
   companyType: COMPANY_TYPE_OPTIONS,
   registrationType: REGISTRATION_TYPE_OPTIONS,
   sector: SECTOR_OPTIONS,
+  organisation: ORGANISATION_OPTIONS,
   scheme: SCHEME_OPTIONS,
   attendanceCycle: ATTENDANCE_CYCLE_OPTIONS,
+  signStatus: MOU_SIGN_STATUS_OPTIONS,
+  mailConfirmation: MAIL_CONFIRMATION_OPTIONS,
+  invoiceMatch: INVOICE_MATCH_OPTIONS,
+  educationFeePayer: EDUCATION_FEE_PAYER_OPTIONS,
 };
 
 /** The steps shown on the Instructions sheet and in the PDF. */
@@ -160,7 +216,8 @@ export function matchBulkHeaders(headers: readonly string[]): BulkHeaderMatch {
   const missing: string[] = [];
   const duplicated: string[] = [];
   for (const entry of BULK_COMPANY_COLUMNS) {
-    const found = positions.get(normalise(entry.header)) ?? [];
+    // SPEC-35: a renamed column also answers to its old header.
+    const found = [entry.header, ...(entry.aliases ?? [])].flatMap((name) => positions.get(normalise(name)) ?? []);
     if (found.length === 0) missing.push(entry.header);
     if (found.length > 1) duplicated.push(entry.header);
     if (found[0] !== undefined) indexByKey.set(entry.key, found[0]);
@@ -305,6 +362,7 @@ export function readBulkRow(
     pocNumber: cell("pocNumber"),
     decisionMakerName: cell("decisionMakerName"),
     decisionMakerNumber: cell("decisionMakerNumber"),
+    zonalManager: cell("zonalManager"),
   };
   for (const [field, message] of Object.entries(validateCompanyDetails(companyDetails).errors)) {
     // The zone cell has its own message above; a blank zone would otherwise be reported twice.
@@ -326,9 +384,15 @@ export function readBulkRow(
     ...(options.chargeMeta === undefined ? {} : { chargeMeta: options.chargeMeta }),
     otherItems: [],
     hasMouDocument: false,
+    signStatus: listValue("signStatus", MOU_SIGN_STATUS_OPTIONS),
+    mailConfirmation: listValue("mailConfirmation", MAIL_CONFIRMATION_OPTIONS),
+    paymentTerm: cell("paymentTerm"),
+    remark: cell("remark"),
+    invoiceMatch: listValue("invoiceMatch", INVOICE_MATCH_OPTIONS),
+    invoiceRemark: cell("invoiceRemark"),
   };
   const commercialErrors = validateCommercialDetails(commercialDetails, today).errors;
-  for (const field of ["mouStartDate", "tenureValue", "stipendDate"] as const) {
+  for (const field of ["mouStartDate", "tenureValue", "stipendDate", "signStatus", "mailConfirmation", "invoiceMatch", "paymentTerm", "remark", "invoiceRemark"] as const) {
     const message = commercialErrors[field];
     if (message !== undefined) fail(field, message);
   }
@@ -346,9 +410,27 @@ export function readBulkRow(
     // D152 / D158: payroll is only PF, ESI and TDS, never read from the sheet - always their defaults.
     items: withStatutoryDefaults({}),
     otherItems: [],
+    leftTraineeAmount: cell("leftTraineeAmount"),
+    leftTraineeNote: cell("leftTraineeNote"),
+    educationFeePayer: listValue("educationFeePayer", EDUCATION_FEE_PAYER_OPTIONS),
   };
   const payrollErrors = validatePayrollDetails(payrollDetails).errors;
   if (payrollErrors.scheme !== undefined) fail("scheme", payrollErrors.scheme);
+  for (const field of ["leftTraineeAmount", "leftTraineeNote", "educationFeePayer"] as const) {
+    const message = payrollErrors[field];
+    if (message !== undefined) fail(field, message);
+  }
+  // SPEC-34: the organisation must run the scheme; a YSF row has no YSI-only fee or fee payer.
+  const organisationErrors = validateOrganisationFields({
+    organisation: listValue("organisation", ORGANISATION_OPTIONS),
+    scheme: payrollDetails.scheme,
+    charges: commercialDetails.charges,
+    educationFeePayer: payrollDetails.educationFeePayer ?? "",
+  });
+  if (organisationErrors.organisation !== undefined) fail("organisation", organisationErrors.organisation);
+  if (organisationErrors.scheme !== undefined) fail("scheme", organisationErrors.scheme);
+  for (const [key, message] of Object.entries(organisationErrors.charges ?? {})) fail(`charge:${key}`, message);
+  if (organisationErrors.educationFeePayer !== undefined) fail("educationFeePayer", organisationErrors.educationFeePayer);
   if (payrollErrors.traineeCategories !== undefined) fail("traineeCategories", payrollErrors.traineeCategories);
   payrollErrors.traineeCategoryRows?.forEach((message, index) => {
     if (message !== undefined) fail("traineeCategories", `Category ${index + 1}: ${message}`);
@@ -522,7 +604,12 @@ export function formFieldsToBulkRow(fields: Readonly<Record<string, string>>): B
       fail("Choose the charge name");
       continue;
     }
-    const key = COMMERCIAL_FIXED_ITEM_KEYS.find((candidate) => normalise(COMMERCIAL_ITEM_BY_KEY[candidate].label) === normalise(name) || normalise(candidate) === normalise(name));
+    // SPEC-35: a renamed fee also answers to its old name.
+    const key = COMMERCIAL_FIXED_ITEM_KEYS.find((candidate) =>
+      [COMMERCIAL_ITEM_BY_KEY[candidate].label, candidate, ...(COMMERCIAL_ITEM_LEGACY_LABELS[candidate] ?? [])].some(
+        (known) => normalise(known) === normalise(name),
+      ),
+    );
     if (key === undefined) {
       fail(`${name} is not one of the core charges`);
       continue;
@@ -563,11 +650,22 @@ export interface BulkPrefill {
     readonly charges: Readonly<Record<string, string>>;
     readonly chargeMeta: Readonly<Record<string, ChargeMeta>>;
     readonly otherItems: readonly [];
+    readonly signStatus: string;
+    readonly mailConfirmation: string;
+    readonly paymentTerm: string;
+    readonly remark: string;
+    readonly invoiceMatch: string;
+    readonly invoiceRemark: string;
   };
   readonly page3: {
+    /** SPEC-34: "YSF", "YSI", or "" when neither the cell nor the scheme says. */
+    readonly organisation: string;
     readonly scheme: string;
     readonly traineeCategories: readonly string[];
     readonly traineeCategoryDetails: readonly TraineeCategoryDetail[];
+    readonly leftTraineeAmount: string;
+    readonly leftTraineeNote: string;
+    readonly educationFeePayer: string;
   };
 }
 
@@ -595,7 +693,7 @@ export function bulkRowToPrefill(
   const page1: Record<string, string> = {};
   for (const column of BULK_COMPANY_COLUMNS) {
     if (column.section !== "Basic Information & Address" && column.section !== "Contact Information") continue;
-    if (column.key === "scheme") continue;
+    if (column.key === "scheme" || column.key === "organisation") continue;
     const options = PAGE1_LISTS[column.key];
     page1[column.key] = options === undefined ? cell(column.key) : listCode(column.key, options);
   }
@@ -611,6 +709,7 @@ export function bulkRowToPrefill(
   }
   const categories = traineeCategoriesOf(cell("traineeCategories"));
   const mouStartDate = cell("mouStartDate");
+  const scheme = listCode("scheme", SCHEME_OPTIONS);
 
   return {
     page1,
@@ -623,11 +722,21 @@ export function bulkRowToPrefill(
       charges,
       chargeMeta,
       otherItems: [],
+      signStatus: listCode("signStatus", MOU_SIGN_STATUS_OPTIONS),
+      mailConfirmation: listCode("mailConfirmation", MAIL_CONFIRMATION_OPTIONS),
+      paymentTerm: cell("paymentTerm"),
+      remark: cell("remark"),
+      invoiceMatch: listCode("invoiceMatch", INVOICE_MATCH_OPTIONS),
+      invoiceRemark: cell("invoiceRemark"),
     },
     page3: {
-      scheme: listCode("scheme", SCHEME_OPTIONS),
+      organisation: listCode("organisation", ORGANISATION_OPTIONS) || (organisationOfScheme(scheme) ?? ""),
+      scheme,
       traineeCategories: categories.map((category) => category.categoryName),
       traineeCategoryDetails: categories,
+      leftTraineeAmount: cell("leftTraineeAmount"),
+      leftTraineeNote: cell("leftTraineeNote"),
+      educationFeePayer: listCode("educationFeePayer", EDUCATION_FEE_PAYER_OPTIONS),
     },
   };
 }

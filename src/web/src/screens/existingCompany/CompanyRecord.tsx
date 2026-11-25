@@ -1,17 +1,28 @@
 /**
  * Purpose: The Existing Companies record view of one MoU - header (status, scheme,
- * Export PDF fetching the full record PDF as a Blob and saving it, Upload MoU for
+ * Export Excel (Only MoU or Full Details) for this MoU, Upload MoU for
  * ADMIN / DATA_ENTRY) and the five tabs: Overview (company overview), Commercial, Payroll, History (every MoU of
  * the company) and Documents (with download links). The header data loads on
  * open; each other tab fetches its own endpoint when first shown. SPEC-23: the
  * Documents tab adds the company's certificates (CompanyDocumentsSection).
+ * SPEC-31: Zonal Manager on Overview, the MoU tracking fields on Commercial, and
+ * the left-trainee recovery and education fee payer on Payroll.
+ * SPEC-32: contacts, Export, Upload MoU and Edit MoU follow the permission matrix.
+ * SPEC-34: the Commercial tab names the organisation (YSF / YSI) of the MoU.
+ * Export Excel offers Only MoU or Full Details (ExportMenu) for this one MoU.
  */
 
 import {
   COMMERCIAL_BASIS_LABELS,
   COMMERCIAL_PERIOD_LABELS,
   COMPANY_TYPE_LABELS,
+  EDUCATION_FEE_PAYER_LABELS,
   ITEM_TYPE_LABELS,
+  MAIL_CONFIRMATION_LABELS,
+  INVOICE_MATCH_LABELS,
+  MOU_SIGN_STATUS_LABELS,
+  ORGANISATION_LABELS,
+  organisationOfScheme,
   REGISTRATION_TYPE_LABELS,
   SECTOR_LABELS,
   TENURE_UNIT_LABELS,
@@ -24,14 +35,15 @@ import {
   documentDownloadUrl,
   fetchCompanyAgreements,
   fetchCompanyOverview,
-  downloadMouRecordPdf,
+  startExcelExport,
   fetchMouCommercial,
   fetchMouDocuments,
   fetchMouPayroll,
 } from "../../api/client.ts";
-import type { CompanyOverview, MouChargeRow, MouCommercialDetail, MouPayrollItemRow } from "../../api/client.ts";
-import { canAuthor, canEditAgreement } from "../../ui/access.ts";
-import { saveBlob } from "../../ui/download.ts";
+import type { CompanyOverview, ExportView, MouChargeRow, MouCommercialDetail, MouPayrollItemRow } from "../../api/client.ts";
+import { can } from "../../ui/access.ts";
+import { ExportMenu } from "../../ui/ExportMenu.tsx";
+import { useExportDownload } from "../../hooks/useExportDownload.ts";
 import {
   PENDING_FIGURE,
   displayStatus,
@@ -108,8 +120,25 @@ function rupees(amount: string): string {
   return `₹ ${amount}`;
 }
 
-function overviewItems(overview: CompanyOverview, commercial: MouCommercialDetail | null): readonly LabelledValue[] {
+function overviewItems(
+  overview: CompanyOverview,
+  commercial: MouCommercialDetail | null,
+  showContacts: boolean,
+): readonly LabelledValue[] {
   const plant = overview.plants.find((candidate) => candidate.id === commercial?.companyPlantId);
+  // SPEC-32: the API sends no contacts to a role without "contacts.view", so their rows are left out.
+  const contacts: readonly LabelledValue[] = !showContacts
+    ? []
+    : [
+        { label: "HR Contact", value: joinPresent([overview.hrContactName, overview.hrContactNumber], " · ") },
+        { label: "HR Email", value: overview.hrEmail },
+        { label: "Finance Head", value: joinPresent([overview.financeHeadContactName, overview.financeHeadContactNumber], " · ") },
+        { label: "Finance Email", value: overview.financeEmail },
+        { label: "Purchase Contact", value: joinPresent([overview.purchaseName, overview.purchaseNumber, overview.purchaseEmail], " · ") },
+        { label: "POC", value: joinPresent([overview.pocName, overview.pocNumber], " · ") },
+        { label: "Decision Maker", value: joinPresent([overview.decisionMakerName, overview.decisionMakerNumber], " · ") },
+        { label: "Zonal Manager", value: joinPresent([overview.zonalManager], "") },
+      ];
   return [
     { label: "Company Type", value: label(COMPANY_TYPE_LABELS, overview.companyType) },
     { label: "Sector", value: label(SECTOR_LABELS, overview.sector) },
@@ -118,13 +147,7 @@ function overviewItems(overview: CompanyOverview, commercial: MouCommercialDetai
     { label: "TAN Number", value: overview.tanNumber },
     { label: "Zone", value: overview.zoneName },
     { label: "Plant", value: plant?.plantName ?? joinPresent(overview.plants.map((candidate) => candidate.plantName), ", ") },
-    { label: "HR Contact", value: joinPresent([overview.hrContactName, overview.hrContactNumber], " · ") },
-    { label: "HR Email", value: overview.hrEmail },
-    { label: "Finance Head", value: joinPresent([overview.financeHeadContactName, overview.financeHeadContactNumber], " · ") },
-    { label: "Finance Email", value: overview.financeEmail },
-    { label: "Purchase Contact", value: joinPresent([overview.purchaseName, overview.purchaseNumber, overview.purchaseEmail], " · ") },
-    { label: "POC", value: joinPresent([overview.pocName, overview.pocNumber], " · ") },
-    { label: "Decision Maker", value: joinPresent([overview.decisionMakerName, overview.decisionMakerNumber], " · ") },
+    ...contacts,
     {
       label: "Address",
       value: joinPresent(
@@ -144,15 +167,28 @@ function chargeText(charge: MouChargeRow & { readonly amount: string }): string 
   return [rupees(charge.amount), ...terms].join(" · ");
 }
 
+/** SPEC-34: YSF or YSI, from the scheme. */
+function organisationLabel(scheme: string): string {
+  const organisation = organisationOfScheme(scheme);
+  return organisation === undefined ? PENDING_FIGURE : ORGANISATION_LABELS[organisation];
+}
+
 function commercialItems(commercial: MouCommercialDetail): readonly LabelledValue[] {
   const charges = commercial.charges.filter((charge): charge is MouChargeRow & { readonly amount: string } => charge.amount !== null);
   return [
+    { label: "Organisation", value: organisationLabel(commercial.scheme) },
     { label: "Scheme", value: schemeLabel(commercial.scheme) },
     { label: "MoU Start", value: formatCalendarDate(commercial.mouStartDate) },
     { label: "Tenure", value: `${commercial.tenureValue} ${label(TENURE_UNIT_LABELS, commercial.tenureUnit)}` },
     { label: "MoU End", value: formatCalendarDate(commercial.endDate) },
     { label: "Attendance Cycle", value: commercial.attendanceCycle },
     { label: "Stipend Date", value: stipendDayText(commercial.stipendDate) },
+    { label: "Sign Status", value: label(MOU_SIGN_STATUS_LABELS, commercial.signStatus) },
+    { label: "Mail Confirmation", value: label(MAIL_CONFIRMATION_LABELS, commercial.mailConfirmation) },
+    { label: "Payment Term", value: joinPresent([commercial.paymentTerm], "") },
+    { label: "Remark", value: joinPresent([commercial.remark], "") },
+    { label: "Match with Invoice", value: label(INVOICE_MATCH_LABELS, commercial.invoiceMatch) },
+    { label: "Invoice Remark", value: joinPresent([commercial.invoiceRemark], "") },
     ...charges.map((charge) => ({ label: charge.label, value: chargeText(charge) })),
     ...commercial.otherItems.map((item) => ({
       label: `${item.label} (${label(ITEM_TYPE_LABELS, item.itemType)})`,
@@ -168,17 +204,10 @@ export function CompanyRecord({ selection, onBack }: { readonly selection: Recor
   const overview = useLoaded(fetchCompanyOverview, selection.companyId);
   const commercial = useLoaded(fetchMouCommercial, selection.mouId);
   const failed = overview.failed || commercial.failed;
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
-
-  const exportPdf = () => {
-    setExporting(true);
-    setExportError("");
-    downloadMouRecordPdf(selection.mouId)
-      .then(({ blob, filename }) => saveBlob(blob, filename))
-      .catch((reason: unknown) => setExportError(reason instanceof Error ? reason.message : "Export failed."))
-      .finally(() => setExporting(false));
-  };
+  const exporter = useExportDownload();
+  const exportError = exporter.error;
+  /** This one MoU as Excel - Only MoU or Full Details. */
+  const exportExcel = (view: ExportView) => void exporter.run("record", () => startExcelExport({ mouId: selection.mouId }, view));
 
   const company = overview.data?.companyName ?? selection.companyName ?? PENDING_FIGURE;
   const mou = commercial.data;
@@ -195,20 +224,15 @@ export function CompanyRecord({ selection, onBack }: { readonly selection: Recor
           {status !== null && <Badge text={status} tone={statusTone(status)} />}
           {mou !== null && <Badge text={schemeLabel(mou.scheme)} tone="info" />}
           <div className="sm:ml-auto flex gap-2">
-            <button type="button" className={SECONDARY_BUTTON} onClick={exportPdf} disabled={exporting} aria-busy={exporting}>
-              {exporting ? (
-                <span aria-hidden="true" className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-              ) : (
-                <Icon name="download" />
-              )}
-              {exporting ? "Exporting…" : "Export PDF"}
-            </button>
-            {user !== null && canAuthor(user.role) && (
+            {can(user, "export.data") && (
+              <ExportMenu label="Export Excel" busy={exporter.busyKey !== null} onPick={exportExcel} className={SECONDARY_BUTTON} />
+            )}
+            {can(user, "documents.upload") && (
               <Button variant="accent" size="sm" onClick={() => navigate(`/upload-mou?mouId=${selection.mouId}`)}>
                 <Icon name="upload" /> Upload MoU
               </Button>
             )}
-            {user !== null && canEditAgreement(user.role) && (
+            {can(user, "agreement.edit") && (
               <Button variant="accent" size="sm" onClick={() => navigate(`/agreements/edit?mouId=${selection.mouId}`)}>
                 <Icon name="edit" /> Edit MoU
               </Button>
@@ -243,13 +267,13 @@ export function CompanyRecord({ selection, onBack }: { readonly selection: Recor
       </div>
 
       {tab === "Overview" && overview.data !== null && (
-        <DetailGrid title="Company Overview" items={overviewItems(overview.data, mou)} />
+        <DetailGrid title="Company Overview" items={overviewItems(overview.data, mou, can(user, "contacts.view"))} />
       )}
       {tab === "Commercial" && mou !== null && <DetailGrid title="Commercial Details" items={commercialItems(mou)} />}
       {tab === "Payroll" && <PayrollPanel mouId={selection.mouId} />}
       {tab === "History" && <HistoryPanel companyId={selection.companyId} />}
       {tab === "Documents" && (
-        <DocumentsPanel mouId={selection.mouId} companyId={selection.companyId} canUpload={user !== null && canAuthor(user.role)} />
+        <DocumentsPanel mouId={selection.mouId} companyId={selection.companyId} canUpload={can(user, "documents.upload")} />
       )}
     </ScreenFrame>
   );
@@ -319,6 +343,21 @@ function PayrollPanel({ mouId }: { readonly mouId: string }) {
               ))}
             </div>
           )}
+          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mt-6 mb-3">Other Payroll Terms</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-y-5 gap-x-8">
+            {[
+              {
+                label: "Left Trainee Recovery",
+                value: joinPresent([payroll.leftTraineeAmount === null ? null : rupees(payroll.leftTraineeAmount), payroll.leftTraineeNote], " · "),
+              },
+              { label: "Education Fee Paid By", value: label(EDUCATION_FEE_PAYER_LABELS, payroll.educationFeePayer) },
+            ].map((item) => (
+              <div key={item.label}>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-0.5">{item.label}</p>
+                <p className="text-sm font-semibold text-foreground">{item.value}</p>
+              </div>
+            ))}
+          </div>
         </>
       )}
     </Card>

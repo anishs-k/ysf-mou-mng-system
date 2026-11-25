@@ -4,22 +4,28 @@
  * server page at a time with a pager, and the record view (existingCompany/
  * CompanyRecord.tsx) that opens from a row, its View button, or a
  * ?zoneId=&companyId= deep link (which opens the company's newest active MoU).
- * SPEC-24: Export PDF downloads every record the current filters select as one PDF.
+ * SPEC-24 / SPEC-36: Export Excel downloads every record the current filters select.
+ * SPEC-32: that button is shown only to a role with "export.data".
+ * SPEC-34: a YSF / YSI filter, and the organisation shows on each record.
+ * Export Excel offers Only MoU or Full Details (ExportMenu), for the listed records.
  */
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { downloadRecordsPdf, fetchCompanyAgreements, fetchSearch } from "../api/client.ts";
-import type { SearchFilters, SearchResponse } from "../api/client.ts";
-import { SCHEME_FILTER_OPTIONS, STATUS_FILTER_OPTIONS, useZoneOptions } from "../hooks/useSearchFilterOptions.ts";
+import { fetchCompanyAgreements, fetchSearch, startExcelExport } from "../api/client.ts";
+import type { ExportView, SearchFilters, SearchResponse } from "../api/client.ts";
+import { useExportDownload } from "../hooks/useExportDownload.ts";
+import { ORGANISATION_FILTER_OPTIONS, SCHEME_FILTER_OPTIONS, STATUS_FILTER_OPTIONS, useZoneOptions } from "../hooks/useSearchFilterOptions.ts";
+import { can } from "../ui/access.ts";
 import { Field, SelectInput } from "../ui/form.tsx";
 import { PENDING_FIGURE, displayStatus, formatCalendarDate, schemeLabel } from "../ui/format.ts";
-import { saveBlob } from "../ui/download.ts";
+import { ExportMenu } from "../ui/ExportMenu.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Pager } from "../ui/Pager.tsx";
 import { Badge, Card } from "../ui/primitives.tsx";
+import { useSession } from "../ui/session.ts";
 import { BRAND, statusTone } from "../ui/theme.ts";
 import { CompanyRecord } from "./existingCompany/CompanyRecord.tsx";
 import type { RecordSelection } from "./existingCompany/CompanyRecord.tsx";
@@ -32,22 +38,25 @@ const EXPORT_BUTTON =
   "inline-flex items-center justify-center gap-2 h-10 px-4 font-semibold transition-all duration-150 border select-none rounded-lg bg-secondary text-primary border-border text-xs hover:bg-blue-100 disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer";
 
 /** The API rejects a shorter company query; typing pauses this long before searching. */
+const EXPORT_KEY = "list";
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 const LOAD_ERROR = "Could not load company records. Please refresh the page.";
 
 interface Filters {
   readonly zoneId: string;
+  /** SPEC-34: YSF or YSI. */
+  readonly organisation: string;
   readonly scheme: string;
   readonly status: string;
 }
 
-const NO_FILTERS: Filters = { zoneId: "", scheme: "", status: "" };
+const NO_FILTERS: Filters = { zoneId: "", organisation: "", scheme: "", status: "" };
 
 function toSearchFilters(filters: Filters, query: string): SearchFilters {
   const q = query.trim();
   const byCompany: SearchFilters = q.length >= MIN_QUERY_LENGTH ? { by: "company", q } : {};
-  return { ...byCompany, zoneId: filters.zoneId, scheme: filters.scheme, status: filters.status };
+  return { ...byCompany, zoneId: filters.zoneId, organisation: filters.organisation, scheme: filters.scheme, status: filters.status };
 }
 
 export function ExistingCompaniesScreen() {
@@ -60,8 +69,8 @@ export function ExistingCompaniesScreen() {
   const [result, setResult] = useState<SearchResponse | null>(null);
   const [loadError, setLoadError] = useState("");
   const [selected, setSelected] = useState<RecordSelection | null>(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
+  const exporter = useExportDownload();
+  const { user } = useSession();
 
   // ?zoneId=&companyId= (from other screens) opens that company's newest active MoU.
   const linkedCompanyId = searchParams.get("companyId") ?? "";
@@ -115,15 +124,9 @@ export function ExistingCompaniesScreen() {
     setQuery("");
     setPage(1);
   };
-  // SPEC-24: the same filters the table shows, so the PDF holds exactly the listed records.
-  const exportPdf = () => {
-    setExporting(true);
-    setExportError("");
-    downloadRecordsPdf(toSearchFilters(filters, debouncedQuery))
-      .then(({ blob, filename }) => saveBlob(blob, filename))
-      .catch((reason: unknown) => setExportError(reason instanceof Error ? reason.message : "Export failed."))
-      .finally(() => setExporting(false));
-  };
+  // The same filters the table shows, so the Excel holds exactly the listed records.
+  const exportExcel = (view: ExportView) =>
+    void exporter.run(EXPORT_KEY, () => startExcelExport(toSearchFilters(filters, debouncedQuery), view));
   const closeRecord = () => {
     setSelected(null);
     if (linkedCompanyId !== "") setSearchParams({}, { replace: true });
@@ -138,9 +141,9 @@ export function ExistingCompaniesScreen() {
       subtitle="Search, view and manage MoU company records"
       contentClassName="p-4 md:p-6 space-y-4 md:space-y-5"
     >
-      {exportError !== "" && (
+      {exporter.error !== "" && (
         <div role="alert" className="rounded-lg px-4 py-3 text-sm font-medium bg-[#FEE2E2] text-[#B91C1C] border border-[#FECACA]">
-          {exportError}
+          {exporter.error}
         </div>
       )}
       {loadError !== "" && (
@@ -166,6 +169,14 @@ export function ExistingCompaniesScreen() {
             <Field className="flex-1 sm:w-44">
               <SelectInput ariaLabel="Zone" options={zones} value={filters.zoneId} onChange={(zoneId) => update({ zoneId })} />
             </Field>
+            <Field className="flex-1 sm:w-28">
+              <SelectInput
+                ariaLabel="YSF / YSI"
+                options={ORGANISATION_FILTER_OPTIONS}
+                value={filters.organisation}
+                onChange={(organisation) => update({ organisation })}
+              />
+            </Field>
             <Field className="flex-1 sm:w-32">
               <SelectInput ariaLabel="Scheme" options={SCHEME_FILTER_OPTIONS} value={filters.scheme} onChange={(scheme) => update({ scheme })} />
             </Field>
@@ -175,20 +186,15 @@ export function ExistingCompaniesScreen() {
             <button type="button" onClick={clear} className={GHOST_BUTTON}>
               Clear
             </button>
-            <button
-              type="button"
-              onClick={exportPdf}
-              disabled={exporting || result?.total === 0}
-              aria-busy={exporting}
-              className={EXPORT_BUTTON}
-            >
-              {exporting ? (
-                <span aria-hidden="true" className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-              ) : (
-                <Icon name="download" />
-              )}
-              {exporting ? "Exporting…" : "Export PDF"}
-            </button>
+            {can(user, "export.data") && (
+              <ExportMenu
+                label="Export Excel"
+                busy={exporter.busyKey === EXPORT_KEY}
+                disabled={result?.total === 0}
+                onPick={exportExcel}
+                className={EXPORT_BUTTON}
+              />
+            )}
           </div>
         </div>
       </Card>

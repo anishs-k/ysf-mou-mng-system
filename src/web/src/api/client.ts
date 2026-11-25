@@ -6,7 +6,7 @@
  * means no screen has to know the API's base URL or how a failure is shaped.
  */
 
-import type { PayrollValueKind, UserRole } from "@mou/domain";
+import type { PayrollValueKind, Permission, UserRole } from "@mou/domain";
 
 const rawApiUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_BASE_URL =
@@ -22,6 +22,8 @@ export interface AuthUser {
   readonly allZones: boolean;
   /** SPEC-21: the zones a zonal user may see - one or several. */
   readonly zoneIds: readonly string[];
+  /** SPEC-33: what the user may see and change, from the stored permission matrix. */
+  readonly permissions: readonly Permission[];
 }
 
 export type LoginResult =
@@ -160,6 +162,35 @@ export async function saveManagedUser(userId: string | null, details: UserAccoun
     return { ok: true, user: (await response.json()) as ManagedUser };
   }
   return { ok: false, ...(await userFailure(response, "Could not save the user")) };
+}
+
+/** SPEC-33: one role's grants on the Roles & Permissions screen. */
+export interface RoleGrant {
+  readonly role: string;
+  readonly permissions: readonly Permission[];
+}
+
+/** SPEC-33: GET / PUT /api/admin/permissions - ADMIN locked to everything, the four editable roles. */
+export interface PermissionMatrix {
+  readonly locked: RoleGrant;
+  readonly roles: readonly RoleGrant[];
+}
+
+export async function fetchPermissionMatrix(): Promise<PermissionMatrix> {
+  const response = await request("/api/admin/permissions");
+  if (!response.ok) {
+    throw new Error(`GET /api/admin/permissions failed with status ${response.status}`);
+  }
+  return (await response.json()) as PermissionMatrix;
+}
+
+/** Saves the given roles; resolves with the matrix as stored (normalised). Rejects with the API's message. */
+export async function savePermissionMatrix(roles: readonly RoleGrant[]): Promise<PermissionMatrix> {
+  const response = await request("/api/admin/permissions", { method: "PUT", body: JSON.stringify({ roles }) });
+  if (!response.ok) {
+    throw new Error((await userFailure(response, "Could not save the permissions")).message);
+  }
+  return (await response.json()) as PermissionMatrix;
 }
 
 /** DELETE /api/admin/users/:userId — section 5.5. Rejects with the API's message. */
@@ -488,6 +519,8 @@ export interface CompanyOverview {
   readonly pocNumber: string | null;
   readonly decisionMakerName: string | null;
   readonly decisionMakerNumber: string | null;
+  /** SPEC-31: optional free text. */
+  readonly zonalManager: string | null;
   readonly plants: readonly {
     readonly id: string;
     readonly plantName: string;
@@ -582,6 +615,14 @@ export interface MouCommercialDetail {
   readonly stipendDate: number | null;
   readonly charges: readonly MouChargeRow[];
   readonly otherItems: readonly MouOtherItemRow[];
+  /** SPEC-31: optional tracking fields - codes for the two lists, free text for the rest. */
+  readonly signStatus: string | null;
+  readonly mailConfirmation: string | null;
+  readonly paymentTerm: string | null;
+  readonly remark: string | null;
+  /** SPEC-35: an INVOICE_MATCHES code and free text; null when not recorded. */
+  readonly invoiceMatch: string | null;
+  readonly invoiceRemark: string | null;
   readonly document:
     | {
         readonly id: string;
@@ -620,6 +661,10 @@ export interface MouPayrollDetail {
   readonly traineeCategories: readonly string[];
   readonly allowances: readonly MouPayrollItemRow[];
   readonly deductions: readonly MouPayrollItemRow[];
+  /** SPEC-31: optional; null when not recorded. */
+  readonly leftTraineeAmount: string | null;
+  readonly leftTraineeNote: string | null;
+  readonly educationFeePayer: string | null;
 }
 
 export async function fetchMouPayroll(
@@ -649,8 +694,11 @@ export interface RecordPdfDownload {
  * Fetched rather than opened as a link so the download never depends on a pop-up
  * being allowed; the caller saves the Blob. A failure carries the API's message.
  */
-export async function downloadMouRecordPdf(mouId: string): Promise<RecordPdfDownload> {
-  const response = await apiFetch(`/api/mous/${mouId}/record.pdf`, { method: "GET", credentials: "include" });
+/** Only MoU ("mou") or Full Details ("full") - every record export takes one. */
+export type ExportView = "mou" | "full";
+
+export async function downloadMouRecordPdf(mouId: string, view: ExportView = "full"): Promise<RecordPdfDownload> {
+  const response = await apiFetch(`/api/mous/${mouId}/record.pdf?view=${view}`, { method: "GET", credentials: "include" });
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `Export failed with status ${response.status}`);
@@ -1237,6 +1285,10 @@ export interface SearchFilters {
   readonly status?: string;
   /** A scheme code, combinable with `by`. */
   readonly scheme?: string;
+  /** SPEC-34: YSF or YSI - the MoUs whose scheme that organisation runs. */
+  readonly organisation?: string;
+  /** One MoU only - the record view's Excel export. */
+  readonly mouId?: string;
   /** Inclusive YYYY-MM-DD bounds on the MoU start date. */
   readonly startFrom?: string;
   readonly startTo?: string;
@@ -1292,8 +1344,8 @@ export interface RecordsPdfDownload {
 }
 
 /** Cannot go through request(): the body is a PDF, not JSON. A 422 (no match, bad filter) carries the API's message. */
-export async function downloadRecordsPdf(filters: SearchFilters): Promise<RecordsPdfDownload> {
-  const response = await apiFetch(`/api/export/records.pdf${searchFilterQuery(filters)}`, {
+export async function downloadRecordsPdf(filters: SearchFilters, view: ExportView = "full"): Promise<RecordsPdfDownload> {
+  const response = await apiFetch(`/api/export/records.pdf${searchFilterQuery(filters, { view })}`, {
     method: "GET",
     credentials: "include",
   });
@@ -1340,9 +1392,10 @@ export interface ExportJobStatus {
 
 export async function startExcelExport(
   filters: SearchFilters,
+  view: ExportView = "full",
 ): Promise<ExportJobStatus> {
   const response = await request(
-    `/api/export/excel${searchFilterQuery(filters)}`,
+    `/api/export/excel${searchFilterQuery(filters, { view })}`,
   );
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as {

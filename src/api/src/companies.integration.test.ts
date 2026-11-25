@@ -202,6 +202,7 @@ function completePayload(
       district: "Pune",
       hrContactName: "HR Person",
       financeHeadContactName: "Finance Person",
+      zonalManager: "Abhishek B.",
       contactType: "MOBILE",
       hrContactNumber: "9876543210",
       financeHeadContactNumber: "9876543211",
@@ -553,6 +554,7 @@ function validPage1(zoneId: string) {
     district: "Pune",
     hrContactName: "Rita Sharma",
     financeHeadContactName: "Arun Verma",
+    zonalManager: "Abhishek B.",
     contactType: "MOBILE",
     hrContactNumber: "9876543210",
     financeHeadContactNumber: "9123456780",
@@ -935,7 +937,7 @@ test("SPEC-05 an Other row persists with item_key OTHER, its label and chosen ty
   assert.equal(rows[0]?.item_type, "ALLOWANCE");
 });
 
-test("SPEC-05 AC9 final save with no MOU PDF is blocked", async () => {
+test("client 2026-11-25: final save with no MOU PDF succeeds for now, and records no document", async () => {
   const zoneId = await insertZone(pool);
   const cookie = await authorCookie();
 
@@ -943,9 +945,9 @@ test("SPEC-05 AC9 final save with no MOU PDF is blocked", async () => {
   const { id: draftId } = (await draftResponse.json()) as { id: string };
 
   const submitResponse = await submitCompany(cookie, draftId);
-  assert.equal(submitResponse.status, 422);
+  assert.equal(submitResponse.status, 201);
 
-  const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  const { rows } = await pool.query(`SELECT count(*)::int AS c FROM mou_document`);
   assert.equal(rows[0].c, 0);
 });
 
@@ -1312,6 +1314,70 @@ test("SPEC-06 AC11 a save that fails Page 3 validation writes nothing and leaves
 
   const getResponse = await getDraft(cookie);
   assert.equal(getResponse.status, 200);
+});
+
+test("SPEC-34 a YSF (NAPS) save with a YSI-only fee is refused with 422 and writes nothing", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page2: { ...payload.page2, charges: { ...(payload.page2["charges"] as Record<string, string>), EXAMINATION_FEES: "300" } },
+    page3: { ...payload.page3, organisation: "YSF", scheme: "NAPS" },
+  }));
+
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 422);
+  const body = (await submitResponse.json()) as { errors?: { charges?: Record<string, string> } };
+  assert.equal(body.errors?.charges?.["EXAMINATION_FEES"], "This fee applies to YSI agreements only");
+  const { rows } = await pool.query(`SELECT count(*)::int AS c FROM company`);
+  assert.equal(rows[0].c, 0);
+});
+
+test("SPEC-35 a YSF save with an Other row named like a YSI-only fee is refused with 422", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page2: { ...payload.page2, otherItems: [{ label: "Examination fee", amount: "300", itemType: "DEDUCTION" }] },
+    page3: { ...payload.page3, organisation: "YSF", scheme: "NATS" },
+  }));
+
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 422);
+  const body = (await submitResponse.json()) as { errors?: { otherItems?: (string | null)[] } };
+  assert.equal(body.errors?.otherItems?.[0], "This fee is for YSI only. Choose YSI to add it.");
+});
+
+test("SPEC-35 match with invoice and the invoice remark are saved on the MoU", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page2: { ...payload.page2, invoiceMatch: "NO_MATCH", invoiceRemark: "Uniform cost not deducted" },
+  }));
+
+  assert.equal((await submitCompany(cookie, draftId)).status, 201);
+  const { rows } = await pool.query<{ invoice_match: string; invoice_remark: string }>(`SELECT invoice_match, invoice_remark FROM mou`);
+  assert.equal(rows[0]?.invoice_match, "NO_MATCH");
+  assert.equal(rows[0]?.invoice_remark, "Uniform cost not deducted");
+});
+
+test("SPEC-34 an organisation that does not run the chosen scheme is refused with 422", async () => {
+  const zoneId = await insertZone(pool);
+  const cookie = await authorCookie();
+
+  const { draftId } = await createDraftAtStep3(cookie, zoneId, (payload) => ({
+    ...payload,
+    page3: { ...payload.page3, organisation: "YSF" },
+  }));
+
+  const submitResponse = await submitCompany(cookie, draftId);
+  assert.equal(submitResponse.status, 422);
+  const body = (await submitResponse.json()) as { errors?: { scheme?: string } };
+  assert.equal(body.errors?.scheme, "Choose a YSF scheme (NAPS or NATS)");
 });
 
 test("SPEC-04 a final save that loses a GST race answers 409, not a generic 500", async () => {

@@ -4,9 +4,20 @@
  * uploaded to the draft as soon as it is picked), the Payment Schedule, and the
  * add/remove charge rows. A row's head is one of the API's fixed commercial items
  * (each usable once) or "Other" with its own label and Allowance/Deduction type.
+ * SPEC-31: a MoU Tracking card - sign status, mail confirmation, payment term and
+ * remark, all optional. SPEC-35 adds match with invoice and an invoice remark.
  */
 
-import { ATTENDANCE_CYCLES, computeEndDate } from "@mou/domain";
+import { isChargeShown } from "@mou/domain";
+import type { Organisation } from "@mou/domain";
+import {
+  ATTENDANCE_CYCLES,
+  INVOICE_MATCH_OPTIONS,
+  MAIL_CONFIRMATION_OPTIONS,
+  MOU_DOCUMENT_REQUIRED,
+  MOU_SIGN_STATUS_OPTIONS,
+  computeEndDate,
+} from "@mou/domain";
 import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 
@@ -47,6 +58,8 @@ interface CommercialDetailsStepProps {
   readonly onPickFile: (file: File) => void;
   readonly uploading: boolean;
   readonly uploadError: string | null;
+  /** SPEC-34: a YSF agreement is not offered the YSI-only fees. */
+  readonly organisation: Organisation | "";
 }
 
 export function CommercialDetailsStep({
@@ -59,6 +72,7 @@ export function CommercialDetailsStep({
   onPickFile,
   uploading,
   uploadError,
+  organisation,
 }: CommercialDetailsStepProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -71,9 +85,10 @@ export function CommercialDetailsStep({
 
   const updateRow = (id: number, patch: Partial<ChargeRow>) =>
     onChargesChange(charges.map((row) => (row.id === id ? { ...row, ...patch } : row)));
-  /** A fixed head already used by another row is not offered again. */
+  /** A fixed head already used by another row is not offered again; SPEC-34: nor a YSI-only fee on a YSF form. */
   const headOptions = (row: ChargeRow) =>
     enums.commercialItems
+      .filter((item) => item.key === row.head || isChargeShown(organisation === "" ? undefined : organisation, item.key))
       .filter((item) => item.key === OTHER_HEAD || item.key === row.head || !charges.some((other) => other.head === item.key))
       .map((item) => ({ value: item.key, label: item.label }));
 
@@ -133,7 +148,7 @@ export function CommercialDetailsStep({
           </div>
           <div className="lg:col-span-3 flex flex-col items-center justify-center">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1 text-center">
-              Upload MoU PDF <span className="text-red-500">*</span>
+              Upload MoU PDF {MOU_DOCUMENT_REQUIRED ? <span className="text-red-500">*</span> : <span className="text-xs font-normal normal-case">(optional - can be attached later)</span>}
             </label>
             <input
               ref={inputRef}
@@ -207,6 +222,55 @@ export function CommercialDetailsStep({
               className={invalidBorder(errors.fields.stipendDate)}
             />
             <ErrorText message={errors.fields.stipendDate} />
+          </Field>
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <SectionTitle>MoU Tracking</SectionTitle>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+          <Field label="MoU Sign Status" htmlFor="sign-status">
+            <SelectInput id="sign-status" options={MOU_SIGN_STATUS_OPTIONS} value={commercial.signStatus} onChange={set("signStatus")} />
+            <ErrorText message={errors.fields.signStatus} />
+          </Field>
+          <Field label="Mail Confirmation" htmlFor="mail-confirmation">
+            <SelectInput id="mail-confirmation" options={MAIL_CONFIRMATION_OPTIONS} value={commercial.mailConfirmation} onChange={set("mailConfirmation")} />
+            <ErrorText message={errors.fields.mailConfirmation} />
+          </Field>
+          <Field label="Payment Term" htmlFor="payment-term" hint="Up to 500 characters">
+            <TextInput
+              id="payment-term"
+              placeholder="e.g. Invoice within 7 days, payment within 5 days"
+              value={commercial.paymentTerm}
+              onChange={set("paymentTerm")}
+              className={invalidBorder(errors.fields.paymentTerm)}
+            />
+            <ErrorText message={errors.fields.paymentTerm} />
+          </Field>
+          <Field label="Remark" htmlFor="mou-remark" hint="Up to 500 characters">
+            <TextInput
+              id="mou-remark"
+              placeholder="Any note about this MoU"
+              value={commercial.remark}
+              onChange={set("remark")}
+              className={invalidBorder(errors.fields.remark)}
+            />
+            <ErrorText message={errors.fields.remark} />
+          </Field>
+          {/* SPEC-35: the client sheet's Match with Invoice and its invoice remark. */}
+          <Field label="Match with Invoice" htmlFor="invoice-match">
+            <SelectInput id="invoice-match" options={INVOICE_MATCH_OPTIONS} value={commercial.invoiceMatch} onChange={set("invoiceMatch")} />
+            <ErrorText message={errors.fields.invoiceMatch} />
+          </Field>
+          <Field label="Invoice Remark" htmlFor="invoice-remark" hint="Up to 500 characters">
+            <TextInput
+              id="invoice-remark"
+              placeholder="e.g. Training charges not added to the invoice"
+              value={commercial.invoiceRemark}
+              onChange={set("invoiceRemark")}
+              className={invalidBorder(errors.fields.invoiceRemark)}
+            />
+            <ErrorText message={errors.fields.invoiceRemark} />
           </Field>
         </div>
       </Card>

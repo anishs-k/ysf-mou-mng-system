@@ -7,9 +7,19 @@
  * computeAgreementDiff. State lives in EditAgreementScreen; these only render it.
  * SPEC-23: PF / ESI take a percentage, and TDS answers As / Not applicable only.
  * D157 / D158: the tenure is entered in months, and payroll has no Other rows.
+ * SPEC-32: ViewOnly locks a whole tab the role may only view.
+ * SPEC-34: Commercial leaves out the YSI-only fees for a YSF agreement.
  */
 
-import { TENURE_UNITS, TENURE_UNIT_OPTIONS, computeEndDate, payrollAnswerText, payrollStatusLabel } from "@mou/domain";
+import {
+  TENURE_UNITS,
+  TENURE_UNIT_OPTIONS,
+  computeEndDate,
+  isChargeShown,
+  organisationOfScheme,
+  payrollAnswerText,
+  payrollStatusLabel,
+} from "@mou/domain";
 import type {
   CommercialDetailErrors,
   CompanyContactErrors,
@@ -46,6 +56,23 @@ function otherItemsText(items: readonly EditableOtherItem[], itemTypes: readonly
   if (items.length === 0) return PENDING_FIGURE;
   const typeLabel = (code: string) => itemTypes.find((option) => option.value === code)?.label ?? code;
   return items.map((item) => `${item.label} (${typeLabel(item.itemType)}): ${item.amount}`).join("; ");
+}
+
+/**
+ * SPEC-32: a section the signed-in role may only view (HR: Commercial, Finance:
+ * contacts). A disabled fieldset locks every input and button inside it, and the
+ * API refuses a changed section anyway.
+ */
+export function ViewOnly({ locked, children }: { readonly locked: boolean; readonly children: ReactNode }) {
+  if (!locked) return <>{children}</>;
+  return (
+    <fieldset disabled className="contents">
+      <p className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+        <Badge text="View only" /> Your role can see this section but not change it.
+      </p>
+      {children}
+    </fieldset>
+  );
 }
 
 export function TableHeadings() {
@@ -308,7 +335,10 @@ export function CommercialTab({ scheme, previous, value, errors, charges, itemTy
       <CompareRow label="Stipend Date" previous={textOrDash(previous.stipendDate)} error={errors.stipendDate}>
         <TextField label="Stipend Date" type="number" value={value.stipendDate} onChange={(stipendDate) => set({ stipendDate })} />
       </CompareRow>
-      {charges.map((charge) => (
+      {charges
+        // SPEC-34: a YSF agreement keeps a YSI-only fee it already holds, but is not offered one.
+        .filter((charge) => isChargeShown(organisationOfScheme(scheme), charge.key) || (previous.charges[charge.key] ?? "").trim() !== "")
+        .map((charge) => (
         <CompareRow
           key={charge.key}
           label={charge.label}

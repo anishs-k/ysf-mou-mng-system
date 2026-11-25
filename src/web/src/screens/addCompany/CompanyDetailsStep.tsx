@@ -3,11 +3,13 @@
  * card, zone, sector, company identity and tax numbers), the Registered Address and
  * the contacts: HR, Finance Head and the optional Purchase contact, each with its
  * name, number and email (with a confirm box), then the optional POC and Decision
- * Maker, a name and a mobile each (SPEC-27). D155 / D156: HR and Finance have
+ * Maker, a name and a mobile each (SPEC-27), and the required Zonal Manager (SPEC-31). D155 / D156: HR and Finance have
  * their own emails, and there is no Mobile / LAN toggle - a number may be either.
  * Every option list comes from /api/enums and /api/zones.
  */
 
+import { ORGANISATION_SCHEMES } from "@mou/domain";
+import type { Organisation } from "@mou/domain";
 import { SCHEME_GUIDELINES } from "@mou/domain";
 import type { Scheme } from "@mou/domain";
 import { useState } from "react";
@@ -47,6 +49,9 @@ const NUMBER_PLACEHOLDER = "Mobile, or STD code and number";
 
 /** Name, number and email (with its confirmation) per contact, two to a row. */
 const CONTACT_FIELDS: readonly TextFieldSpec[] = [
+  // SPEC-31: required free text, first in the section.
+  // Its own row, so the HR / Finance / Purchase pairs below stay side by side.
+  { key: "zonalManager", label: "Zonal Manager", placeholder: "e.g. Abhishek B.", required: true, className: "md:col-span-2 md:w-1/2 md:pr-2" },
   { key: "hrContactName", label: "HR Contact Name", placeholder: "Full name", required: true },
   { key: "hrContactNumber", label: "HR Contact Number", placeholder: NUMBER_PLACEHOLDER, required: true, type: "tel" },
   { key: "hrEmail", label: "HR Email ID", placeholder: "hr@company.com", required: true, type: "email" },
@@ -80,6 +85,8 @@ interface CompanyDetailsStepProps {
   readonly errors: CompanyErrors;
   readonly warnings: CompanyErrors;
   readonly reference: WizardReference;
+  /** SPEC-34: only this organisation's schemes are offered. */
+  readonly organisation: Organisation | "";
 }
 
 function TextFields({
@@ -148,7 +155,7 @@ function SchemeGuidelines({ scheme, label, onClose }: { readonly scheme: string;
   );
 }
 
-export function CompanyDetailsStep({ company, onChange, errors, warnings, reference }: CompanyDetailsStepProps) {
+export function CompanyDetailsStep({ company, onChange, errors, warnings, reference, organisation }: CompanyDetailsStepProps) {
   const [showGuidelines, setShowGuidelines] = useState(true);
   const { enums, zones } = reference;
   const scheme = company.scheme;
@@ -188,7 +195,11 @@ export function CompanyDetailsStep({ company, onChange, errors, warnings, refere
             </div>
             <SelectInput
               id="company-scheme"
-              options={enums.schemes}
+              options={
+                organisation === ""
+                  ? enums.schemes
+                  : enums.schemes.filter((option) => (ORGANISATION_SCHEMES[organisation] as readonly string[]).includes(option.value))
+              }
               value={scheme}
               onChange={(value) => {
                 onChange({ scheme: value });

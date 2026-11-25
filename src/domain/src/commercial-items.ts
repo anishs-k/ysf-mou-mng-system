@@ -7,6 +7,8 @@
  * key except "Other", where the user chooses, so itemType is null only there.
  * D153 keeps only the 9 core charges (Admin ... One Time Registration Fees): the 7
  * payroll-style deductions were never used and migration 0017 drops them.
+ * SPEC-31 adds the three YSI fees the client MoU sheet tracks as their own columns
+ * (Examination, Employability Skill Test, MSBTE Affiliation).
  */
 
 import type { ItemType } from "./enums.ts";
@@ -23,6 +25,9 @@ export const COMMERCIAL_ITEM_KEYS = [
   "TRAINING_CHARGES",
   "ASSESSMENT_CHARGES",
   "ONE_TIME_REGISTRATION_FEES",
+  "EXAMINATION_FEES",
+  "EMPLOYABILITY_TEST_FEES",
+  "MSBTE_AFFILIATION_FEES",
   "OTHER",
 ] as const;
 
@@ -45,16 +50,20 @@ export const COMMERCIAL_ITEMS: readonly CommercialItemDefinition[] = [
   { key: "SHOES_AND_UNIFORM", label: "Shoes and Uniform", itemType: "DEDUCTION", displayOrder: 3 },
   { key: "SUPERVISOR_CHARGES", label: "Supervisor Charges", itemType: "DEDUCTION", displayOrder: 4 },
   { key: "SOURCING_CHARGES", label: "Sourcing Charges", itemType: "DEDUCTION", displayOrder: 5 },
-  { key: "EDUCATION_CHARGES", label: "Education Charges", itemType: "DEDUCTION", displayOrder: 6 },
+  // SPEC-35: labels follow the client sheet; the old ones are in COMMERCIAL_ITEM_LEGACY_LABELS.
+  { key: "EDUCATION_CHARGES", label: "Education Fees", itemType: "DEDUCTION", displayOrder: 6 },
   { key: "TRAINING_CHARGES", label: "Training Charges", itemType: "DEDUCTION", displayOrder: 7 },
   { key: "ASSESSMENT_CHARGES", label: "Assessment Charges", itemType: "DEDUCTION", displayOrder: 8 },
   {
     key: "ONE_TIME_REGISTRATION_FEES",
-    label: "One Time Registration Fees",
+    label: "Course Registration Fees",
     itemType: "DEDUCTION",
     displayOrder: 9,
   },
-  { key: "OTHER", label: "Other", itemType: null, displayOrder: 10 },
+  { key: "EXAMINATION_FEES", label: "Examination Fees", itemType: "DEDUCTION", displayOrder: 10 },
+  { key: "EMPLOYABILITY_TEST_FEES", label: "Employability Skill Test Fees", itemType: "DEDUCTION", displayOrder: 11 },
+  { key: "MSBTE_AFFILIATION_FEES", label: "MSBTE Affiliation Fees", itemType: "DEDUCTION", displayOrder: 12 },
+  { key: "OTHER", label: "Other", itemType: null, displayOrder: 13 },
 ];
 
 export const COMMERCIAL_ITEM_BY_KEY: Readonly<
@@ -69,3 +78,12 @@ export const COMMERCIAL_ITEM_BY_KEY: Readonly<
  */
 export const COMMERCIAL_FIXED_ITEM_KEYS: readonly FixedCommercialItemKey[] =
   COMMERCIAL_ITEM_KEYS.filter((key): key is FixedCommercialItemKey => key !== OTHER_ITEM_KEY);
+
+/**
+ * SPEC-35: names a fee went by before it took the client sheet's name. A bulk
+ * sheet or PDF form filled with an older template still matches by these.
+ */
+export const COMMERCIAL_ITEM_LEGACY_LABELS: Readonly<Partial<Record<CommercialItemKey, readonly string[]>>> = {
+  EDUCATION_CHARGES: ["Education Charges"],
+  ONE_TIME_REGISTRATION_FEES: ["One Time Registration Fees"],
+};

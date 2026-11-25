@@ -4,6 +4,7 @@
  * change (as in the prototype); the From / To start-date range applies on Filter.
  * Export Excel runs the server export for the same filters, and the eye button
  * (or a ?mouId= deep link) opens that MoU's version history dialog.
+ * Export Excel offers Only MoU or Full Details (ExportMenu).
  */
 
 import { useEffect, useState } from "react";
@@ -20,6 +21,7 @@ import { ScreenFrame } from "../ui/layout/AppShell.tsx";
 import { Pager } from "../ui/Pager.tsx";
 import { Badge, Button, Card } from "../ui/primitives.tsx";
 import type { BadgeTone } from "../ui/theme.ts";
+import { ExportMenu } from "../ui/ExportMenu.tsx";
 import { VersionHistoryDialog } from "./agreementHistory/VersionHistoryDialog.tsx";
 
 const COLUMNS = ["Company", "MoU Code", "Zone", "Scheme", "Start", "End", "Status", ""];
@@ -141,15 +143,12 @@ export function AgreementHistoryScreen() {
               <Icon name="search" className="w-4 h-4" />
               Filter
             </Button>
-            <button
-              type="button"
-              disabled={exporting}
-              onClick={() => void exporter.run(EXPORT_KEY, () => startExcelExport(filters))}
+            <ExportMenu
+              label="Export Excel"
+              busy={exporting}
+              onPick={(view) => void exporter.run(EXPORT_KEY, () => startExcelExport(filters, view))}
               className={`${SECONDARY_BUTTON} ${exporting ? "opacity-50 cursor-not-allowed" : ""}`}
-            >
-              <Icon name="download" />
-              {exporting ? "Exporting…" : "Export Excel"}
-            </button>
+            />
           </div>
         </div>
       </Card>

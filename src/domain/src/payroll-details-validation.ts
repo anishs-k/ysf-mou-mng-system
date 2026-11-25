@@ -14,10 +14,12 @@
  * SPEC-23 §2.3: how a Yes answer is checked depends on the item's value kind -
  * an amount, a 0-100 percentage (PF, ESI), or nothing at all (TDS's status).
  * D158: the fixed items are only PF, ESI and TDS, and Other rows are refused.
+ * SPEC-31 adds three optional fields: the amount recovered when a trainee leaves
+ * (with a note) and who pays the education fee.
  */
 
 import { type OtherChargeRow, type OtherChargeRowErrors } from "./commercial-details-validation.ts";
-import { SCHEMES } from "./enums.ts";
+import { EDUCATION_FEE_PAYERS, SCHEMES } from "./enums.ts";
 import { PAYROLL_FIXED_ITEM_KEYS, PAYROLL_ITEM_BY_KEY, STATUTORY_ITEM_KEYS } from "./payroll-items.ts";
 import type { PayrollValueKind } from "./payroll-items.ts";
 import { validateAmountString } from "./money.ts";
@@ -25,6 +27,8 @@ import { validatePercentString } from "./payroll-value.ts";
 
 const MAX_CATEGORY_LENGTH = 100;
 const MAX_QUALIFICATION_LENGTH = 150;
+/** SPEC-31: payroll_config.left_trainee_note is varchar(500). */
+const MAX_NOTE_LENGTH = 500;
 
 /** isApplicable undefined means "not yet answered" - distinct from an explicit No. */
 export interface PayrollItemAnswer {
@@ -57,6 +61,12 @@ export interface PayrollDetails {
   /** Keyed by the 22 fixed PayrollItemKeys. */
   readonly items: Readonly<Record<string, PayrollItemAnswer>>;
   readonly otherItems: readonly OtherChargeRow[];
+  /** SPEC-31: optional amount recovered from a trainee who leaves; blank means none recorded. */
+  readonly leftTraineeAmount?: string;
+  /** SPEC-31: optional free text, e.g. "deducted from the last stipend". */
+  readonly leftTraineeNote?: string;
+  /** SPEC-31: optional EDUCATION_FEE_PAYERS code. */
+  readonly educationFeePayer?: string;
 }
 
 export interface PayrollDetailErrors {
@@ -69,6 +79,9 @@ export interface PayrollDetailErrors {
   readonly traineeCategoryDetails?: readonly (TraineeCategoryDetailErrors | undefined)[];
   readonly items?: Readonly<Record<string, string>>;
   readonly otherItems?: readonly (OtherChargeRowErrors | undefined)[];
+  readonly leftTraineeAmount?: string;
+  readonly leftTraineeNote?: string;
+  readonly educationFeePayer?: string;
 }
 
 export interface PayrollDetailValidation {
@@ -186,6 +199,9 @@ export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollD
     traineeCategoryDetails?: readonly (TraineeCategoryDetailErrors | undefined)[];
     items?: Record<string, string>;
     otherItems?: readonly (OtherChargeRowErrors | undefined)[];
+    leftTraineeAmount?: string;
+    leftTraineeNote?: string;
+    educationFeePayer?: string;
   } = {};
 
   // --- Scheme ------------------------------------------------------------------
@@ -243,6 +259,22 @@ export function validatePayrollDetails(input: Partial<PayrollDetails>): PayrollD
   );
   if (otherItemErrors.some((rowErrors) => rowErrors !== undefined)) {
     errors.otherItems = otherItemErrors;
+  }
+
+  // --- SPEC-31: left trainee recovery, education fee payer ---------------------------
+  const leftTraineeAmount = (input.leftTraineeAmount ?? "").trim();
+  if (leftTraineeAmount !== "") {
+    const amountError = validateAmountString(leftTraineeAmount);
+    if (amountError !== undefined) {
+      errors.leftTraineeAmount = amountError;
+    }
+  }
+  if ((input.leftTraineeNote ?? "").trim().length > MAX_NOTE_LENGTH) {
+    errors.leftTraineeNote = `Enter at most ${MAX_NOTE_LENGTH} characters`;
+  }
+  const educationFeePayer = (input.educationFeePayer ?? "").trim();
+  if (educationFeePayer !== "" && !(EDUCATION_FEE_PAYERS as readonly string[]).includes(educationFeePayer)) {
+    errors.educationFeePayer = "Choose who pays the education fee";
   }
 
   return { errors };

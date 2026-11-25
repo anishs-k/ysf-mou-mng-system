@@ -2,15 +2,18 @@
  * Purpose: The persistent left navigation of the signed-in shell: brand block,
  * product strip, the destinations the signed-in role may open (ui/access.ts) with
  * an "Operation" section, and the card of the API session's user with sign-out.
+ * SPEC-33: User Management is a group - clicking it opens Users and Roles &
+ * Permissions beneath it (a super admin only); it stays open on those screens.
  * It collapses to an icon rail on desktop and becomes a slide-in drawer below the
  * `lg` breakpoint.
  */
 
 import { USER_ROLE_LABELS } from "@mou/domain";
-import { NavLink } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 
 import logo from "../../assets/logo-ysf.png";
-import { USER_MANAGEMENT_PATH, canOpenPath } from "../access.ts";
+import { ROLE_PERMISSIONS_PATH, USER_MANAGEMENT_PATH, canOpenPath } from "../access.ts";
 import { Icon } from "../Icon.tsx";
 import type { IconName } from "../Icon.tsx";
 import { useSession } from "../session.ts";
@@ -24,7 +27,15 @@ interface NavItem {
   readonly strokeWidth?: number;
 }
 
-type NavEntry = NavItem | { readonly section: string };
+/** SPEC-33: a heading that shows its children only once clicked. */
+interface NavGroup {
+  readonly group: string;
+  readonly icon: IconName;
+  readonly iconClass: string;
+  readonly children: readonly NavItem[];
+}
+
+type NavEntry = NavItem | NavGroup | { readonly section: string };
 
 const NAV_ENTRIES: readonly NavEntry[] = [
   { path: "/", label: "Dashboard", icon: "grid", iconClass: "w-5 h-5" },
@@ -38,8 +49,19 @@ const NAV_ENTRIES: readonly NavEntry[] = [
   { path: "/export", label: "Export", icon: "download", iconClass: "w-5 h-5" },
   { section: "Operation" },
   { path: "/user-manual", label: "User Manual", icon: "book", iconClass: "w-5 h-5" },
-  { path: USER_MANAGEMENT_PATH, label: "User Management", icon: "user", iconClass: "w-5 h-5" },
+  {
+    group: "User Management",
+    icon: "user",
+    iconClass: "w-5 h-5",
+    children: [
+      { path: USER_MANAGEMENT_PATH, label: "Users", icon: "user", iconClass: "w-4 h-4" },
+      { path: ROLE_PERMISSIONS_PATH, label: "Roles & Permissions", icon: "lock", iconClass: "w-4 h-4" },
+    ],
+  },
 ];
+
+const LINK_CLASS = "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-150 text-left";
+const IDLE_CLASS = "text-[#5A7AA8] hover:bg-[#E8F0FB] hover:text-foreground";
 
 /** "e2e-admin" -> "EA", "admin" -> "AD": the first letters of up to two name parts. */
 function initialsOf(username: string): string {
@@ -61,7 +83,44 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onMobileClos
   const username = user?.username ?? "";
   const initials = initialsOf(username);
   const roleLabel = user === null ? "" : USER_ROLE_LABELS[user.role];
-  const entries = NAV_ENTRIES.filter((entry) => "section" in entry || (user !== null && canOpenPath(user, entry.path)));
+  const { pathname } = useLocation();
+  const [groupOpen, setGroupOpen] = useState(false);
+  const entries = NAV_ENTRIES.flatMap((entry): NavEntry[] => {
+    if ("section" in entry) return [entry];
+    if (user === null) return [];
+    if ("group" in entry) {
+      const children = entry.children.filter((child) => canOpenPath(user, child.path));
+      return children.length === 0 ? [] : [{ ...entry, children }];
+    }
+    return canOpenPath(user, entry.path) ? [entry] : [];
+  });
+
+  const navLink = (entry: NavItem, nested = false) => (
+    <NavLink
+      key={entry.path}
+      to={entry.path}
+      end
+      onClick={onMobileClose}
+      title={collapsed ? entry.label : undefined}
+      className={({ isActive }) =>
+        `${LINK_CLASS} ${nested && !collapsed ? "pl-9" : ""} ${isActive ? "text-white bg-[#1B5FAE]" : IDLE_CLASS}`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span className="shrink-0">
+            <Icon name={entry.icon} className={entry.iconClass} strokeWidth={entry.strokeWidth} />
+          </span>
+          {!collapsed && <span className="text-sm font-medium truncate">{entry.label}</span>}
+          {!collapsed && isActive && (
+            <span className="ml-auto">
+              <Icon name="chevronRight" className="w-4 h-4" strokeWidth={2} />
+            </span>
+          )}
+        </>
+      )}
+    </NavLink>
+  );
   return (
     <>
       {mobileOpen && <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={onMobileClose} />}
@@ -124,31 +183,37 @@ export function Sidebar({ collapsed, onToggleCollapsed, mobileOpen, onMobileClos
                   </p>
                 </div>
               )
+            ) : "group" in entry ? (
+              <div key={entry.group}>
+                {(() => {
+                  // Open while on one of its screens, or once clicked.
+                  const open = groupOpen || entry.children.some((child) => child.path === pathname);
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setGroupOpen(!open)}
+                        aria-expanded={open}
+                        title={collapsed ? entry.group : undefined}
+                        className={`${LINK_CLASS} ${IDLE_CLASS}`}
+                      >
+                        <span className="shrink-0">
+                          <Icon name={entry.icon} className={entry.iconClass} />
+                        </span>
+                        {!collapsed && <span className="text-sm font-medium truncate">{entry.group}</span>}
+                        {!collapsed && (
+                          <span className="ml-auto">
+                            <Icon name={open ? "chevronDown" : "chevronRight"} className="w-4 h-4" strokeWidth={2} />
+                          </span>
+                        )}
+                      </button>
+                      {open && entry.children.map((child) => navLink(child, true))}
+                    </>
+                  );
+                })()}
+              </div>
             ) : (
-              <NavLink
-                key={entry.path}
-                to={entry.path}
-                end
-                onClick={onMobileClose}
-                title={collapsed ? entry.label : undefined}
-                className={({ isActive }) =>
-                  `w-full flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 transition-all duration-150 text-left ${isActive ? "text-white bg-[#1B5FAE]" : "text-[#5A7AA8] hover:bg-[#E8F0FB] hover:text-foreground"}`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <span className="shrink-0">
-                      <Icon name={entry.icon} className={entry.iconClass} strokeWidth={entry.strokeWidth} />
-                    </span>
-                    {!collapsed && <span className="text-sm font-medium truncate">{entry.label}</span>}
-                    {!collapsed && isActive && (
-                      <span className="ml-auto">
-                        <Icon name="chevronRight" className="w-4 h-4" strokeWidth={2} />
-                      </span>
-                    )}
-                  </>
-                )}
-              </NavLink>
+              navLink(entry)
             ),
           )}
         </nav>

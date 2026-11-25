@@ -81,6 +81,7 @@ function companyRow(overrides: Readonly<Record<string, string>> = {}): Record<st
     hrContactName: "Asha Rao",
     hrContactNumber: "9876543210",
     financeHeadContactName: "Ravi Iyer",
+    zonalManager: "Abhishek B.",
     financeHeadContactNumber: "9876501234",
     hrEmail: "hr@acme.in",
     financeEmail: "accounts@acme.in",

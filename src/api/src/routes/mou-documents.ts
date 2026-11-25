@@ -11,7 +11,6 @@
  * referenceNumber form fields, captured by the Upload MoU screen.
  */
 
-import { AUTHORING_ROLES } from "@mou/domain";
 import { desc, eq } from "drizzle-orm";
 import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
@@ -21,7 +20,7 @@ import type { Pool } from "pg";
 
 import {
   requireAuth,
-  requireRole,
+  requirePermission,
   requireSession,
 } from "../auth/middleware.ts";
 import { emptyList, notFoundError, requireInScope } from "../auth/zone-scope.ts";
@@ -89,7 +88,7 @@ const documentUpload = multer({
 export function createMouDocumentsRouter(db: Database, pool: Pool): Router {
   const router = Router();
   const requireAuthSession = requireSession(pool);
-  const requireAuthoring = requireRole(...AUTHORING_ROLES);
+  const requireAuthoring = requirePermission("documents.upload");
 
   /** GET /api/mous/:mouId/documents — SPEC-09 section 3.1, newest first. */
   router.get(

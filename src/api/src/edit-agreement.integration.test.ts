@@ -298,7 +298,10 @@ for (const role of ["HR", "FINANCE"] as const) {
     const edit = await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT");
     assert.equal(edit.status, 201);
     const body = (await edit.json()) as { token: string; version: number } & EditablePayload;
-    const apply = await applyEdit(mouId, cookie, body.token, body.version, { ...body.commercial, tenureValue: "36" }, body.payroll);
+    const apply = await applyEdit(mouId, cookie, body.token, body.version, body.commercial, {
+      ...body.payroll,
+      traineeCategories: ["Category A", "Category B"],
+    });
     assert.equal(apply.status, 200);
   });
 }
@@ -322,7 +325,7 @@ test("SPEC-28 the edit request returns the company's HR and Finance contacts", a
 });
 
 test("SPEC-28 a contact-only edit updates the company and snapshots the old contacts", async () => {
-  const { mouId, cookie } = await setupMou("FINANCE");
+  const { mouId, cookie } = await setupMou("HR");
   const before = (await pool.query<{ hr_contact_name: string }>(
     `SELECT c.hr_contact_name FROM company c JOIN mou m ON m.company_id = c.id WHERE m.id = $1`,
     [mouId],
@@ -364,4 +367,32 @@ test("AC13 a DATA_ENTRY user calling either endpoint receives 403", async () => 
 
   const putResponse = await applyEdit(mouId, cookie, "00000000-0000-0000-0000-000000000000", 1, {}, {});
   assert.equal(putResponse.status, 403);
+});
+
+// --- SPEC-32: a section the role may only view must come back unchanged -------------
+
+test("SPEC-32 HR changing commercial details is refused with 403 and changes nothing", async () => {
+  const { mouId, cookie } = await setupMou("HR");
+  const edit = await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT");
+  const body = (await edit.json()) as { token: string; version: number } & EditablePayload;
+  const apply = await applyEdit(mouId, cookie, body.token, body.version, { ...body.commercial, tenureValue: "36" }, body.payroll);
+  assert.equal(apply.status, 403);
+  assert.deepEqual(await apply.json(), { error: "You can't change Commercial Details" });
+  const { rows } = await pool.query<{ tenure_value: number }>(`SELECT tenure_value FROM mou WHERE id = $1`, [mouId]);
+  assert.equal(rows[0]?.tenure_value, 24);
+});
+
+test("SPEC-32 FINANCE changing a contact is refused with 403", async () => {
+  const { mouId, cookie } = await setupMou("FINANCE");
+  const response = await putWithContacts(mouId, cookie, { hrContactName: "Neha Joshi" });
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: "You can't change Contact Details" });
+});
+
+test("SPEC-32 FINANCE may change commercial details", async () => {
+  const { mouId, cookie } = await setupMou("FINANCE");
+  const edit = await requestEdit(mouId, cookie, "ADDENDUM_IN_AGREEMENT");
+  const body = (await edit.json()) as { token: string; version: number } & EditablePayload;
+  const apply = await applyEdit(mouId, cookie, body.token, body.version, { ...body.commercial, tenureValue: "36" }, body.payroll);
+  assert.equal(apply.status, 200);
 });

@@ -10,7 +10,8 @@
  * query-builder chain, matching the precedent set by company-code-repository.ts.
  */
 
-import { USER_ROLES } from "@mou/domain";
+import { effectivePermissions, USER_ROLES } from "@mou/domain";
+import type { Permission } from "@mou/domain";
 import type { UserRole } from "@mou/domain";
 import type { Pool } from "pg";
 
@@ -27,6 +28,8 @@ export interface AuthenticatedUser {
   readonly allZones: boolean;
   /** SPEC-21 D128: the zones a zonal user may see, from user_zone. */
   readonly zoneIds: readonly string[];
+  /** SPEC-33: read from role_permission on every request, so a super admin's change applies at once. */
+  readonly permissions: readonly Permission[];
 }
 
 export interface CreatedSession {
@@ -61,7 +64,14 @@ export async function resolveSession(pool: Pool, sessionId: string): Promise<Aut
   if (!UUID_PATTERN.test(sessionId)) {
     return null;
   }
-  const { rows } = await pool.query<{ user_id: string; username: string; role: string; all_zones: boolean; zone_ids: string[] }>(
+  const { rows } = await pool.query<{
+    user_id: string;
+    username: string;
+    role: string;
+    all_zones: boolean;
+    zone_ids: string[];
+    permissions: string[];
+  }>(
     `WITH touched AS (
        UPDATE session
           SET last_seen_at = now(),
@@ -77,7 +87,8 @@ export async function resolveSession(pool: Pool, sessionId: string): Promise<Aut
      SELECT u.id AS user_id, u.username, u.role, u.all_zones,
             CASE WHEN u.all_zones THEN '{}'::text[]
                  ELSE ARRAY(SELECT uz.zone_id::text FROM user_zone uz WHERE uz.user_id = u.id ORDER BY uz.zone_id)
-            END AS zone_ids
+            END AS zone_ids,
+            ARRAY(SELECT rp.permission::text FROM role_permission rp WHERE rp.role = u.role) AS permissions
        FROM touched
        JOIN "user" u ON u.id = touched.user_id`,
     [sessionId, SESSION_IDLE_MINUTES],
@@ -87,7 +98,14 @@ export async function resolveSession(pool: Pool, sessionId: string): Promise<Aut
   if (row === undefined || !isUserRole(row.role)) {
     return null;
   }
-  return { userId: row.user_id, username: row.username, role: row.role, allZones: row.all_zones, zoneIds: row.zone_ids };
+  return {
+    userId: row.user_id,
+    username: row.username,
+    role: row.role,
+    allZones: row.all_zones,
+    zoneIds: row.zone_ids,
+    permissions: effectivePermissions(row.role, row.permissions),
+  };
 }
 
 export async function deleteSession(pool: Pool, sessionId: string): Promise<void> {

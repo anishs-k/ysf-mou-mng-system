@@ -130,7 +130,7 @@ test("D159 Commercial as per MoU and Trainee Categories are blank tables of 5 ro
   }
   // The charge names the table may hold are the 9 core charges only.
   const text = lines.join(" ");
-  for (const charge of ["Admin Charges", "Insurance", "Shoes and Uniform", "One Time Registration Fees"]) {
+  for (const charge of ["Admin Charges", "Insurance", "Shoes and Uniform", "Course Registration Fees"]) {
     assert.ok(text.includes(charge), charge);
   }
 });
@@ -385,7 +385,7 @@ test("D165 the PDF template is fillable: one field per form field name, lists as
   assert.ok(form.getField("companyName") instanceof PDFTextField);
   assert.ok(form.getField("zoneId") instanceof PDFDropdown);
   assert.deepEqual(form.getDropdown("zoneId").getOptions(), ["", "Pune", "Mumbai"]);
-  assert.ok(form.getDropdown("charge1Name").getOptions().includes("One Time Registration Fees"));
+  assert.ok(form.getDropdown("charge1Name").getOptions().includes("Course Registration Fees"));
   assert.ok(!form.getDropdown("charge1Name").getOptions().includes("Canteen Deduction"));
   assert.ok(form.getDropdown("charge3Period").getOptions().includes("Monthly"));
 });

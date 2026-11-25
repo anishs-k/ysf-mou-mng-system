@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import type { ZoneSummaryPdfData } from "./export-builder.ts";
-import { buildContactsWorkbook, renderZoneSummaryPdf } from "./export-builder.ts";
+import { buildContactsWorkbook, companiesSheetColumns, renderZoneSummaryPdf } from "./export-builder.ts";
 
 const LOGO = new URL("../../assets/logo-ysf.png", import.meta.url);
 
@@ -160,6 +160,7 @@ function overviewFor(companyId: string) {
     pocNumber: "9876512345",
     decisionMakerName: null,
     decisionMakerNumber: null,
+    zonalManager: "Abhishek B.",
     plants: [],
   };
 }
@@ -191,6 +192,7 @@ test("SPEC-29 the contacts workbook has one row per MoU with every contact colum
     "POC Number",
     "Decision Maker Name",
     "Decision Maker Number",
+    "Zonal Manager",
   ]);
   assert.equal(sheet.rowCount, 3);
   const first = sheet.getRow(2);
@@ -198,6 +200,7 @@ test("SPEC-29 the contacts workbook has one row per MoU with every contact colum
   assert.equal(first.getCell(7).value, "Asha Rao");
   assert.equal(first.getCell(16).value, "Rahul Sharma");
   assert.equal(first.getCell(18).value, "");
+  assert.equal(first.getCell(20).value, "Abhishek B.");
 });
 
 test("SPEC-29 a MoU whose company has no overview still lists its search row", () => {
@@ -205,4 +208,34 @@ test("SPEC-29 a MoU whose company has no overview still lists its search row", (
   const row = workbook.getWorksheet("Contacts")?.getRow(2);
   assert.equal(row?.getCell(1).value, "Company 3");
   assert.equal(row?.getCell(7).value, "HR");
+});
+
+test("SPEC-32 the Companies sheet lists contact columns only for a role that may export contacts", () => {
+  const contactHeaders = [
+    "HR Contact Name",
+    "HR Contact Number",
+    "Finance Head Contact Name",
+    "Finance Head Contact Number",
+    "HR Email",
+    "Finance Email",
+    "POC Name",
+    "POC Number",
+    "Decision Maker Name",
+    "Decision Maker Number",
+    "Zonal Manager",
+  ];
+  const withContacts = companiesSheetColumns(true).map((column) => column.header);
+  const withoutContacts = companiesSheetColumns(false).map((column) => column.header);
+  for (const header of contactHeaders) {
+    assert.ok(withContacts.includes(header), header);
+    assert.ok(!withoutContacts.includes(header), header);
+  }
+  assert.deepEqual(withoutContacts, withContacts.filter((header) => !contactHeaders.includes(String(header))));
+  assert.equal(withoutContacts[0], "Company Name");
+});
+
+test("the contacts workbook's header cells are bold", () => {
+  const sheet = buildContactsWorkbook([], new Map()).getWorksheet("Contacts");
+  assert.ok(sheet !== undefined);
+  sheet.getRow(1).eachCell((headerCell) => assert.equal(headerCell.font?.bold, true, String(headerCell.value)));
 });

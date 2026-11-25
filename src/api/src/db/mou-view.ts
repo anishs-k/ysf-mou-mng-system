@@ -91,6 +91,8 @@ export interface CompanyOverview {
   readonly pocNumber: string | null;
   readonly decisionMakerName: string | null;
   readonly decisionMakerNumber: string | null;
+  /** SPEC-31: optional free text. */
+  readonly zonalManager: string | null;
   readonly plants: readonly { readonly id: string; readonly plantName: string }[];
 }
 
@@ -134,6 +136,7 @@ export async function fetchCompanyOverviews(
       pocNumber: company.pocNumber,
       decisionMakerName: company.decisionMakerName,
       decisionMakerNumber: company.decisionMakerNumber,
+      zonalManager: company.zonalManager,
     })
     .from(company)
     .innerJoin(zone, eq(zone.id, company.zoneId))
@@ -303,6 +306,14 @@ export interface MouCommercialDetail {
   readonly stipendDate: number | null;
   readonly charges: readonly MouChargeRow[];
   readonly otherItems: readonly MouOtherItemRow[];
+  /** SPEC-31: optional tracking fields - codes for the two lists, free text for the rest. */
+  readonly signStatus: string | null;
+  readonly mailConfirmation: string | null;
+  readonly paymentTerm: string | null;
+  readonly remark: string | null;
+  /** SPEC-35: an INVOICE_MATCHES code and free text; null when not recorded. */
+  readonly invoiceMatch: string | null;
+  readonly invoiceRemark: string | null;
   /** The most recently uploaded document, per SPEC-09 section 3.1. */
   readonly document: MouDocumentSummary | undefined;
 }
@@ -359,6 +370,12 @@ export async function fetchMouCommercialDetails(
       endDate: mou.endDate,
       attendanceCycle: mou.attendanceCycle,
       stipendDate: mou.stipendDate,
+      signStatus: mou.signStatus,
+      mailConfirmation: mou.mailConfirmation,
+      paymentTerm: mou.paymentTerm,
+      remark: mou.remark,
+      invoiceMatch: mou.invoiceMatch,
+      invoiceRemark: mou.invoiceRemark,
     })
     .from(mou)
     .where(and(inArray(mou.id, [...mouIds]), eq(mou.isActive, true)));
@@ -404,6 +421,12 @@ export async function fetchMouCommercialDetails(
       status: deriveStatus(mouRow.mouStartDate, mouRow.endDate, today),
       attendanceCycle: mouRow.attendanceCycle,
       stipendDate: mouRow.stipendDate,
+      signStatus: mouRow.signStatus,
+      mailConfirmation: mouRow.mailConfirmation,
+      paymentTerm: mouRow.paymentTerm,
+      remark: mouRow.remark,
+      invoiceMatch: mouRow.invoiceMatch,
+      invoiceRemark: mouRow.invoiceRemark,
       ...chargesOf(itemsByMou.get(mouRow.id) ?? []),
       document: latest === undefined ? undefined : { id: latest.id, originalFilename: latest.originalFilename, uploadedAt: latest.uploadedAt },
     });
@@ -440,7 +463,13 @@ export interface MouPayrollDetail {
   readonly traineeCategories: readonly string[];
   readonly allowances: readonly MouPayrollItemRow[];
   readonly deductions: readonly MouPayrollItemRow[];
+  /** SPEC-31: optional; null when not recorded. */
+  readonly leftTraineeAmount: string | null;
+  readonly leftTraineeNote: string | null;
+  readonly educationFeePayer: string | null;
 }
+
+const NO_PAYROLL_EXTRAS = { leftTraineeAmount: null, leftTraineeNote: null, educationFeePayer: null } as const;
 
 interface PayrollItemDbRow {
   readonly itemKey: string;
@@ -524,26 +553,35 @@ export async function fetchMouPayrollDetails(db: Database, mouIds: readonly stri
   if (mouRows.length === 0) return new Map();
 
   const configRows = await db
-    .select({ id: payrollConfig.id, mouId: payrollConfig.mouId })
+    .select({
+      id: payrollConfig.id,
+      mouId: payrollConfig.mouId,
+      leftTraineeAmount: payrollConfig.leftTraineeAmount,
+      leftTraineeNote: payrollConfig.leftTraineeNote,
+      educationFeePayer: payrollConfig.educationFeePayer,
+    })
     .from(payrollConfig)
     .where(inArray(payrollConfig.mouId, mouRows.map((row) => row.id)));
   const [categoryRows, itemRows] = configRows.length === 0 ? [[], []] : await payrollRowsOf(db, configRows.map((row) => row.id));
-  const configByMou = new Map(configRows.map((row) => [row.mouId, row.id]));
+  const configByMou = new Map(configRows.map((row) => [row.mouId, row]));
   const categoriesByConfig = groupBy(categoryRows, (row) => row.payrollConfigId);
   const itemsByConfig = groupBy(itemRows, (row) => row.payrollConfigId);
 
   return new Map(
     mouRows.map((mouRow): [string, MouPayrollDetail] => {
-      const configId = configByMou.get(mouRow.id);
-      if (configId === undefined) {
-        return [mouRow.id, { scheme: mouRow.scheme, traineeCategories: [], allowances: [], deductions: [] }];
+      const config = configByMou.get(mouRow.id);
+      if (config === undefined) {
+        return [mouRow.id, { scheme: mouRow.scheme, traineeCategories: [], allowances: [], deductions: [], ...NO_PAYROLL_EXTRAS }];
       }
       return [
         mouRow.id,
         {
           scheme: mouRow.scheme,
-          traineeCategories: (categoriesByConfig.get(configId) ?? []).map((row) => row.categoryName),
-          ...payrollItemsOf(itemsByConfig.get(configId) ?? []),
+          traineeCategories: (categoriesByConfig.get(config.id) ?? []).map((row) => row.categoryName),
+          ...payrollItemsOf(itemsByConfig.get(config.id) ?? []),
+          leftTraineeAmount: config.leftTraineeAmount,
+          leftTraineeNote: config.leftTraineeNote,
+          educationFeePayer: config.educationFeePayer,
         },
       ];
     }),

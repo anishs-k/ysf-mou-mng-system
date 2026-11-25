@@ -8,13 +8,13 @@
  * (company-details-validation, commercial-details-validation,
  * payroll-details-validation - SPEC-04/05/06) so the browser and this route
  * enforce exactly the same rules; final save re-runs every one of them before
- * writing a single row.
+ * writing a single row. SPEC-34 adds the YSF / YSI check (validateOrganisationFields).
  */
 
 import {
-  canAuthorRecords,
   validateCommercialDetails,
   validateCompanyDetails,
+  validateOrganisationFields,
   validatePayrollDetails,
   withStatutoryDefaults,
 } from "@mou/domain";
@@ -25,7 +25,6 @@ import type {
   PayrollDetails,
   PayrollItemAnswer,
   TraineeCategoryDetail,
-  UserRole,
 } from "@mou/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Router } from "express";
@@ -78,9 +77,9 @@ interface DraftPayload {
   readonly page3?: Record<string, unknown>;
 }
 
-/** The authoring roles that may use the wizard (SPEC-02 section 3.3, SPEC-26). */
-function isAuthoringRole(role: UserRole): boolean {
-  return canAuthorRecords(role);
+/** Who may use the wizard (SPEC-02 section 3.3, SPEC-26); SPEC-33: the session's "company.create". */
+function mayCreate(auth: { readonly permissions: readonly string[] }): boolean {
+  return auth.permissions.includes("company.create");
 }
 
 function validateUpsertBody(
@@ -197,7 +196,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
     requireAuthSession,
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      if (!isAuthoringRole(auth.role)) {
+      if (!mayCreate(auth)) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -247,7 +246,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
     requireAuthSession,
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      if (!isAuthoringRole(auth.role)) {
+      if (!mayCreate(auth)) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -276,7 +275,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
     requireAuthSession,
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      if (!isAuthoringRole(auth.role)) {
+      if (!mayCreate(auth)) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -346,7 +345,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
     },
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      if (!isAuthoringRole(auth.role)) {
+      if (!mayCreate(auth)) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -433,7 +432,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
     requireAuthSession,
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      if (!isAuthoringRole(auth.role)) {
+      if (!mayCreate(auth)) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -525,7 +524,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
     requireAuthSession,
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
-      if (!isAuthoringRole(auth.role)) {
+      if (!mayCreate(auth)) {
         response.status(403).json({ error: "Forbidden" });
         return;
       }
@@ -676,6 +675,14 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         otherItems,
         chargeMeta,
         hasMouDocument: mouDocumentMeta !== undefined,
+        // SPEC-31: optional MoU tracking fields.
+        signStatus: String(readJsonField<unknown>(page2, "signStatus") ?? ""),
+        mailConfirmation: String(readJsonField<unknown>(page2, "mailConfirmation") ?? ""),
+        paymentTerm: String(readJsonField<unknown>(page2, "paymentTerm") ?? ""),
+        remark: String(readJsonField<unknown>(page2, "remark") ?? ""),
+        // SPEC-35: optional match with invoice and invoice remark.
+        invoiceMatch: String(readJsonField<unknown>(page2, "invoiceMatch") ?? ""),
+        invoiceRemark: String(readJsonField<unknown>(page2, "invoiceRemark") ?? ""),
       };
 
       const page2Validation = validateCommercialDetails(
@@ -692,11 +699,11 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         return;
       }
 
-      // hasMouDocument is already true by this point, but the temp file itself
-      // could still be missing if the uploads directory was cleared between the
-      // upload and this final save.
+      // The PDF is optional for now (MOU_DOCUMENT_REQUIRED). When one was
+      // uploaded, its temp file must still exist - the uploads directory could
+      // have been cleared between the upload and this final save.
       if (
-        mouDocumentMeta === undefined ||
+        mouDocumentMeta !== undefined &&
         !(await tempDocumentExists(draftId))
       ) {
         response
@@ -705,10 +712,10 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         return;
       }
       const mouDocumentOriginalFilename = String(
-        mouDocumentMeta.originalFilename ?? "document.pdf",
+        mouDocumentMeta?.originalFilename ?? "document.pdf",
       ).slice(0, 255);
       const mouDocumentFileSizeBytes = Number(
-        mouDocumentMeta.fileSizeBytes ?? 0,
+        mouDocumentMeta?.fileSizeBytes ?? 0,
       );
 
       // SPEC-06 section 4: Page 3 must be complete and valid before a single row
@@ -763,6 +770,10 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
         // SPEC-23 D148: the wizard does not ask for PF / ESI / TDS - they save as the defaults.
         items: withStatutoryDefaults(payrollItemAnswers),
         otherItems: payrollOtherItems,
+        // SPEC-31: optional left-trainee recovery and education fee payer.
+        leftTraineeAmount: String(readJsonField<unknown>(page3, "leftTraineeAmount") ?? ""),
+        leftTraineeNote: String(readJsonField<unknown>(page3, "leftTraineeNote") ?? ""),
+        educationFeePayer: String(readJsonField<unknown>(page3, "educationFeePayer") ?? ""),
       };
 
       const page3Validation = validatePayrollDetails(payrollDetails);
@@ -773,6 +784,22 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
             error: "Page 3 is not valid",
             errors: page3Validation.errors,
           });
+        return;
+      }
+
+      // SPEC-34: the chosen YSF / YSI must run the scheme, and a YSF agreement
+      // carries no YSI-only fee or education fee payer. Not stored - the scheme decides.
+      const organisationErrors = validateOrganisationFields({
+        organisation: String(readJsonField<unknown>(page3, "organisation") ?? ""),
+        scheme,
+        charges,
+        educationFeePayer: payrollDetails.educationFeePayer ?? "",
+        otherItems,
+      });
+      if (Object.keys(organisationErrors).length > 0) {
+        response
+          .status(422)
+          .json({ error: "These details do not match the chosen YSF / YSI", errors: organisationErrors });
         return;
       }
 
@@ -810,6 +837,7 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
                 pocNumber: page1Text("pocNumber"),
                 decisionMakerName: page1Text("decisionMakerName"),
                 decisionMakerNumber: page1Text("decisionMakerNumber"),
+                zonalManager: page1Text("zonalManager"),
                 zoneId,
                 plantName:
                   readJsonField<string>(page1, "plantName") ?? "Main Plant",
@@ -830,14 +858,17 @@ export function createCompaniesRouter(db: Database, pool: Pool): Router {
           // right before the final delete minimises that window (the same
           // accepted tradeoff as allocating the company code outside the
           // transaction entirely, D7).
-          await promoteTempDocument(draftId, mouId);
-          await tx.insert(mouDocument).values({
-            mouId,
-            filePath: permanentDocumentRelativePath(mouId),
-            originalFilename: mouDocumentOriginalFilename,
-            fileSizeBytes: mouDocumentFileSizeBytes,
-            uploadedBy: auth.userId,
-          });
+          // No PDF yet: the MoU is saved without one and attached later via Upload MoU.
+          if (mouDocumentMeta !== undefined) {
+            await promoteTempDocument(draftId, mouId);
+            await tx.insert(mouDocument).values({
+              mouId,
+              filePath: permanentDocumentRelativePath(mouId),
+              originalFilename: mouDocumentOriginalFilename,
+              fileSizeBytes: mouDocumentFileSizeBytes,
+              uploadedBy: auth.userId,
+            });
+          }
 
           // 9. Delete draft.
           await tx.delete(companyDraft).where(eq(companyDraft.id, draftId));

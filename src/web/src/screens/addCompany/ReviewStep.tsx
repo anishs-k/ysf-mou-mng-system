@@ -3,10 +3,17 @@
  * company details, commercial terms (with each charge's frequency and basis and
  * the uploaded PDF's name) and the trainee categories - and the "Ready to save"
  * note. Codes are shown as the labels /api/enums serves. D158: no payroll item is
- * asked, so none is listed.
+ * asked, so none is listed. SPEC-31's optional fields are listed when filled.
  */
 
-import { computeEndDate } from "@mou/domain";
+import { ORGANISATION_LABELS } from "@mou/domain";
+import {
+  EDUCATION_FEE_PAYER_OPTIONS,
+  INVOICE_MATCH_OPTIONS,
+  MAIL_CONFIRMATION_OPTIONS,
+  MOU_SIGN_STATUS_OPTIONS,
+  computeEndDate,
+} from "@mou/domain";
 
 import type { EnumOption } from "../../api/client.ts";
 import { formatCalendarDate } from "../../ui/format.ts";
@@ -79,6 +86,8 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
         .filter((part) => part.trim() !== "")
         .join(", "),
     },
+    // SPEC-31: required, first of the contacts as on the form.
+    { label: "Zonal Manager", value: company.zonalManager.trim() },
     { label: "HR Contact", value: join(company.hrContactName, company.hrContactNumber, company.hrEmail) },
     { label: "Finance Head", value: join(company.financeHeadContactName, company.financeHeadContactNumber, company.financeEmail) },
   ];
@@ -94,6 +103,7 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
   }
 
   const commercialItems: ReviewItem[] = [
+    { label: "Organisation", value: form.organisation === "" ? "" : ORGANISATION_LABELS[form.organisation] },
     { label: "Scheme", value: labelOf(enums.schemes, company.scheme) },
     { label: "MoU Start", value: formatCalendarDate(commercial.mouStartDate) },
     { label: "Tenure", value: `${commercial.tenureValue} Months` },
@@ -102,6 +112,25 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
     { label: "Stipend Date", value: ordinal(commercial.stipendDate) },
     { label: "MoU PDF", value: commercial.mouDocument?.originalFilename ?? "" },
   ];
+  // SPEC-31: the optional tracking fields, shown when filled.
+  const tracking: readonly ReviewItem[] = [
+    { label: "Sign Status", value: labelOf(MOU_SIGN_STATUS_OPTIONS, commercial.signStatus) },
+    { label: "Mail Confirmation", value: labelOf(MAIL_CONFIRMATION_OPTIONS, commercial.mailConfirmation) },
+    { label: "Payment Term", value: commercial.paymentTerm.trim() },
+    { label: "Remark", value: commercial.remark.trim() },
+    { label: "Match with Invoice", value: labelOf(INVOICE_MATCH_OPTIONS, commercial.invoiceMatch) },
+    { label: "Invoice Remark", value: commercial.invoiceRemark.trim() },
+  ];
+  commercialItems.push(...tracking.filter((item) => item.value !== ""));
+
+  const { payrollTerms } = form;
+  const payrollItems: readonly ReviewItem[] = [
+    {
+      label: "Left Trainee Recovery",
+      value: join(payrollTerms.leftTraineeAmount.trim() === "" ? "" : rupees(payrollTerms.leftTraineeAmount), payrollTerms.leftTraineeNote.trim()),
+    },
+    { label: "Education Fee Paid By", value: labelOf(EDUCATION_FEE_PAYER_OPTIONS, payrollTerms.educationFeePayer) },
+  ].filter((item) => item.value !== "");
 
   const charges = form.charges
     .filter((row) => !isBlankChargeRow(row) && row.amount.trim() !== "")
@@ -145,6 +174,11 @@ export function ReviewStep({ form, reference }: { readonly form: WizardForm; rea
       <Card className="p-6">
         <SectionTitle>Review — Payroll</SectionTitle>
         <p className="text-xs text-muted-foreground">Training Category: {categories}</p>
+        {payrollItems.length > 0 && (
+          <div className="mt-5">
+            <ReviewGrid items={payrollItems} />
+          </div>
+        )}
       </Card>
       <div className="rounded-xl p-4 flex items-start gap-3 border" style={{ background: "#E8F0FB", borderColor: "#CDDAEE" }}>
         <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white shrink-0" style={{ background: "#1B5FAE" }}>

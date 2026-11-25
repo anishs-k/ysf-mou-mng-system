@@ -60,7 +60,7 @@ test("a charge that goes from blank to an amount is reported as changed with a '
 });
 
 test("every fixed commercial charge and payroll item appears exactly once", () => {
-  // Total row count is fixed: 4 MOU scalars + 9 charges (D153) + 1 "Other
+  // Total row count is fixed: 4 MOU scalars + 12 charges (D153, SPEC-31) + 1 "Other
   // Charges" + trainee categories + 3 payroll items (PF, ESI, TDS - D158) + 1
   // "Other Payroll Items" (kept so older history entries still read). A commercial charge and a payroll item can legitimately share a
   // display label (e.g. "Document Fee" exists in both catalogues) since the
@@ -68,12 +68,12 @@ test("every fixed commercial charge and payroll item appears exactly once", () =
   // per section rather than across the whole flat list.
   const snapshot = baseSnapshot();
   const rows = computeAgreementDiff(snapshot, snapshot);
-  assert.equal(rows.length, 4 + 10 + 1 + 4);
+  assert.equal(rows.length, 4 + 13 + 1 + 4);
 
-  const commercialFields = rows.slice(0, 4 + 10).map((r) => r.field);
+  const commercialFields = rows.slice(0, 4 + 13).map((r) => r.field);
   assert.equal(new Set(commercialFields).size, commercialFields.length);
 
-  const payrollFields = rows.slice(4 + 10 + 1).map((r) => r.field);
+  const payrollFields = rows.slice(4 + 13 + 1).map((r) => r.field);
   assert.equal(new Set(payrollFields).size, payrollFields.length);
 });
 

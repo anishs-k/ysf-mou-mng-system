@@ -6,17 +6,20 @@
  * status EXPIRING), an all-zones PDF report, the HR & client Contacts Report
  * (Excel of the filters above; Admin, HR and Finance only - SPEC-29), and the
  * bulk-documents ZIP, which has no API yet and is shown disabled.
+ * Record exports (MoU Summary, Expiry, Export Filtered Data) offer Only MoU or
+ * Full Details (ExportMenu); the zone PDF and contacts reports have one form.
  */
 
-import { canExportContacts } from "@mou/domain";
-import type { UserRole } from "@mou/domain";
+import type { Permission } from "@mou/domain";
 
 import { useEffect, useState } from "react";
 
 import { fetchSearch, startContactsExport, startExcelExport, startPdfExport } from "../api/client.ts";
-import type { ExportJobStatus, SearchFilters } from "../api/client.ts";
+import type { ExportJobStatus, ExportView, SearchFilters } from "../api/client.ts";
 import { useExportDownload } from "../hooks/useExportDownload.ts";
 import { SCHEME_FILTER_OPTIONS, STATUS_FILTER_OPTIONS, useZoneOptions } from "../hooks/useSearchFilterOptions.ts";
+import { can } from "../ui/access.ts";
+import { ExportMenu } from "../ui/ExportMenu.tsx";
 import { Field, SelectInput, TextInput } from "../ui/form.tsx";
 import { PENDING_FIGURE } from "../ui/format.ts";
 import { Icon } from "../ui/Icon.tsx";
@@ -40,10 +43,17 @@ interface Report {
   readonly caption: string;
   readonly format: string;
   /** Absent for a report the API cannot produce yet. Given the screen's filters; most reports ignore them. */
-  readonly start?: (filters: SearchFilters) => Promise<ExportJobStatus>;
-  /** SPEC-29: shown only to a role this allows; absent means every role. */
-  readonly visibleTo?: (role: UserRole) => boolean;
+  readonly start?: (filters: SearchFilters, view: ExportView) => Promise<ExportJobStatus>;
+  /** A record export that offers Only MoU / Full Details; a summary report has one form. */
+  readonly choosable?: boolean;
+  /** SPEC-29: shown only to a user holding this permission (SPEC-33: from the stored matrix); absent means everyone. */
+  readonly permission?: Permission;
 }
+
+const BUTTON_BASE =
+  "inline-flex items-center gap-2 font-semibold transition-all duration-150 cursor-pointer border select-none rounded-lg disabled:opacity-50 disabled:cursor-not-allowed";
+const PRIMARY_BUTTON = `${BUTTON_BASE} bg-primary text-white border-primary hover:bg-blue-800 px-3 py-1.5 text-xs`;
+const ACCENT_BUTTON = `${BUTTON_BASE} bg-accent text-white border-accent hover:bg-orange-600 px-4 py-2 text-sm`;
 
 const NO_FILTERS: Filters = { zoneId: "", scheme: "", company: "", status: "", from: "", to: "" };
 /** The API rejects a shorter company query; typing pauses this long before counting. */
@@ -59,14 +69,16 @@ const REPORTS: readonly Report[] = [
     title: "MoU Summary Report",
     caption: "All company MoU records with status",
     format: "Excel (.xlsx)",
-    start: () => startExcelExport({}),
+    start: (_filters, view) => startExcelExport({}, view),
+    choosable: true,
   },
   {
     key: "expiry",
     title: "Expiry Report",
     caption: "Companies with upcoming expirations",
     format: "Excel (.xlsx)",
-    start: () => startExcelExport({ status: "EXPIRING" }),
+    start: (_filters, view) => startExcelExport({ status: "EXPIRING" }, view),
+    choosable: true,
   },
   {
     key: "pdf",
@@ -81,7 +93,7 @@ const REPORTS: readonly Report[] = [
     caption: "HR & client contacts (HR, Finance, Purchase, POC, Decision Maker) for the filters above",
     format: "Excel (.xlsx)",
     start: (filters) => startContactsExport(filters),
-    visibleTo: canExportContacts,
+    permission: "contacts.export",
   },
   { key: "zip", title: "MoU Documents Bulk", caption: "Bulk PDF download of signed MoUs", format: "ZIP (.zip)" },
 ];
@@ -172,19 +184,18 @@ export function ExportScreen() {
         </div>
         <div className="flex items-center justify-between mt-5 pt-4 border-t border-border">
           <p className="text-xs text-muted-foreground">{total} records match current filters</p>
-          <Button
-            variant="accent"
+          <ExportMenu
+            label="Export Filtered Data"
+            busy={exporter.busyKey === FILTERED_KEY}
             disabled={busy || !validRange}
-            onClick={() => void exporter.run(FILTERED_KEY, () => startExcelExport(toSearchFilters(filters)))}
-          >
-            <Icon name="download" />
-            {exporter.busyKey === FILTERED_KEY ? "Preparing export…" : "Export Filtered Data"}
-          </Button>
+            onPick={(view) => void exporter.run(FILTERED_KEY, () => startExcelExport(toSearchFilters(filters), view))}
+            className={ACCENT_BUTTON}
+          />
         </div>
       </Card>
 
       <div className="grid sm:grid-cols-2 gap-4">
-        {REPORTS.filter((report) => report.visibleTo === undefined || (user !== null && report.visibleTo(user.role))).map((report) => {
+        {REPORTS.filter((report) => report.permission === undefined || can(user, report.permission)).map((report) => {
           const start = report.start;
           return (
             <Card key={report.key} className="p-5 hover:shadow-md transition-shadow">
@@ -196,15 +207,28 @@ export function ExportScreen() {
               </div>
               <h4 className="font-bold text-sm text-foreground mb-1">{report.title}</h4>
               <p className="text-xs text-muted-foreground mb-4">{start === undefined ? `${report.caption} · Not available yet` : report.caption}</p>
-              <Button
-                size="sm"
-                className="w-full justify-center"
-                disabled={start === undefined || busy}
-                onClick={start === undefined ? undefined : () => void exporter.run(report.key, () => start(toSearchFilters(filters)))}
-              >
-                <Icon name="download" />
-                {exporter.busyKey === report.key ? "Preparing…" : "Download"}
-              </Button>
+              {start !== undefined && report.choosable === true ? (
+                <div className="w-full">
+                  <ExportMenu
+                    label="Download"
+                    busy={exporter.busyKey === report.key}
+                    disabled={busy}
+                    align="left"
+                    onPick={(view) => void exporter.run(report.key, () => start(toSearchFilters(filters), view))}
+                    className={`${PRIMARY_BUTTON} w-full justify-center`}
+                  />
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  className="w-full justify-center"
+                  disabled={start === undefined || busy}
+                  onClick={start === undefined ? undefined : () => void exporter.run(report.key, () => start(toSearchFilters(filters), "full"))}
+                >
+                  <Icon name="download" />
+                  {exporter.busyKey === report.key ? "Preparing…" : "Download"}
+                </Button>
+              )}
             </Card>
           );
         })}

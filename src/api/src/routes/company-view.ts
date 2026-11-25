@@ -9,6 +9,9 @@
  * SPEC-11 (history) and SPEC-13 (export) can reuse it. SPEC-23 §5 adds the
  * designed full-record PDF behind the record view's Export PDF button; /print
  * stays SPEC-07's Page 1 + Page 2 document.
+ * SPEC-32: each read checks its section's view permission, a role without
+ * "contacts.view" gets the overview and print without contacts, and the record
+ * PDF is an export ("export.data"), with ?view=mou for the Only MoU version.
  */
 
 import { MOU_STATUS_LABELS } from "@mou/domain";
@@ -17,7 +20,8 @@ import type { Request, Response } from "express";
 import PDFDocument from "pdfkit";
 import type { Pool } from "pg";
 
-import { requireAuth, requireSession } from "../auth/middleware.ts";
+import { requireAuth, requirePermission, requireSession } from "../auth/middleware.ts";
+import { overviewFor } from "../auth/section-access.ts";
 import { emptyList, notFoundError, requireInScope } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { loadCompanyRecord, renderCompanyRecordPdf } from "../db/company-record-pdf.ts";
@@ -30,6 +34,7 @@ import {
   fetchMouPayrollDetail,
 } from "../db/mou-view.ts";
 import { isUuid } from "./request-parse.ts";
+import { parseExportView } from "./search-export.ts";
 
 export function createCompanyViewRouter(db: Database, pool: Pool): Router {
   const router = Router();
@@ -39,6 +44,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
   router.get(
     "/companies/:id/overview",
     requireAuthSession,
+    requirePermission("company.view"),
     requireInScope(pool, "company", "id", notFoundError("Company not found")),
     async (request: Request, response: Response) => {
       const id = String(request.params["id"] ?? "");
@@ -51,7 +57,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
         response.status(404).json({ error: "Company not found" });
         return;
       }
-      response.json(overview);
+      response.json(overviewFor(requireAuth(request), overview));
     },
   );
 
@@ -103,6 +109,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/commercial",
     requireAuthSession,
+    requirePermission("commercial.view"),
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
@@ -123,6 +130,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/payroll",
     requireAuthSession,
+    requirePermission("payroll.view"),
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
@@ -143,6 +151,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/print",
     requireAuthSession,
+    requirePermission("commercial.view"),
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
@@ -176,12 +185,14 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
       // (which is MOU-scoped) reports the MOU's own code.
       doc.text(`MoU Code: ${detail.generatedCode}`);
       doc.text(`GST Number: ${overview.gstNumber}`);
-      doc.text(
-        `HR Contact: ${overview.hrContactName} (${overview.hrContactNumber})`,
-      );
-      doc.text(
-        `Finance Head: ${overview.financeHeadContactName} (${overview.financeHeadContactNumber})`,
-      );
+      if (requireAuth(request).permissions.includes("contacts.view")) {
+        doc.text(
+          `HR Contact: ${overview.hrContactName} (${overview.hrContactNumber})`,
+        );
+        doc.text(
+          `Finance Head: ${overview.financeHeadContactName} (${overview.financeHeadContactNumber})`,
+        );
+      }
 
       doc
         .moveDown()
@@ -213,6 +224,7 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
   router.get(
     "/mous/:mouId/record.pdf",
     requireAuthSession,
+    requirePermission("export.data"),
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const mouId = String(request.params["mouId"] ?? "");
@@ -220,15 +232,21 @@ export function createCompanyViewRouter(db: Database, pool: Pool): Router {
         response.status(400).json({ error: "mouId must be a UUID" });
         return;
       }
+      const view = parseExportView(request.query);
+      if (view === undefined) {
+        response.status(400).json({ error: "view must be full or mou" });
+        return;
+      }
       const record = await loadCompanyRecord(db, pool, mouId, requireAuth(request).username);
       if (record === undefined) {
         response.status(404).json({ error: "MOU not found" });
         return;
       }
-      const pdf = await renderCompanyRecordPdf(record, { logo: await loadYsfLogo() });
+      const pdf = await renderCompanyRecordPdf(record, { logo: await loadYsfLogo(), view });
       response.setHeader("Content-Type", "application/pdf");
       // The MoU code is A-Z, 0-9 and hyphens only (D109), so it is safe in a quoted filename.
-      response.setHeader("Content-Disposition", `inline; filename="${record.commercial.generatedCode}.pdf"`);
+      const suffix = view === "mou" ? "-mou" : "";
+      response.setHeader("Content-Disposition", `inline; filename="${record.commercial.generatedCode}${suffix}.pdf"`);
       response.send(pdf);
     },
   );

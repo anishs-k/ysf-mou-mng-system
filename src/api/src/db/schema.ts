@@ -23,6 +23,10 @@
  * SPEC-23 adds PF / ESI / TDS through CHECKs only (D143): a percentage lives in
  * `payroll_item.amount`, TDS in `is_applicable` with no amount. It also adds the
  * company-level `company_document` table for GST / Registration certificates (D145).
+ *
+ * SPEC-31 adds the client MoU sheet's optional fields: `company.zonal_manager`, the
+ * MoU's sign status, mail confirmation, payment term and remark, and on
+ * `payroll_config` the left-trainee recovery and who pays the education fee.
  */
 
 import { sql, type SQL } from "drizzle-orm";
@@ -53,7 +57,11 @@ import {
   COMPANY_TYPES,
   CONTACT_TYPES,
   EDIT_AGREEMENT_REASONS,
+  EDUCATION_FEE_PAYERS,
   ITEM_TYPES,
+  MAIL_CONFIRMATIONS,
+  INVOICE_MATCHES,
+  MOU_SIGN_STATUSES,
   PAYROLL_ITEM_KEYS,
   PERCENT_ITEM_KEYS,
   REGISTRATION_TYPES,
@@ -62,6 +70,8 @@ import {
   STATUS_ITEM_KEYS,
   TENURE_UNITS,
   USER_ROLES,
+  EDITABLE_ROLES,
+  PERMISSIONS,
 } from "@mou/domain";
 
 const OTHER_ITEM_KEY = "OTHER";
@@ -121,6 +131,44 @@ export const userZone = pgTable(
       .references(() => zone.id, { onDelete: "restrict" }),
   },
   (t) => [primaryKey({ columns: [t.userId, t.zoneId] }), index("user_zone_zone_idx").on(t.zoneId)],
+);
+
+/**
+ * SPEC-33. The permissions each non-admin role holds, one row per grant, edited
+ * by a super admin on the Roles & Permissions screen. ADMIN has no rows: it
+ * always holds every permission, so no edit can lock the admins out. Seeded with
+ * SPEC-32's matrix (ROLE_PERMISSIONS) by migration 0023.
+ */
+export const rolePermission = pgTable(
+  "role_permission",
+  {
+    role: varchar("role", { length: 20 }).notNull(),
+    permission: varchar("permission", { length: 40 }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.role, t.permission] }),
+    check("role_permission_role_chk", enumCheck("role_permission_role_chk", "role", EDITABLE_ROLES)),
+    check(
+      "role_permission_permission_chk",
+      enumCheck("role_permission_permission_chk", "permission", PERMISSIONS.filter((value) => value !== "users.manage")),
+    ),
+  ],
+);
+
+/** SPEC-33: who changed a role's permissions, when, and what was added or removed. Append-only. */
+export const rolePermissionAudit = pgTable(
+  "role_permission_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    role: varchar("role", { length: 20 }).notNull(),
+    added: jsonb("added").$type<string[]>().notNull(),
+    removed: jsonb("removed").$type<string[]>().notNull(),
+    changedBy: uuid("changed_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "restrict" }),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("role_permission_audit_role_idx").on(t.role, t.changedAt)],
 );
 
 /**
@@ -231,6 +279,8 @@ export const company = pgTable(
     pocNumber: varchar("poc_number", { length: 20 }),
     decisionMakerName: varchar("decision_maker_name", { length: 150 }),
     decisionMakerNumber: varchar("decision_maker_number", { length: 20 }),
+    // SPEC-31: optional free text.
+    zonalManager: varchar("zonal_manager", { length: 150 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -293,6 +343,14 @@ export const mou = pgTable(
     endDate: date("end_date").generatedAlwaysAs(END_DATE_EXPRESSION),
     attendanceCycle: varchar("attendance_cycle", { length: 50 }).notNull(),
     stipendDate: smallint("stipend_date"),
+    // SPEC-31: optional MoU tracking fields from the client sheet.
+    signStatus: varchar("sign_status", { length: 20 }),
+    mailConfirmation: varchar("mail_confirmation", { length: 3 }),
+    paymentTerm: varchar("payment_term", { length: 500 }),
+    remark: varchar("remark", { length: 500 }),
+    // SPEC-35: the sheet's Match with Invoice, and its invoice remark.
+    invoiceMatch: varchar("invoice_match", { length: 10 }),
+    invoiceRemark: varchar("invoice_remark", { length: 500 }),
     version: integer("version").notNull().default(1),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -308,6 +366,9 @@ export const mou = pgTable(
     check("mou_tenure_unit_chk", enumCheck("mou_tenure_unit_chk", "tenure_unit", TENURE_UNITS)),
     check("mou_tenure_value_chk", sql.raw("tenure_value > 0")),
     check("mou_stipend_date_chk", sql.raw("stipend_date BETWEEN 1 AND 31")),
+    check("mou_sign_status_chk", enumCheck("mou_sign_status_chk", "sign_status", MOU_SIGN_STATUSES)),
+    check("mou_mail_confirmation_chk", enumCheck("mou_mail_confirmation_chk", "mail_confirmation", MAIL_CONFIRMATIONS)),
+    check("mou_invoice_match_chk", enumCheck("mou_invoice_match_chk", "invoice_match", INVOICE_MATCHES)),
   ],
 );
 
@@ -348,14 +409,30 @@ export const commercialItem = pgTable(
   ],
 );
 
-/** Section 5.6 - one-to-one with mou; the scheme is read from mou, never duplicated. */
-export const payrollConfig = pgTable("payroll_config", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  mouId: uuid("mou_id")
-    .notNull()
-    .unique()
-    .references(() => mou.id, { onDelete: "restrict" }),
-});
+/**
+ * Section 5.6 - one-to-one with mou; the scheme is read from mou, never duplicated.
+ * SPEC-31: the optional left-trainee recovery and who pays the education fee.
+ */
+export const payrollConfig = pgTable(
+  "payroll_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mouId: uuid("mou_id")
+      .notNull()
+      .unique()
+      .references(() => mou.id, { onDelete: "restrict" }),
+    leftTraineeAmount: numeric("left_trainee_amount", { precision: 12, scale: 2 }),
+    leftTraineeNote: varchar("left_trainee_note", { length: 500 }),
+    educationFeePayer: varchar("education_fee_payer", { length: 30 }),
+  },
+  () => [
+    check("payroll_config_left_trainee_amount_chk", sql.raw("left_trainee_amount >= 0")),
+    check(
+      "payroll_config_education_fee_payer_chk",
+      enumCheck("payroll_config_education_fee_payer_chk", "education_fee_payer", EDUCATION_FEE_PAYERS),
+    ),
+  ],
+);
 
 /**
  * Section 5.7. At least one row per config is enforced in application code (SPEC-06).
@@ -630,3 +707,4 @@ export type CompanyDraft = typeof companyDraft.$inferSelect;
 export type CompanyCodeCounter = typeof companyCodeCounter.$inferSelect;
 export type MouAlert = typeof mouAlert.$inferSelect;
 export type ScheduledJobState = typeof scheduledJobState.$inferSelect;
+export type RolePermission = typeof rolePermission.$inferSelect;

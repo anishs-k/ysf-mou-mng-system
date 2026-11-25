@@ -11,18 +11,27 @@
  * it is built in seconds from batch queries, so it needs no job row.
  * SPEC-29 adds the HR & client contacts Excel - the one export limited by role
  * (Admin, HR, Finance), since it is a list of people's numbers and emails.
+ * SPEC-32: every export needs "export.data" (not the Viewer); the full Excel
+ * carries contact columns only for "contacts.export"; a role without
+ * "contacts.view" gets search rows without the HR contact.
+ * Every record export takes ?view=full (default) or ?view=mou - "Only MoU": the
+ * client's MOU TEMPLATE layout in Excel, the MoU and commercial terms in the PDF.
  */
 
-import { CONTACT_EXPORT_ROLES, MOU_STATUSES, SCHEMES } from "@mou/domain";
+import { isOrganisation, MOU_STATUSES, SCHEMES } from "@mou/domain";
+import type { Organisation } from "@mou/domain";
 import { and, eq } from "drizzle-orm";
 import { Router } from "express";
 import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
-import { requireAuth, requireRole, requireSession } from "../auth/middleware.ts";
+import { requireAuth, requirePermission, requireSession } from "../auth/middleware.ts";
+import { searchRowFor } from "../auth/section-access.ts";
 import { recordInScope, zoneScopeOf } from "../auth/zone-scope.ts";
 import type { Database } from "../db/client.ts";
 import { loadCompanyRecords, renderCompanyRecordsPdf } from "../db/company-record-pdf.ts";
+import type { ExportView } from "../db/company-record-pdf.ts";
+import { buildMouSheetWorkbook } from "../db/mou-sheet-export.ts";
 import { loadYsfLogo } from "../db/pdf-layout.ts";
 import {
   buildAllZonesPdfBuffer,
@@ -68,6 +77,8 @@ export function parseSearchFilters(query: QueryParams): {
   const zoneIdRaw = query["zoneId"];
   const statusRaw = query["status"];
   const schemeRaw = query["scheme"];
+  const organisationRaw = query["organisation"];
+  const mouIdRaw = query["mouId"];
   const startFromRaw = query["startFrom"];
   const startToRaw = query["startTo"];
 
@@ -111,6 +122,13 @@ export function parseSearchFilters(query: QueryParams): {
   ) {
     return { filters: {}, error: "scheme must be a valid scheme" };
   }
+  // SPEC-34: YSF or YSI, i.e. the schemes that organisation runs.
+  if (organisationRaw !== undefined && (typeof organisationRaw !== "string" || !isOrganisation(organisationRaw))) {
+    return { filters: {}, error: "organisation must be YSF or YSI" };
+  }
+  if (mouIdRaw !== undefined && (typeof mouIdRaw !== "string" || !isUuid(mouIdRaw))) {
+    return { filters: {}, error: "mouId must be a UUID" };
+  }
   for (const [name, raw] of [
     ["startFrom", startFromRaw],
     ["startTo", startToRaw],
@@ -144,6 +162,12 @@ export function parseSearchFilters(query: QueryParams): {
   if (schemeRaw !== undefined) {
     filters.scheme = schemeRaw as string;
   }
+  if (organisationRaw !== undefined) {
+    filters.organisation = organisationRaw as Organisation;
+  }
+  if (mouIdRaw !== undefined) {
+    filters.mouId = mouIdRaw as string;
+  }
   if (startFromRaw !== undefined) {
     filters.startFrom = startFromRaw as string;
   }
@@ -152,6 +176,15 @@ export function parseSearchFilters(query: QueryParams): {
   }
   return { filters };
 }
+
+/** `?view=`: "full" when absent, "mou" for Only MoU; undefined for anything else (400). */
+export function parseExportView(query: QueryParams): ExportView | undefined {
+  const raw = query["view"];
+  if (raw === undefined || raw === "full") return "full";
+  return raw === "mou" ? "mou" : undefined;
+}
+
+const BAD_VIEW = "view must be full or mou";
 
 /** /search paging: `page` from 1, `pageSize` 1-100 (default 25). */
 export function parseSearchPaging(
@@ -206,7 +239,8 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
         limit: pageSize,
         offset: (page - 1) * pageSize,
       });
-      response.json({ rows, total, page, pageSize });
+      const auth = requireAuth(request);
+      response.json({ rows: rows.map((row) => searchRowFor(auth, row)), total, page, pageSize });
     },
   );
 
@@ -217,10 +251,16 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
   router.get(
     "/export/records.pdf",
     requireAuthSession,
+    requirePermission("export.data"),
     async (request: Request, response: Response) => {
       const { filters, error } = parseSearchFilters(request.query);
       if (error !== undefined) {
         response.status(422).json({ error });
+        return;
+      }
+      const view = parseExportView(request.query);
+      if (view === undefined) {
+        response.status(400).json({ error: BAD_VIEW });
         return;
       }
       const { rows } = await searchMous(pool, zoneScopeOf(request), filters);
@@ -230,9 +270,10 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
         response.status(422).json({ error: "No MoU records match the filters" });
         return;
       }
-      const pdf = await renderCompanyRecordsPdf(records, { logo: await loadYsfLogo() });
+      const pdf = await renderCompanyRecordsPdf(records, { logo: await loadYsfLogo(), view });
       response.setHeader("Content-Type", "application/pdf");
-      response.setHeader("Content-Disposition", `attachment; filename="companies-${first.today}.pdf"`);
+      const name = view === "mou" ? "mous" : "companies";
+      response.setHeader("Content-Disposition", `attachment; filename="${name}-${first.today}.pdf"`);
       response.setHeader("X-Record-Count", String(records.length));
       // The web app runs on its own origin in development; let it read both headers.
       response.setHeader("Access-Control-Expose-Headers", "Content-Disposition, X-Record-Count");
@@ -247,11 +288,17 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
   router.get(
     "/export/excel",
     requireAuthSession,
+    requirePermission("export.data"),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
       const { filters, error } = parseSearchFilters(request.query);
       if (error !== undefined) {
         response.status(422).json({ error });
+        return;
+      }
+      const view = parseExportView(request.query);
+      if (view === undefined) {
+        response.status(400).json({ error: BAD_VIEW });
         return;
       }
 
@@ -279,7 +326,11 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
 
       const generate = async (): Promise<void> => {
         try {
-          const workbook = await buildExportWorkbook(db, pool, scope, filters);
+          // Only MoU: the client's MOU TEMPLATE layout (no contacts); Full Details: the four-sheet workbook.
+          const workbook =
+            view === "mou"
+              ? buildMouSheetWorkbook(await loadCompanyRecords(db, pool, mous.map((row) => row.mouId), auth.username))
+              : await buildExportWorkbook(db, pool, scope, filters, auth.permissions.includes("contacts.export"));
           const buffer = await workbook.xlsx.writeBuffer();
           const relativePath = await writeExportFile(
             jobId,
@@ -324,7 +375,7 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
   router.get(
     "/export/contacts",
     requireAuthSession,
-    requireRole(...CONTACT_EXPORT_ROLES),
+    requirePermission("contacts.export"),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
       const { filters, error } = parseSearchFilters(request.query);
@@ -365,6 +416,7 @@ export function createSearchExportRouter(db: Database, pool: Pool): Router {
   router.get(
     "/export/pdf",
     requireAuthSession,
+    requirePermission("export.data"),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
       const scope = request.query["scope"];

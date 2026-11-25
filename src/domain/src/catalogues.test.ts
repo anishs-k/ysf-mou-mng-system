@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   COMMERCIAL_FIXED_ITEM_KEYS,
   COMMERCIAL_ITEM_BY_KEY,
+  COMMERCIAL_ITEM_LEGACY_LABELS,
   COMMERCIAL_ITEM_KEYS,
   COMMERCIAL_ITEMS,
 } from "./commercial-items.ts";
@@ -52,12 +53,31 @@ import {
   canEditAgreement,
   canExportContacts,
   CONTACT_EXPORT_ROLES,
+  EDUCATION_FEE_PAYER_OPTIONS,
+  EDUCATION_FEE_PAYERS,
+  MAIL_CONFIRMATION_OPTIONS,
+  MAIL_CONFIRMATIONS,
+  MOU_SIGN_STATUS_OPTIONS,
+  MOU_SIGN_STATUSES,
+  INVOICE_MATCH_OPTIONS,
+  INVOICE_MATCHES,
 } from "./enums.ts";
 import type { EnumOption } from "./enums.ts";
 
-test("AC4 commercial catalogue has exactly 10 entries after D153 kept the 9 core charges", () => {
-  assert.equal(COMMERCIAL_ITEMS.length, 10);
-  assert.equal(COMMERCIAL_ITEM_KEYS.length, 10);
+test("SPEC-35 two fees carry the client sheet's names; the old names are kept as aliases", () => {
+  assert.equal(COMMERCIAL_ITEM_BY_KEY.EDUCATION_CHARGES.label, "Education Fees");
+  assert.equal(COMMERCIAL_ITEM_BY_KEY.ONE_TIME_REGISTRATION_FEES.label, "Course Registration Fees");
+  assert.deepEqual(COMMERCIAL_ITEM_LEGACY_LABELS, {
+    EDUCATION_CHARGES: ["Education Charges"],
+    ONE_TIME_REGISTRATION_FEES: ["One Time Registration Fees"],
+  });
+  assert.deepEqual([...INVOICE_MATCHES], ["MATCH", "NO_MATCH"]);
+  assert.deepEqual(INVOICE_MATCH_OPTIONS.map((option) => option.label), ["Match", "No Match"]);
+});
+
+test("AC4 commercial catalogue has exactly 13 entries - D153's 9 core charges, SPEC-31's 3 fees and OTHER", () => {
+  assert.equal(COMMERCIAL_ITEMS.length, 13);
+  assert.equal(COMMERCIAL_ITEM_KEYS.length, 13);
 });
 
 test("AC4 payroll catalogue has exactly 4 entries after D158 kept only PF, ESI and TDS", () => {
@@ -112,7 +132,7 @@ test("AC4 every key has a fixed item type except OTHER, where the user chooses",
 
 test("commercial charges are all deductions, per the section 3 mapping", () => {
   const deductions = COMMERCIAL_ITEMS.filter((item) => item.itemType === "DEDUCTION");
-  assert.equal(deductions.length, 9);
+  assert.equal(deductions.length, 12);
 });
 
 test("D158 the payroll catalogue is PF, ESI and TDS (deductions) plus OTHER - no allowances", () => {
@@ -177,7 +197,7 @@ test("D151 / D158 the demo deductions and the 13 allowance / deduction items are
   for (const key of removed) assert.ok(!keys.includes(key), key);
 });
 
-test("D153 the commercial catalogue holds only the 9 core charges plus OTHER", () => {
+test("D153 / SPEC-31 the commercial catalogue holds the 9 core charges, the 3 YSI fees and OTHER", () => {
   assert.deepEqual(
     [...COMMERCIAL_ITEM_KEYS],
     [
@@ -190,9 +210,18 @@ test("D153 the commercial catalogue holds only the 9 core charges plus OTHER", (
       "TRAINING_CHARGES",
       "ASSESSMENT_CHARGES",
       "ONE_TIME_REGISTRATION_FEES",
+      "EXAMINATION_FEES",
+      "EMPLOYABILITY_TEST_FEES",
+      "MSBTE_AFFILIATION_FEES",
       "OTHER",
     ],
   );
+});
+
+test("SPEC-31 the three YSI fees carry the labels the client sheet uses", () => {
+  assert.equal(COMMERCIAL_ITEM_BY_KEY.EXAMINATION_FEES.label, "Examination Fees");
+  assert.equal(COMMERCIAL_ITEM_BY_KEY.EMPLOYABILITY_TEST_FEES.label, "Employability Skill Test Fees");
+  assert.equal(COMMERCIAL_ITEM_BY_KEY.MSBTE_AFFILIATION_FEES.label, "MSBTE Affiliation Fees");
 });
 
 test("the key lookups resolve every catalogue entry", () => {
@@ -213,7 +242,7 @@ test("the fixed key lists used by the partial unique indexes exclude OTHER", () 
     [...PAYROLL_FIXED_ITEM_KEYS],
     PAYROLL_ITEM_KEYS.filter((key) => key !== "OTHER"),
   );
-  assert.equal(COMMERCIAL_FIXED_ITEM_KEYS.length, 9);
+  assert.equal(COMMERCIAL_FIXED_ITEM_KEYS.length, 12);
   assert.equal(PAYROLL_FIXED_ITEM_KEYS.length, 3);
 });
 
@@ -359,4 +388,13 @@ test("SPEC-29 only Admin, HR and Finance may export the contacts list", () => {
   for (const role of USER_ROLES) {
     assert.equal(canExportContacts(role), role === "ADMIN" || role === "HR" || role === "FINANCE", role);
   }
+});
+
+test("SPEC-31 the sign status, mail confirmation and education fee payer lists", () => {
+  assert.deepEqual([...MOU_SIGN_STATUSES], ["DRAFT", "SINGLE_SIGN", "BOTH_SIGN"]);
+  assert.deepEqual(MOU_SIGN_STATUS_OPTIONS.map((option) => option.label), ["Draft", "Single Sign", "Both Sign"]);
+  assert.deepEqual([...MAIL_CONFIRMATIONS], ["YES", "NO"]);
+  assert.deepEqual(MAIL_CONFIRMATION_OPTIONS.map((option) => option.label), ["Yes", "No"]);
+  assert.deepEqual([...EDUCATION_FEE_PAYERS], ["COMPANY", "DEDUCT_FROM_STIPEND"]);
+  assert.deepEqual(EDUCATION_FEE_PAYER_OPTIONS.map((option) => option.label), ["Company pays", "Deduct from stipend"]);
 });

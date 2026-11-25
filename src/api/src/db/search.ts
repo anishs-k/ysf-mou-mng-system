@@ -15,7 +15,8 @@
  * filter, so no caller can forget it; it is ANDed with the user's own zoneId.
  */
 
-import { EXPIRING_SOON_DAYS } from "@mou/domain";
+import { EXPIRING_SOON_DAYS, ORGANISATION_SCHEMES } from "@mou/domain";
+import type { Organisation } from "@mou/domain";
 import type { Pool } from "pg";
 
 import type { ZoneScope } from "../auth/zone-scope.ts";
@@ -38,6 +39,10 @@ export interface SearchFilters {
   readonly status?: SearchStatusFilter;
   /** Independent of `by=scheme`, so it can narrow a company/plant query. */
   readonly scheme?: string;
+  /** SPEC-34: YSF or YSI - the MoUs whose scheme that organisation runs. */
+  readonly organisation?: Organisation;
+  /** One MoU only - the record view's Excel export. */
+  readonly mouId?: string;
   /** Inclusive bounds on mou_start_date, YYYY-MM-DD. */
   readonly startFrom?: string;
   readonly startTo?: string;
@@ -87,6 +92,7 @@ export async function searchMous(
   const zoneId = filters.zoneId ?? null;
   const status = filters.status ?? null;
   const scheme = filters.scheme ?? null;
+  const organisationSchemes = filters.organisation === undefined ? null : [...ORGANISATION_SCHEMES[filters.organisation]];
   const startFrom = filters.startFrom ?? null;
   const startTo = filters.startTo ?? null;
   const limit = page?.limit ?? null;
@@ -154,9 +160,11 @@ export async function searchMous(
        AND ($8::date IS NULL OR m.mou_start_date >= $8)
        AND ($9::date IS NULL OR m.mou_start_date <= $9)
        AND ($10::uuid[] IS NULL OR c.zone_id = ANY($10::uuid[]))
+       AND ($11::text[] IS NULL OR m.scheme = ANY($11::text[]))
+       AND ($12::uuid IS NULL OR m.id = $12)
      ORDER BY c.company_name, m.scheme
      LIMIT COALESCE($5::int, 2147483647) OFFSET $6`,
-    [zoneId, status, by, q, limit, offset, scheme, startFrom, startTo, scope],
+    [zoneId, status, by, q, limit, offset, scheme, startFrom, startTo, scope, organisationSchemes, filters.mouId ?? null],
   );
 
   const total = rows.length > 0 ? Number(rows[0]?.total_count ?? 0) : 0;

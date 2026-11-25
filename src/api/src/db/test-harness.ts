@@ -8,6 +8,7 @@
  * and inserting the small fixtures the constraint tests build on.
  */
 
+import { EDITABLE_ROLES, ROLE_PERMISSIONS } from "@mou/domain";
 import type { UserRole } from "@mou/domain";
 import { Client, Pool } from "pg";
 
@@ -83,7 +84,7 @@ export async function createTestPool(): Promise<Pool> {
   return new Pool({ connectionString });
 }
 
-/** Empties every application table. The migration history table is left alone. */
+/** Empties every application table, then restores the seeded permission matrix. The migration history table is left alone. */
 export async function resetDatabase(pool: Pool): Promise<void> {
   const { rows } = await pool.query<{ tablename: string }>(
     `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> $1`,
@@ -94,6 +95,12 @@ export async function resetDatabase(pool: Pool): Promise<void> {
   }
   const tables = rows.map((row) => `"public"."${row.tablename}"`).join(", ");
   await pool.query(`TRUNCATE TABLE ${tables} RESTART IDENTITY CASCADE`);
+  // SPEC-33: role_permission is reference data the migration seeds; put the default matrix back.
+  const grants = EDITABLE_ROLES.flatMap((role) => ROLE_PERMISSIONS[role].map((permission) => [role, permission]));
+  await pool.query(
+    `INSERT INTO role_permission (role, permission) SELECT * FROM unnest($1::text[], $2::text[])`,
+    [grants.map(([role]) => role), grants.map(([, permission]) => permission)],
+  );
 }
 
 export function firstRow<T>(rows: T[]): T {

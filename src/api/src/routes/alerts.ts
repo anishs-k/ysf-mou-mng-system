@@ -8,7 +8,7 @@
  * acknowledgement, and an MoU with no row yet is acknowledged by creating one.
  */
 
-import { AUTHORING_ROLES, MOU_STATUS_LABELS } from "@mou/domain";
+import { MOU_STATUS_LABELS } from "@mou/domain";
 import type { MouStatus } from "@mou/domain";
 import { Router } from "express";
 import type { Request, Response } from "express";
@@ -16,7 +16,7 @@ import type { Pool } from "pg";
 
 import {
   requireAuth,
-  requireRole,
+  requirePermission,
   requireSession,
 } from "../auth/middleware.ts";
 import { notFoundError, requireInScope, zoneScopeOf } from "../auth/zone-scope.ts";
@@ -190,7 +190,7 @@ export function createAlertsRouter(pool: Pool): Router {
   router.post(
     "/alerts/:alertId/acknowledge",
     requireAuthSession,
-    requireRole(...AUTHORING_ROLES),
+    requirePermission("alerts.ack"),
     requireInScope(pool, "alert", "alertId", notFoundError("Alert not found")),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);
@@ -222,7 +222,7 @@ export function createAlertsRouter(pool: Pool): Router {
   router.post(
     "/mous/:mouId/alerts/acknowledge",
     requireAuthSession,
-    requireRole(...AUTHORING_ROLES),
+    requirePermission("alerts.ack"),
     requireInScope(pool, "mou", "mouId", notFoundError("MOU not found")),
     async (request: Request, response: Response) => {
       const auth = requireAuth(request);

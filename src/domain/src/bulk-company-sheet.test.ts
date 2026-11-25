@@ -14,6 +14,7 @@ import {
   BULK_SECTIONS,
   bulkRequiredLabel,
   BULK_FORM_TABLE_ROWS,
+  BULK_LIST_OPTIONS,
   bulkFormFieldNames,
   findInFileDuplicates,
   formFieldsToBulkRow,
@@ -60,6 +61,7 @@ const VALID: Readonly<Record<string, string>> = {
   pocNumber: "",
   decisionMakerName: "",
   decisionMakerNumber: "",
+  zonalManager: "Abhishek B.",
   scheme: "NAPS",
   mouStartDate: "2026-10-01",
   tenureValue: "12",
@@ -89,11 +91,11 @@ test("the column list covers the form's fields and every core charge, but no pay
 const FORM_LAYOUT: ReadonlyArray<readonly [string, readonly string[]]> = [
   [
     "Basic Information & Address",
-    ["Scheme", "Zone", "Sector", "Company Name", "Company Type", "Plant / Location", "Registration Type", "GST Number", "TAN Number", "Address Line 1", "Address Line 2", "City", "District", "PIN Code", "State"],
+    ["Organisation (YSF / YSI)", "Scheme", "Zone", "Sector", "Company Name", "Company Type", "Plant / Location", "Registration Type", "GST Number", "TAN Number", "Address Line 1", "Address Line 2", "City", "District", "PIN Code", "State"],
   ],
   [
     "Contact Information",
-    ["HR Contact Name", "HR Contact Number", "HR Email ID", "Finance Head Name", "Finance Head Contact", "Finance Email ID", "Purchase Name", "Purchase Number", "Purchase Email ID", "POC Name", "POC Number", "Decision Maker Name", "Decision Maker Number"],
+    ["Zonal Manager", "HR Contact Name", "HR Contact Number", "HR Email ID", "Finance Head Name", "Finance Head Contact", "Finance Email ID", "Purchase Name", "Purchase Number", "Purchase Email ID", "POC Name", "POC Number", "Decision Maker Name", "Decision Maker Number"],
   ],
   [
     "Commercial Details",
@@ -102,18 +104,27 @@ const FORM_LAYOUT: ReadonlyArray<readonly [string, readonly string[]]> = [
       "MoU Tenure (Months)",
       "Attendance Cycle",
       "Stipend Date",
+      "MoU Sign Status",
+      "Mail Confirmation",
+      "Match with Invoice",
+      "Payment Term",
+      "Remark",
+      "Invoice Remark",
       "Admin Charges",
       "Insurance",
       "Shoes and Uniform",
       "Supervisor Charges",
       "Sourcing Charges",
-      "Education Charges",
+      "Education Fees",
       "Training Charges",
       "Assessment Charges",
-      "One Time Registration Fees",
+      "Course Registration Fees",
+      "Examination Fees",
+      "Employability Skill Test Fees",
+      "MSBTE Affiliation Fees",
     ],
   ],
-  ["Payroll Details", ["Trainee Categories"]],
+  ["Payroll Details", ["Trainee Categories", "Left Trainee Recovery Amount", "Left Trainee Recovery Note", "Education Fee Paid By"]],
 ];
 
 test("D159 the template's sections and columns are the form's, field for field and in order", () => {
@@ -411,4 +422,160 @@ test("SPEC-30 an incomplete or unknown value is left blank to fill in, never an 
 test("SPEC-30 a filled PDF form's charge period and basis are kept", () => {
   const prefill = bulkRowToPrefill(VALID, ZONES, { ADMIN_CHARGES: { period: "MONTHLY", basis: "FLAT" } });
   assert.deepEqual(prefill.page2.chargeMeta, { ADMIN_CHARGES: { period: "MONTHLY", basis: "FLAT" } });
+});
+
+// --- SPEC-31: the client sheet's missing fields ----------------------------------
+
+/** SPEC-34: the YSI-only fee and fee payer below need a YSI scheme. */
+const SPEC31_CELLS: Readonly<Record<string, string>> = {
+  scheme: "WILP",
+  zonalManager: "Abhishek B.",
+  signStatus: "Both Sign",
+  mailConfirmation: "Yes",
+  paymentTerm: "Invoice within 7 days",
+  remark: "Combined MoU",
+  "charge:EXAMINATION_FEES": "1250",
+  leftTraineeAmount: "500",
+  leftTraineeNote: "From the last stipend",
+  educationFeePayer: "Deduct from stipend",
+};
+
+test("SPEC-31 Zonal Manager is a required column; the other new columns are marked No", () => {
+  assert.equal(BULK_COMPANY_COLUMNS.find((entry) => entry.key === "zonalManager")?.required, true);
+  for (const key of ["signStatus", "mailConfirmation", "paymentTerm", "remark", "leftTraineeAmount", "leftTraineeNote", "educationFeePayer"]) {
+    const column = BULK_COMPANY_COLUMNS.find((entry) => entry.key === key);
+    assert.ok(column, key);
+    assert.equal(column.required, false, key);
+  }
+  assert.deepEqual(BULK_LIST_OPTIONS.signStatus.map((option) => option.label), ["Draft", "Single Sign", "Both Sign"]);
+  assert.deepEqual(BULK_LIST_OPTIONS.mailConfirmation.map((option) => option.label), ["Yes", "No"]);
+  assert.deepEqual(BULK_LIST_OPTIONS.educationFeePayer.map((option) => option.label), ["Company pays", "Deduct from stipend"]);
+});
+
+test("SPEC-31 a row with the new cells reads them into the pages, list labels as codes", () => {
+  const value = read(SPEC31_CELLS).value;
+  assert.ok(value);
+  assert.equal(value.company.zonalManager, "Abhishek B.");
+  assert.equal(value.commercial.signStatus, "BOTH_SIGN");
+  assert.equal(value.commercial.mailConfirmation, "YES");
+  assert.equal(value.commercial.paymentTerm, "Invoice within 7 days");
+  assert.equal(value.commercial.remark, "Combined MoU");
+  assert.equal(value.commercial.charges["EXAMINATION_FEES"], "1250");
+  assert.equal(value.payroll.leftTraineeAmount, "500");
+  assert.equal(value.payroll.leftTraineeNote, "From the last stipend");
+  assert.equal(value.payroll.educationFeePayer, "DEDUCT_FROM_STIPEND");
+});
+
+test("SPEC-31 the optional new cells left blank are still a valid row", () => {
+  assert.deepEqual(read().errors, []);
+});
+
+test("SPEC-31 a blank Zonal Manager is reported as Required", () => {
+  assert.deepEqual(read({ zonalManager: "" }).errors, [{ column: headerOf("zonalManager"), message: "Required" }]);
+});
+
+test("SPEC-31 an unknown list value or a bad amount is reported on its column", () => {
+  const { errors } = read({ signStatus: "Signed", educationFeePayer: "Student", leftTraineeAmount: "abc" });
+  const columns = errors.map((error) => error.column);
+  assert.ok(columns.includes(headerOf("signStatus")));
+  assert.ok(columns.includes(headerOf("educationFeePayer")));
+  assert.ok(columns.includes(headerOf("leftTraineeAmount")));
+});
+
+test("SPEC-31 the prefill carries the new fields onto their pages", () => {
+  const prefill = bulkRowToPrefill({ ...VALID, ...SPEC31_CELLS }, ZONES);
+  assert.equal(prefill.page1["zonalManager"], "Abhishek B.");
+  assert.equal(prefill.page2.signStatus, "BOTH_SIGN");
+  assert.equal(prefill.page2.mailConfirmation, "YES");
+  assert.equal(prefill.page2.paymentTerm, "Invoice within 7 days");
+  assert.equal(prefill.page2.remark, "Combined MoU");
+  assert.equal(prefill.page2.charges["EXAMINATION_FEES"], "1250");
+  assert.equal(prefill.page3.leftTraineeAmount, "500");
+  assert.equal(prefill.page3.leftTraineeNote, "From the last stipend");
+  assert.equal(prefill.page3.educationFeePayer, "DEDUCT_FROM_STIPEND");
+});
+
+test("SPEC-31 the fillable PDF names a field for each new single column", () => {
+  const names = bulkFormFieldNames();
+  for (const key of ["zonalManager", "signStatus", "mailConfirmation", "paymentTerm", "remark", "leftTraineeAmount", "leftTraineeNote", "educationFeePayer"]) {
+    assert.ok(names.includes(key), key);
+  }
+  assert.equal(formFieldsToBulkRow({ remark: "x", educationFeePayer: "Company pays" }).cells["educationFeePayer"], "Company pays");
+});
+
+test("SPEC-34 an optional Organisation (YSF / YSI) column comes before the scheme, as a list", () => {
+  const column = BULK_COMPANY_COLUMNS.find((entry) => entry.key === "organisation");
+  assert.ok(column);
+  assert.equal(column.required, false);
+  assert.equal(column.list, "organisation");
+  assert.deepEqual(BULK_LIST_OPTIONS.organisation.map((option) => option.value), ["YSF", "YSI"]);
+});
+
+test("SPEC-34 a blank organisation is fine - the scheme decides it", () => {
+  assert.deepEqual(read({ organisation: "" }).errors, []);
+  assert.deepEqual(read({ organisation: "YSF" }).errors, []);
+});
+
+test("SPEC-34 an organisation that does not run the scheme is reported on the Scheme column", () => {
+  const result = read({ organisation: "YSI", scheme: "NAPS" });
+  assert.deepEqual(result.errors, [{ column: headerOf("scheme"), message: "Choose a YSI scheme (WILP, FLEXI, BVoc, DVoc or MSBTE)" }]);
+  assert.deepEqual(read({ organisation: "XYZ" }).errors, [{ column: headerOf("organisation"), message: "Choose YSF or YSI" }]);
+});
+
+test("SPEC-34 a YSF row may not fill a YSI-only fee or the education fee payer", () => {
+  const result = read({ "charge:EXAMINATION_FEES": "300", educationFeePayer: "Company pays" });
+  assert.deepEqual(result.errors, [
+    { column: headerOf("charge:EXAMINATION_FEES"), message: "This fee applies to YSI agreements only" },
+    { column: headerOf("educationFeePayer"), message: "This applies to YSI agreements only" },
+  ]);
+  assert.deepEqual(read({ scheme: "WILP", "charge:EXAMINATION_FEES": "300", educationFeePayer: "Company pays" }).errors, []);
+});
+
+test("SPEC-34 the prefill carries the organisation, from its cell or else from the scheme", () => {
+  assert.equal(bulkRowToPrefill({ ...VALID, organisation: "YSI - Yuvashakti Skill India", scheme: "WILP" }, ZONES).page3.organisation, "YSI");
+  assert.equal(bulkRowToPrefill({ ...VALID, scheme: "NATS" }, ZONES).page3.organisation, "YSF");
+  assert.equal(bulkRowToPrefill({ ...VALID, scheme: "" }, ZONES).page3.organisation, "");
+});
+
+test("SPEC-35 Match with Invoice (a list) and Invoice Remark are optional commercial columns", () => {
+  const match = BULK_COMPANY_COLUMNS.find((entry) => entry.key === "invoiceMatch");
+  const remark = BULK_COMPANY_COLUMNS.find((entry) => entry.key === "invoiceRemark");
+  assert.equal(match?.header, "Match with Invoice");
+  assert.equal(match?.list, "invoiceMatch");
+  assert.equal(match?.required, false);
+  assert.equal(remark?.header, "Invoice Remark");
+  assert.equal(remark?.required, false);
+  assert.deepEqual(BULK_LIST_OPTIONS.invoiceMatch.map((option) => option.label), ["Match", "No Match"]);
+});
+
+test("SPEC-35 a row reads match with invoice and invoice remark; a bad value is reported on its column", () => {
+  const value = read({ invoiceMatch: "No Match", invoiceRemark: "Uniform cost not deducted" }).value;
+  assert.equal(value?.commercial.invoiceMatch, "NO_MATCH");
+  assert.equal(value?.commercial.invoiceRemark, "Uniform cost not deducted");
+  assert.deepEqual(read({ invoiceMatch: "Sometimes" }).errors, [{ column: headerOf("invoiceMatch"), message: "Choose Match or No Match" }]);
+  const prefill = bulkRowToPrefill({ ...VALID, invoiceMatch: "Match", invoiceRemark: "ok" }, ZONES);
+  assert.equal(prefill.page2.invoiceMatch, "MATCH");
+  assert.equal(prefill.page2.invoiceRemark, "ok");
+});
+
+test("SPEC-35 the YSI-only fee columns say so in their format", () => {
+  for (const key of ["EDUCATION_CHARGES", "ONE_TIME_REGISTRATION_FEES", "EXAMINATION_FEES", "EMPLOYABILITY_TEST_FEES", "MSBTE_AFFILIATION_FEES"]) {
+    assert.match(BULK_COMPANY_COLUMNS.find((entry) => entry.key === `charge:${key}`)?.format ?? "", /YSI only - leave blank for YSF/, key);
+  }
+  assert.doesNotMatch(BULK_COMPANY_COLUMNS.find((entry) => entry.key === "charge:ADMIN_CHARGES")?.format ?? "", /YSI only/);
+});
+
+test("SPEC-35 renamed fee columns: a sheet with the old header still matches", () => {
+  const headers = BULK_COMPANY_COLUMNS.map((column) =>
+    column.key === "charge:EDUCATION_CHARGES" ? "Education Charges" : column.key === "charge:ONE_TIME_REGISTRATION_FEES" ? "One Time Registration Fees" : column.header,
+  );
+  const matched = matchBulkHeaders(headers);
+  assert.deepEqual(matched.missing, []);
+  assert.equal(matched.indexByKey.get("charge:EDUCATION_CHARGES"), headers.indexOf("Education Charges"));
+});
+
+test("SPEC-35 a PDF charge row may name a fee by its old name", () => {
+  const { cells, errors } = formFieldsToBulkRow({ charge1Name: "One Time Registration Fees", charge1Amount: "1000" });
+  assert.deepEqual(errors, []);
+  assert.equal(cells["charge:ONE_TIME_REGISTRATION_FEES"], "1000");
 });

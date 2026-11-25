@@ -345,6 +345,7 @@ function companyPage1(zoneId: string) {
     district: "Pune",
     hrContactName: "Rita Sharma",
     financeHeadContactName: "Arun Verma",
+    zonalManager: "Abhishek B.",
     contactType: "MOBILE",
     hrContactNumber: "9876543210",
     financeHeadContactNumber: "9123456780",

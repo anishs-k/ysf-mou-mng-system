@@ -8,9 +8,12 @@
  * a Manual / Bulk switch on top; Bulk Upload hides the whole wizard for BulkUploadPanel.
  * SPEC-30: on the first step, "Fill from Excel / Template" reads one filled template
  * into the form for the user to review and save.
+ * SPEC-34: the wizard first asks YSF or YSI (OrganisationPicker); the choice
+ * filters the schemes, the YSI-only fees and the education fee payer.
  */
 
-import { formatMoUDisplayCode } from "@mou/domain";
+import { formatMoUDisplayCode, isChargeShown, isEducationFeePayerShown, ORGANISATION_SCHEMES } from "@mou/domain";
+import type { Organisation } from "@mou/domain";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -37,6 +40,7 @@ import type { EntryMode } from "./addCompany/BulkUploadPanel.tsx";
 import { BulkUploadPanel, EntryModeSwitch } from "./addCompany/BulkUploadPanel.tsx";
 import { CommercialDetailsStep } from "./addCompany/CommercialDetailsStep.tsx";
 import { CompanyDetailsStep } from "./addCompany/CompanyDetailsStep.tsx";
+import { OrganisationBadge, OrganisationPicker } from "./addCompany/OrganisationPicker.tsx";
 import type { CommercialForm, CompanyForm, WizardForm, WizardReference } from "./addCompany/formState.ts";
 import { NO_REFERENCE, blankCategory, blankChargeRow, emptyForm, fromDraftPayload, toDraftPayload, toPage1 } from "./addCompany/formState.ts";
 import { PayrollStep } from "./addCompany/PayrollStep.tsx";
@@ -117,7 +121,7 @@ function FillFromTemplate({ onFile, reading, disabled }: { readonly onFile: (fil
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const NO_COMMERCIAL_ERRORS = { fields: {}, rows: {} } as const;
-const NO_PAYROLL_ERRORS: PayrollValidation = { categories: undefined, cards: {} };
+const NO_PAYROLL_ERRORS: PayrollValidation = { categories: undefined, cards: {}, terms: {} };
 const NOT_ATTEMPTED: readonly boolean[] = [false, false, false];
 
 function messageOf(error: unknown, fallback: string): string {
@@ -196,7 +200,7 @@ export function AddCompanyScreen() {
     };
   }, []);
 
-  const companyCheck = useMemo(() => validateCompanyStep(form.company), [form.company]);
+  const companyCheck = useMemo(() => validateCompanyStep(form.company, form.organisation), [form.company, form.organisation]);
   const commercialCheck = useMemo(() => validateCommercialStep(form), [form]);
   const payrollCheck = useMemo(() => validatePayrollStep(form), [form]);
 
@@ -218,6 +222,34 @@ export function AddCompanyScreen() {
     setForm((current) => ({ ...current, commercial: { ...current.commercial, ...patch } }));
   const update = <K extends keyof WizardForm>(key: K) => (value: WizardForm[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
+
+  /**
+   * SPEC-34: choosing YSF / YSI keeps only what applies to it - a scheme it does
+   * not run, a YSI-only fee row and the education fee payer are cleared.
+   */
+  function pickOrganisation(organisation: Organisation) {
+    setForm((current) => {
+      const charges = current.charges.filter((row) => isChargeShown(organisation, row.head));
+      return {
+        ...current,
+        organisation,
+        company: {
+          ...current.company,
+          scheme: (ORGANISATION_SCHEMES[organisation] as readonly string[]).includes(current.company.scheme) ? current.company.scheme : "",
+        },
+        charges: charges.length > 0 ? charges : [blankChargeRow()],
+        payrollTerms: isEducationFeePayerShown(organisation) ? current.payrollTerms : { ...current.payrollTerms, educationFeePayer: "" },
+      };
+    });
+  }
+
+  function changeOrganisation() {
+    const ok = window.confirm("Change YSF / YSI? A scheme or fee that does not apply to the new choice will be cleared.");
+    if (!ok) return;
+    setForm((current) => ({ ...current, organisation: "" }));
+    setStep(0);
+    setAttempted(NOT_ATTEMPTED);
+  }
 
   /** Saves the whole form as the user's draft; the draft row is upserted per user. */
   async function persist(currentPage: number): Promise<string> {
@@ -341,10 +373,13 @@ export function AddCompanyScreen() {
       .then(({ payload, rowCount }) => {
         const filled = fromDraftPayload(payload, reference.enums.commercialItems.map((item) => item.key));
         setForm((current) => ({
+          // SPEC-34: the file's YSF / YSI (or its scheme's) wins; otherwise the choice already made stays.
+          organisation: filled.organisation !== "" ? filled.organisation : current.organisation,
           company: filled.company,
           commercial: { ...filled.commercial, mouDocument: current.commercial.mouDocument },
           charges: filled.charges.length > 0 ? filled.charges : [blankChargeRow()],
           categories: filled.categories.length > 0 ? filled.categories : [blankCategory()],
+          payrollTerms: filled.payrollTerms,
         }));
         setStep(0);
         setAttempted(NOT_ATTEMPTED);
@@ -401,6 +436,20 @@ export function AddCompanyScreen() {
       {pendingDraft !== null && (
         <ResumeDraftBanner onResume={resume} onDiscard={discard} disabled={reference === NO_REFERENCE} />
       )}
+      {form.organisation === "" ? (
+        <OrganisationPicker onPick={pickOrganisation} />
+      ) : (
+        <>
+          <OrganisationBadge organisation={form.organisation} onChange={changeOrganisation} disabled={busy} />
+          {wizard(form.organisation)}
+        </>
+      )}
+    </>,
+  );
+
+  function wizard(organisation: Organisation) {
+    return (
+    <>
       {step === 0 && <FillFromTemplate onFile={fillFromFile} reading={reading} disabled={reference === NO_REFERENCE || busy} />}
       <Stepper steps={STEPS} current={step} />
       {notice !== null && (
@@ -420,6 +469,7 @@ export function AddCompanyScreen() {
           errors={companyErrors}
           warnings={{ ...companyCheck.warnings, ...serverWarnings }}
           reference={reference}
+          organisation={organisation}
         />
       )}
       {step === 1 && (
@@ -433,13 +483,17 @@ export function AddCompanyScreen() {
           onPickFile={(file) => void uploadFile(file)}
           uploading={uploading}
           uploadError={uploadError}
+          organisation={organisation}
         />
       )}
       {step === 2 && (
         <PayrollStep
           categories={form.categories}
           onCategoriesChange={update("categories")}
+          terms={form.payrollTerms}
+          onTermsChange={update("payrollTerms")}
           errors={payrollErrors}
+          organisation={organisation}
         />
       )}
       {step === LAST_STEP && <ReviewStep form={form} reference={reference} />}
@@ -458,6 +512,7 @@ export function AddCompanyScreen() {
           </Button>
         )}
       </div>
-    </>,
-  );
+    </>
+    );
+  }
 }

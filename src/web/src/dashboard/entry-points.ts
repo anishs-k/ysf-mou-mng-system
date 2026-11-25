@@ -8,10 +8,13 @@
  * layout never has to be rebuilt.
  */
 
-import { AGREEMENT_EDIT_ROLES, AUTHORING_ROLES, USER_ROLES } from "@mou/domain";
+import { AGREEMENT_EDIT_ROLES, AUTHORING_ROLES, hasPermission, USER_ROLES } from "@mou/domain";
 import type { UserRole } from "@mou/domain";
 
 export const ALL_ROLES: readonly UserRole[] = USER_ROLES;
+
+/** SPEC-32: every role but the Viewer may export. */
+const EXPORT_ROLES: readonly UserRole[] = USER_ROLES.filter((role) => hasPermission(role, "export.data"));
 
 export interface DashboardEntryPoint {
   readonly id: string;
@@ -95,7 +98,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
     label: "Export",
     description: "Download the company and MoU data as a workbook",
     path: "/export/excel",
-    roles: ALL_ROLES,
+    roles: EXPORT_ROLES,
     available: true,
     spec: "SPEC-13",
   },
@@ -104,7 +107,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
     label: "Export PDF",
     description: "Download a PDF for all zones or a single company",
     path: "/export/pdf",
-    roles: ALL_ROLES,
+    roles: EXPORT_ROLES,
     available: true,
     spec: "SPEC-13",
   },
@@ -128,7 +131,7 @@ export const DASHBOARD_ENTRY_POINTS: readonly DashboardEntryPoint[] = [
   },
 ];
 
-/** The entry points a role is allowed to see. A VIEWER sees seven of the ten. */
+/** The entry points a role is allowed to see. A VIEWER sees neither export (SPEC-32). */
 export function visibleEntryPoints(role: UserRole): readonly DashboardEntryPoint[] {
   return DASHBOARD_ENTRY_POINTS.filter((entry) => entry.roles.includes(role));
 }

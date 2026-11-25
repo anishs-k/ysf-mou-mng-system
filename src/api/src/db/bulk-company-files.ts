@@ -263,6 +263,8 @@ export async function buildBulkTemplatePdf(zones: readonly BulkZone[], options: 
       const part = traineeParts[column];
       return part === undefined ? undefined : { name: traineeFormField(row, part) };
     });
+    // SPEC-31: the payroll section's single fields (left-trainee recovery, education fee payer).
+    blankFieldGrid(doc, blankFields("Payroll Details", zones));
 
     // D160: the wizard's Upload MoU PDF area, as a box to attach the signed copy to.
     sectionHeading(doc, "Upload MoU PDF", UPLOAD_BOX_HEIGHT);

@@ -5,7 +5,9 @@
  * writes exactly the same rows the wizard does. The input must already have passed
  * the three @mou/domain page validators; item types come from the catalogues, never
  * from the input. The MOU PDF is the caller's concern (the wizard promotes one, a
- * bulk row has none - D138).
+ * bulk row has none - D138). SPEC-31's optional fields (Zonal Manager, the MoU
+ * tracking fields, the left-trainee recovery and education fee payer) are written
+ * blank-as-NULL.
  */
 
 import {
@@ -121,6 +123,7 @@ export async function insertCompanyWithMou(
       pocNumber: optional(details.pocNumber ?? ""),
       decisionMakerName: optional(details.decisionMakerName ?? ""),
       decisionMakerNumber: optional(details.decisionMakerNumber ?? ""),
+      zonalManager: blankToNull(details.zonalManager),
       createdBy,
     })
     .returning({ id: company.id });
@@ -148,6 +151,12 @@ export async function insertCompanyWithMou(
       tenureUnit: commercial.tenureUnit,
       attendanceCycle: commercial.attendanceCycle,
       stipendDate: Number(commercial.stipendDate),
+      signStatus: blankToNull(commercial.signStatus),
+      mailConfirmation: blankToNull(commercial.mailConfirmation),
+      paymentTerm: blankToNull(commercial.paymentTerm),
+      remark: blankToNull(commercial.remark),
+      invoiceMatch: blankToNull(commercial.invoiceMatch),
+      invoiceRemark: blankToNull(commercial.invoiceRemark),
     })
     .returning({ id: mou.id });
   const mouId = firstRow(mouRow).id;
@@ -194,7 +203,12 @@ export async function insertCompanyWithMou(
   // 5. Insert payroll config.
   const configRow = await tx
     .insert(payrollConfig)
-    .values({ mouId })
+    .values({
+      mouId,
+      leftTraineeAmount: blankToNull(payroll.leftTraineeAmount),
+      leftTraineeNote: blankToNull(payroll.leftTraineeNote),
+      educationFeePayer: blankToNull(payroll.educationFeePayer),
+    })
     .returning({ id: payrollConfig.id });
   const configId = firstRow(configRow).id;
 

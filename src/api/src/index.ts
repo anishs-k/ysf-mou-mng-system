@@ -21,6 +21,7 @@ import { createDatabase, createPool } from "./db/client.ts";
 import { runExportCleanup } from "./jobs/export-cleanup.ts";
 import { runExpiryAlertJob } from "./jobs/expiry-alerts.ts";
 import { createAlertsRouter } from "./routes/alerts.ts";
+import { createAdminPermissionsRouter } from "./routes/admin-permissions.ts";
 import { createAdminUsersRouter } from "./routes/admin-users.ts";
 import { createBulkCompaniesRouter } from "./routes/bulk-companies.ts";
 import { createAuthRouter } from "./routes/auth.ts";
@@ -95,6 +96,7 @@ export function createApp(pool: Pool): Express {
     createSearchExportRouter(db, pool),
     createAlertsRouter(pool),
     createAdminUsersRouter(db, pool),
+    createAdminPermissionsRouter(db, pool),
   );
 
   const webDistPath = fs.existsSync(path.resolve(process.cwd(), "src/web/dist"))

@@ -16,6 +16,7 @@ import { ExistingCompaniesScreen } from "./screens/ExistingCompaniesScreen.tsx";
 import { ExpiryAlertsScreen } from "./screens/ExpiryAlertsScreen.tsx";
 import { ExportScreen } from "./screens/ExportScreen.tsx";
 import { LoginScreen } from "./screens/LoginScreen.tsx";
+import { RolePermissionsScreen } from "./screens/RolePermissionsScreen.tsx";
 import { UploadMouScreen } from "./screens/UploadMouScreen.tsx";
 import { UserManagementScreen } from "./screens/UserManagementScreen.tsx";
 import { UserManualScreen } from "./screens/UserManualScreen.tsx";
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/export" element={<ExportScreen />} />
           <Route path="/user-manual" element={<UserManualScreen />} />
           <Route path="/admin/users" element={<UserManagementScreen />} />
+          <Route path="/admin/permissions" element={<RolePermissionsScreen />} />
           <Route path="*" element={<DashboardScreen />} />
         </Route>
       </Routes>

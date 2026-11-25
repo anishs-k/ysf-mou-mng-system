@@ -9,7 +9,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { parseSearchFilters, parseSearchPaging } from "./search-export.ts";
+import { parseExportView, parseSearchFilters, parseSearchPaging } from "./search-export.ts";
+
+const VALID_ZONE = "11111111-1111-4111-8111-111111111111";
 
 const ZONE = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -69,4 +71,21 @@ test("pageSize accepts 1-100 and rejects anything else", () => {
   assert.ok("error" in parseSearchPaging({ pageSize: "101" }));
   assert.ok("error" in parseSearchPaging({ pageSize: "2.5" }));
   assert.ok("error" in parseSearchPaging({ page: "0" }));
+});
+
+test("SPEC-34 organisation narrows to YSF or YSI and combines with the other filters", () => {
+  assert.deepEqual(parseSearchFilters({ organisation: "YSI", zoneId: VALID_ZONE }), { filters: { organisation: "YSI", zoneId: VALID_ZONE } });
+  assert.deepEqual(parseSearchFilters({ organisation: "ABC" }), { filters: {}, error: "organisation must be YSF or YSI" });
+});
+
+test("export view: full by default, mou on request, anything else refused", () => {
+  assert.equal(parseExportView({}), "full");
+  assert.equal(parseExportView({ view: "full" }), "full");
+  assert.equal(parseExportView({ view: "mou" }), "mou");
+  assert.equal(parseExportView({ view: "everything" }), undefined);
+});
+
+test("mouId narrows any export to one MoU; it must be a UUID", () => {
+  assert.deepEqual(parseSearchFilters({ mouId: VALID_ZONE }), { filters: { mouId: VALID_ZONE } });
+  assert.deepEqual(parseSearchFilters({ mouId: "abc" }), { filters: {}, error: "mouId must be a UUID" });
 });

@@ -10,15 +10,27 @@
  * The 16 fixed charges are input as a string-keyed map rather than 16 named
  * fields, because the set is a data-driven catalogue (COMMERCIAL_ITEM_BY_KEY)
  * the UI must render from, not a fixed list this module should hardcode either.
+ *
+ * SPEC-31 adds four optional MoU tracking fields from the client sheet: the sign
+ * status, the mail confirmation, the payment term and a remark. SPEC-35 adds
+ * match with invoice and an invoice remark.
  */
 
 import { COMMERCIAL_FIXED_ITEM_KEYS } from "./commercial-items.ts";
-import { COMMERCIAL_BASES, COMMERCIAL_PERIODS, TENURE_UNITS } from "./enums.ts";
+import { COMMERCIAL_BASES, COMMERCIAL_PERIODS, INVOICE_MATCHES, MAIL_CONFIRMATIONS, MOU_SIGN_STATUSES, TENURE_UNITS } from "./enums.ts";
 import { validateAmountString } from "./money.ts";
 
 const MAX_BACKDATE_DAYS = 365;
 const MAX_TENURE_MONTHS = 120;
 const MAX_LABEL_LENGTH = 100;
+/**
+ * Client instruction 2026-11-25: the signed MoU PDF is optional on Add New Company
+ * for now (it can be attached later through Upload MoU). Set true to require it again.
+ */
+export const MOU_DOCUMENT_REQUIRED = false;
+
+/** SPEC-31: mou.payment_term and mou.remark are varchar(500). */
+const MAX_NOTE_LENGTH = 500;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -61,6 +73,17 @@ export interface CommercialDetails {
   readonly chargeMeta?: Readonly<Record<string, ChargeMeta>>;
   /** Whether a PDF has been accepted by the upload endpoint for this draft. */
   readonly hasMouDocument: boolean;
+  /** SPEC-31: optional MOU_SIGN_STATUSES code; blank means not recorded. */
+  readonly signStatus?: string;
+  /** SPEC-31: optional MAIL_CONFIRMATIONS code. */
+  readonly mailConfirmation?: string;
+  /** SPEC-31: optional free text, at most 500 characters. */
+  readonly paymentTerm?: string;
+  readonly remark?: string;
+  /** SPEC-35: optional INVOICE_MATCHES code. */
+  readonly invoiceMatch?: string;
+  /** SPEC-35: optional free text (the sheet's invoice remark / "mou and invoice problem"), at most 500 characters. */
+  readonly invoiceRemark?: string;
 }
 
 export interface OtherChargeRowErrors {
@@ -76,6 +99,12 @@ export interface CommercialDetailErrors {
   readonly attendanceCycle?: string;
   readonly stipendDate?: string;
   readonly mouDocument?: string;
+  readonly signStatus?: string;
+  readonly mailConfirmation?: string;
+  readonly paymentTerm?: string;
+  readonly remark?: string;
+  readonly invoiceMatch?: string;
+  readonly invoiceRemark?: string;
   readonly charges?: Readonly<Record<string, string>>;
   readonly chargeMeta?: Readonly<Record<string, ChargeMetaErrors>>;
   /** Parallel to the input otherItems array; an all-blank row has no entry. */
@@ -224,6 +253,12 @@ export function validateCommercialDetails(
     attendanceCycle?: string;
     stipendDate?: string;
     mouDocument?: string;
+    signStatus?: string;
+    mailConfirmation?: string;
+    paymentTerm?: string;
+    remark?: string;
+    invoiceMatch?: string;
+    invoiceRemark?: string;
     charges?: Record<string, string>;
     chargeMeta?: Record<string, ChargeMetaErrors>;
     otherItems?: readonly (OtherChargeRowErrors | undefined)[];
@@ -308,8 +343,32 @@ export function validateCommercialDetails(
     errors.otherItems = otherItemErrors;
   }
 
+  // --- SPEC-31: sign status, mail confirmation, payment term, remark -----------------
+  const signStatus = (input.signStatus ?? "").trim();
+  if (signStatus !== "" && !(MOU_SIGN_STATUSES as readonly string[]).includes(signStatus)) {
+    errors.signStatus = "Choose a sign status from the list";
+  }
+  const mailConfirmation = (input.mailConfirmation ?? "").trim();
+  if (mailConfirmation !== "" && !(MAIL_CONFIRMATIONS as readonly string[]).includes(mailConfirmation)) {
+    errors.mailConfirmation = "Choose Yes or No";
+  }
+  if ((input.paymentTerm ?? "").trim().length > MAX_NOTE_LENGTH) {
+    errors.paymentTerm = `Enter at most ${MAX_NOTE_LENGTH} characters`;
+  }
+  if ((input.remark ?? "").trim().length > MAX_NOTE_LENGTH) {
+    errors.remark = `Enter at most ${MAX_NOTE_LENGTH} characters`;
+  }
+  // --- SPEC-35: match with invoice, invoice remark --------------------------------
+  const invoiceMatch = (input.invoiceMatch ?? "").trim();
+  if (invoiceMatch !== "" && !(INVOICE_MATCHES as readonly string[]).includes(invoiceMatch)) {
+    errors.invoiceMatch = "Choose Match or No Match";
+  }
+  if ((input.invoiceRemark ?? "").trim().length > MAX_NOTE_LENGTH) {
+    errors.invoiceRemark = `Enter at most ${MAX_NOTE_LENGTH} characters`;
+  }
+
   // --- MOU PDF --------------------------------------------------------------------
-  if (input.hasMouDocument !== true) {
+  if (MOU_DOCUMENT_REQUIRED && input.hasMouDocument !== true) {
     errors.mouDocument = "Upload the signed MOU PDF";
   }
 

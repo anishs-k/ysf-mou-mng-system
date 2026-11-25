@@ -2,16 +2,19 @@
  * Purpose: The option lists the GET /api/search filter bars share (Existing
  * Companies, Agreement History, Export) - zones as {id, name} from the cached
  * GET /api/zones, schemes from @mou/domain, and the four status filters the API
- * accepts - so every screen sends the same codes the API validates.
+ * accepts - so every screen sends the same codes the API validates. SPEC-34 adds YSF / YSI.
  */
 
-import { SCHEME_OPTIONS } from "@mou/domain";
+import { ORGANISATIONS, SCHEME_OPTIONS } from "@mou/domain";
 import { useEffect, useState } from "react";
 
 import { fetchZones } from "../api/client.ts";
 import type { SelectOption } from "../ui/form.tsx";
 
 export const SCHEME_FILTER_OPTIONS: readonly SelectOption[] = SCHEME_OPTIONS;
+
+/** SPEC-34: YSF or YSI. */
+export const ORGANISATION_FILTER_OPTIONS: readonly SelectOption[] = ORGANISATIONS.map((value) => ({ value, label: value }));
 
 /** EXPIRING is a filter only: an ACTIVE MoU ending within the next 90 days. */
 export const STATUS_FILTER_OPTIONS: readonly SelectOption[] = [

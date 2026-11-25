@@ -6,6 +6,10 @@
  * SPEC-24 renders any number of records into one file, each from a fresh page, and
  * loads them in a fixed number of queries; the one-record functions are that case.
  * The band, tables and footers come from pdf-layout.ts, shared with the bulk template.
+ * SPEC-31 adds the Zonal Manager, the MoU tracking fields and the payroll extras.
+ * SPEC-34 names the organisation (YSF / YSI) the scheme belongs to.
+ * SPEC-35 adds match with invoice and the invoice remark. The "mou" view is the
+ * Only MoU export: the MoU and its commercial terms, without people or payroll.
  */
 
 import {
@@ -13,7 +17,13 @@ import {
   COMMERCIAL_PERIOD_LABELS,
   COMPANY_DOCUMENT_TYPE_LABELS,
   COMPANY_TYPE_LABELS,
+  EDUCATION_FEE_PAYER_LABELS,
   ITEM_TYPE_LABELS,
+  MAIL_CONFIRMATION_LABELS,
+  INVOICE_MATCH_LABELS,
+  MOU_SIGN_STATUS_LABELS,
+  ORGANISATION_LABELS,
+  organisationOfScheme,
   REGISTRATION_TYPE_LABELS,
   SCHEME_LABELS,
   SECTOR_LABELS,
@@ -89,7 +99,14 @@ export interface RenderOptions {
   readonly logo?: Buffer | undefined;
   /** Tests turn compression off to read the text back. */
   readonly compress?: boolean;
+  /**
+   * "full" (default): the whole record. "mou": only the MoU and its commercial
+   * terms - no contacts, payroll, history or documents (the "Only MoU" export).
+   */
+  readonly view?: ExportView;
 }
+
+export type ExportView = "full" | "mou";
 
 // --- Record-only constants (A4 portrait; the shared layout is pdf-layout.ts) -----
 
@@ -235,6 +252,7 @@ function overviewItems(record: CompanyRecord): readonly LabelledValue[] {
     { label: "Purchase Contact", value: joinPresent([overview.purchaseName, overview.purchaseNumber, overview.purchaseEmail], " · ") },
     { label: "POC", value: joinPresent([overview.pocName, overview.pocNumber], " · ") },
     { label: "Decision Maker", value: joinPresent([overview.decisionMakerName, overview.decisionMakerNumber], " · ") },
+    { label: "Zonal Manager", value: joinPresent([overview.zonalManager], "") },
     {
       label: "Address",
       value: joinPresent([overview.addressLine1, overview.addressLine2, overview.city, overview.district, `${overview.state} - ${overview.pinCode}`], ", "),
@@ -244,15 +262,28 @@ function overviewItems(record: CompanyRecord): readonly LabelledValue[] {
   ];
 }
 
+/** SPEC-34: "YSF - Yuvashakti Foundation" / "YSI - Yuvashakti Skill India", from the scheme. */
+function organisationLabel(scheme: string): string {
+  const organisation = organisationOfScheme(scheme);
+  return organisation === undefined ? DASH : ORGANISATION_LABELS[organisation];
+}
+
 function commercialSection(doc: Doc, commercial: MouCommercialDetail): void {
   sectionHeading(doc, "Commercial");
   keyValueGrid(doc, [
+    { label: "Organisation", value: organisationLabel(commercial.scheme) },
     { label: "Scheme", value: labelOf(SCHEME_LABELS, commercial.scheme) },
     { label: "MoU Start", value: calendarDate(commercial.mouStartDate) },
     { label: "Tenure", value: `${commercial.tenureValue} ${labelOf(TENURE_UNIT_LABELS, commercial.tenureUnit)}` },
     { label: "MoU End", value: calendarDate(commercial.endDate) },
     { label: "Attendance Cycle", value: commercial.attendanceCycle },
     { label: "Stipend Date", value: stipendDay(commercial.stipendDate) },
+    { label: "Sign Status", value: labelOf(MOU_SIGN_STATUS_LABELS, commercial.signStatus) },
+    { label: "Mail Confirmation", value: labelOf(MAIL_CONFIRMATION_LABELS, commercial.mailConfirmation) },
+    { label: "Payment Term", value: joinPresent([commercial.paymentTerm], "") },
+    { label: "Remark", value: joinPresent([commercial.remark], "") },
+    { label: "Match with Invoice", value: labelOf(INVOICE_MATCH_LABELS, commercial.invoiceMatch) },
+    { label: "Invoice Remark", value: joinPresent([commercial.invoiceRemark], "") },
   ]);
   const rows = [
     ...commercial.charges
@@ -288,9 +319,15 @@ function payrollSection(doc: Doc, payroll: MouPayrollDetail | undefined): void {
   subHeading(doc, "Trainee Categories");
   if (payroll.traineeCategories.length === 0) {
     note(doc, "None recorded.");
-    return;
+  } else {
+    keyValueGrid(doc, [{ label: "Categories", value: payroll.traineeCategories.join(", ") }]);
   }
-  keyValueGrid(doc, [{ label: "Categories", value: payroll.traineeCategories.join(", ") }]);
+  // SPEC-31: what is recovered from a trainee who leaves, and who pays the education fee.
+  const recovery = payroll.leftTraineeAmount === null ? null : `${CURRENCY} ${payroll.leftTraineeAmount}`;
+  keyValueGrid(doc, [
+    { label: "Left Trainee Recovery", value: joinPresent([recovery, payroll.leftTraineeNote], " · ") },
+    { label: "Education Fee Paid By", value: labelOf(EDUCATION_FEE_PAYER_LABELS, payroll.educationFeePayer) },
+  ]);
 }
 
 /** An empty section is only its heading and a one-line note, so it needs far less room kept below. */
@@ -329,9 +366,31 @@ function documentsSection(doc: Doc, documents: readonly CompanyRecordDocument[])
   );
 }
 
-/** One record from the current page: header band, then the five sections. */
-function drawRecord(doc: Doc, record: CompanyRecord, logo: Buffer | undefined): void {
+/** "Only MoU": who the MoU is with and its key facts - none of the company's people. */
+function mouItems(record: CompanyRecord): readonly LabelledValue[] {
+  const { overview, commercial, payroll } = record;
+  const plant = overview.plants.find((candidate) => candidate.id === commercial.companyPlantId);
+  const recovery = payroll === undefined || payroll.leftTraineeAmount === null ? null : `${CURRENCY} ${payroll.leftTraineeAmount}`;
+  return [
+    { label: "GST Number", value: overview.gstNumber },
+    { label: "Zone", value: overview.zoneName },
+    { label: "Plant", value: plant?.plantName ?? joinPresent(overview.plants.map((candidate) => candidate.plantName), ", ") },
+    { label: "Zonal Manager", value: joinPresent([overview.zonalManager], "") },
+    { label: "MoU Code", value: commercial.generatedCode },
+    { label: "Expires", value: calendarDate(commercial.endDate) },
+    { label: "Left Trainee Recovery", value: joinPresent([recovery, payroll?.leftTraineeNote ?? null], " · ") },
+  ];
+}
+
+/** One record from the current page: header band, then the five sections ("mou": MoU and Commercial only). */
+function drawRecord(doc: Doc, record: CompanyRecord, logo: Buffer | undefined, view: ExportView = "full"): void {
   drawHeaderBand(doc, record, logo);
+  if (view === "mou") {
+    sectionHeading(doc, "MoU");
+    keyValueGrid(doc, mouItems(record));
+    commercialSection(doc, record.commercial);
+    return;
+  }
   sectionHeading(doc, "Overview");
   keyValueGrid(doc, overviewItems(record));
   commercialSection(doc, record.commercial);
@@ -380,7 +439,7 @@ export function renderCompanyRecordsPdf(records: readonly CompanyRecord[], optio
         doc.addPage();
       }
       current = record;
-      drawRecord(doc, record, options.logo);
+      drawRecord(doc, record, options.logo, options.view);
     });
     drawFooters(doc);
     doc.end();

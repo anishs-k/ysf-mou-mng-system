@@ -14,6 +14,9 @@
  * Scheme union and is served from the same /api/enums response (D113).
  */
 
+import { hasPermission } from "./permissions.ts";
+import type { Permission } from "./permissions.ts";
+
 export interface EnumOption<TValue extends string = string> {
   readonly value: TValue;
   readonly label: string;
@@ -252,15 +255,20 @@ export const USER_ROLE_LABELS: Readonly<Record<UserRole, string>> = {
 
 export const USER_ROLE_OPTIONS = toOptions(USER_ROLES, USER_ROLE_LABELS);
 
+/** SPEC-32: the role lists below are read from the permission matrix, in USER_ROLES order. */
+function rolesWith(permission: Permission): readonly UserRole[] {
+  return USER_ROLES.filter((role) => hasPermission(role, permission));
+}
+
 /**
  * Roles that may create and change records - add companies, upload documents,
  * acknowledge alerts. SPEC-26: HR and Finance do everything Data Entry does.
  * One list, so the API guards and the UI cannot drift apart.
  */
-export const AUTHORING_ROLES: readonly UserRole[] = ["ADMIN", "DATA_ENTRY", "HR", "FINANCE"];
+export const AUTHORING_ROLES: readonly UserRole[] = rolesWith("company.create");
 
 /** SPEC-26: Edit Agreement is open to Admin, HR and Finance - not Data Entry. */
-export const AGREEMENT_EDIT_ROLES: readonly UserRole[] = ["ADMIN", "HR", "FINANCE"];
+export const AGREEMENT_EDIT_ROLES: readonly UserRole[] = rolesWith("agreement.edit");
 
 export function canAuthorRecords(role: UserRole): boolean {
   return AUTHORING_ROLES.includes(role);
@@ -271,7 +279,7 @@ export function canEditAgreement(role: UserRole): boolean {
 }
 
 /** SPEC-29: the HR & client contacts list is personal data - Admin, HR and Finance only. */
-export const CONTACT_EXPORT_ROLES: readonly UserRole[] = ["ADMIN", "HR", "FINANCE"];
+export const CONTACT_EXPORT_ROLES: readonly UserRole[] = rolesWith("contacts.export");
 
 export function canExportContacts(role: UserRole): boolean {
   return CONTACT_EXPORT_ROLES.includes(role);
@@ -366,6 +374,58 @@ export const COMMERCIAL_BASIS_LABELS: Readonly<Record<CommercialBasis, string>> 
 };
 
 export const COMMERCIAL_BASIS_OPTIONS = toOptions(COMMERCIAL_BASES, COMMERCIAL_BASIS_LABELS);
+
+/**
+ * SPEC-31: the client MoU sheet's DRAFT / SINGLE SIGN / BOTH SIGN columns as one
+ * optional choice on the MoU - how far the signing has gone.
+ */
+export const MOU_SIGN_STATUSES = ["DRAFT", "SINGLE_SIGN", "BOTH_SIGN"] as const;
+
+export type MouSignStatus = (typeof MOU_SIGN_STATUSES)[number];
+
+export const MOU_SIGN_STATUS_LABELS: Readonly<Record<MouSignStatus, string>> = {
+  DRAFT: "Draft",
+  SINGLE_SIGN: "Single Sign",
+  BOTH_SIGN: "Both Sign",
+};
+
+export const MOU_SIGN_STATUS_OPTIONS = toOptions(MOU_SIGN_STATUSES, MOU_SIGN_STATUS_LABELS);
+
+/** SPEC-31: whether the MoU was confirmed by mail (the sheet's Mail Confirmation column). */
+export const MAIL_CONFIRMATIONS = ["YES", "NO"] as const;
+
+export type MailConfirmation = (typeof MAIL_CONFIRMATIONS)[number];
+
+export const MAIL_CONFIRMATION_LABELS: Readonly<Record<MailConfirmation, string>> = {
+  YES: "Yes",
+  NO: "No",
+};
+
+export const MAIL_CONFIRMATION_OPTIONS = toOptions(MAIL_CONFIRMATIONS, MAIL_CONFIRMATION_LABELS);
+
+/** SPEC-35: whether the MoU's terms match what is invoiced (the sheet's Match with Invoice column). */
+export const INVOICE_MATCHES = ["MATCH", "NO_MATCH"] as const;
+
+export type InvoiceMatch = (typeof INVOICE_MATCHES)[number];
+
+export const INVOICE_MATCH_LABELS: Readonly<Record<InvoiceMatch, string>> = {
+  MATCH: "Match",
+  NO_MATCH: "No Match",
+};
+
+export const INVOICE_MATCH_OPTIONS = toOptions(INVOICE_MATCHES, INVOICE_MATCH_LABELS);
+
+/** SPEC-31: who bears the education fee - the company, or the trainee through a stipend deduction. */
+export const EDUCATION_FEE_PAYERS = ["COMPANY", "DEDUCT_FROM_STIPEND"] as const;
+
+export type EducationFeePayer = (typeof EDUCATION_FEE_PAYERS)[number];
+
+export const EDUCATION_FEE_PAYER_LABELS: Readonly<Record<EducationFeePayer, string>> = {
+  COMPANY: "Company pays",
+  DEDUCT_FROM_STIPEND: "Deduct from stipend",
+};
+
+export const EDUCATION_FEE_PAYER_OPTIONS = toOptions(EDUCATION_FEE_PAYERS, EDUCATION_FEE_PAYER_LABELS);
 
 /** SPEC-23 D145: the company-level documents `company_document.document_type` accepts. */
 export const COMPANY_DOCUMENT_TYPES = ["GST_CERTIFICATE", "REGISTRATION_CERTIFICATE"] as const;

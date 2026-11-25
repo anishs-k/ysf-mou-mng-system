@@ -82,6 +82,20 @@ async function viewerCookie(): Promise<string> {
   return login(viewer.username, viewer.password);
 }
 
+/** SPEC-32: exports need "export.data", which a Viewer lacks. */
+async function cookieAs(role: "DATA_ENTRY" | "ADMIN"): Promise<string> {
+  const user = await insertUserWithPassword(pool, {
+    username: `${role.toLowerCase()}${Math.random()}`,
+    password: "pass",
+    role,
+  });
+  return login(user.username, user.password);
+}
+
+function dataEntryCookie(): Promise<string> {
+  return cookieAs("DATA_ENTRY");
+}
+
 async function downloadReadyExport(
   jobId: string,
   cookie: string,
@@ -231,7 +245,7 @@ test("AC7/AC8 the Excel export has all four sheets, numeric amounts, and disting
   const mouId = await insertMou(pool, companyId, plantId, { scheme: "WILP" });
   await insertCommercialItem(pool, mouId, "ADMIN_CHARGES", { amount: "0.00" });
   // INSURANCE deliberately left unset - no row - to exercise the blank case.
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
 
   const exportResponse = await fetch(
     `${baseUrl}/api/export/excel?by=company&q=Excel Test`,
@@ -263,7 +277,7 @@ test("AC7/AC8 the Excel export has all four sheets, numeric amounts, and disting
 });
 
 test("AC9 Export PDF with scope All Zones succeeds and produces a real PDF", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const response = await fetch(`${baseUrl}/api/export/pdf?scope=all_zones`, {
     headers: { Cookie: cookie },
   });
@@ -279,7 +293,7 @@ test("AC9 Export PDF with scope All Zones succeeds and produces a real PDF", asy
 });
 
 test("AC10 Export PDF with the company scope requires companyId and plantId", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const response = await fetch(`${baseUrl}/api/export/pdf?scope=company`, {
     headers: { Cookie: cookie },
   });
@@ -295,7 +309,7 @@ test("AC11 the company-scope PDF succeeds once companyId and plantId are given",
   const companyId = await insertCompany(pool, zoneId, creator.id);
   const plantId = await insertPlant(pool, companyId);
   await insertMou(pool, companyId, plantId, { scheme: "WILP" });
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
 
   const response = await fetch(
     `${baseUrl}/api/export/pdf?scope=company&companyId=${companyId}&plantId=${plantId}`,
@@ -329,7 +343,7 @@ test("AC12 exporting with a search filter active yields exactly the filtered row
   });
   const plantB = await insertPlant(pool, companyB);
   await insertMou(pool, companyB, plantB, { scheme: "WILP" });
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
 
   const exportResponse = await fetch(
     `${baseUrl}/api/export/excel?by=company&q=Filtered Export`,
@@ -347,7 +361,7 @@ test("AC12 exporting with a search filter active yields exactly the filtered row
 });
 
 test("AC13 a generated export is unreachable without a session, and the cleanup job deletes an expired one", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const exportResponse = await fetch(
     `${baseUrl}/api/export/pdf?scope=all_zones`,
     { headers: { Cookie: cookie } },
@@ -378,7 +392,7 @@ test("AC13 a generated export is unreachable without a session, and the cleanup 
 });
 
 test("an export whose file has been deleted from disk answers 404, not a crash", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const exportResponse = await fetch(
     `${baseUrl}/api/export/pdf?scope=all_zones`,
     { headers: { Cookie: cookie } },
@@ -486,7 +500,7 @@ test("search rows carry YYYY-MM-DD dates, companyId and the HR contact", async (
   const { companyId } = await seedCompanyWithMou("Dated Co", {
     startDate: "2026-03-15",
   });
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
 
   const { body } = await search(cookie, "");
   const row = body.rows[0];
@@ -602,7 +616,7 @@ test("the Expiry Report is the Excel export with status=EXPIRING, combinable wit
   await insertMouEndingIn(pool, companyId, plantId, 5, { scheme: "WILP" });
   await insertMouEndingIn(pool, companyId, plantId, 5, { scheme: "NAPS" });
   await insertMouEndingIn(pool, companyId, plantId, 200, { scheme: "NATS" });
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
 
   const exportResponse = await fetch(
     `${baseUrl}/api/export/excel?status=EXPIRING&scheme=WILP`,
@@ -632,7 +646,7 @@ test("the Expiry Report is the Excel export with status=EXPIRING, combinable wit
 // --- SPEC-24: the bulk record PDF of the Existing Companies list --------------------
 
 test("SPEC-24 the bulk record PDF downloads every MoU the list filters select, as one PDF", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   await seedCompanyWithMou("Alpha Bulk Co");
   await seedCompanyWithMou("Beta Bulk Co");
 
@@ -645,7 +659,7 @@ test("SPEC-24 the bulk record PDF downloads every MoU the list filters select, a
 });
 
 test("SPEC-24 the bulk record PDF honours the same filters as the list", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   await seedCompanyWithMou("Alpha Bulk Co", { scheme: "NAPS" });
   await seedCompanyWithMou("Beta Bulk Co", { scheme: "WILP" });
 
@@ -656,14 +670,14 @@ test("SPEC-24 the bulk record PDF honours the same filters as the list", async (
 });
 
 test("SPEC-24 no matching MoU answers 422 instead of an empty PDF", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   await seedCompanyWithMou("Alpha Bulk Co");
   const response = await fetch(`${baseUrl}/api/export/records.pdf?by=company&q=zzzz`, { headers: { Cookie: cookie } });
   assert.equal(response.status, 422);
 });
 
 test("SPEC-24 invalid filters are refused exactly as /search refuses them", async () => {
-  const cookie = await viewerCookie();
+  const cookie = await dataEntryCookie();
   const response = await fetch(`${baseUrl}/api/export/records.pdf?by=company&q=a`, { headers: { Cookie: cookie } });
   assert.equal(response.status, 422);
 });
@@ -672,7 +686,7 @@ test("SPEC-24 a zonal user's bulk PDF holds only their zones' MoUs", async () =>
   const first = await seedCompanyWithMou("Alpha Bulk Co");
   await seedCompanyWithMou("Beta Bulk Co");
   const { rows } = await pool.query<{ zone_id: string }>(`SELECT zone_id FROM company WHERE id = $1`, [first.companyId]);
-  const zonal = await insertUserWithPassword(pool, { username: "zonal-bulk", password: "pass", role: "VIEWER", zoneIds: [rows[0]?.zone_id ?? ""] });
+  const zonal = await insertUserWithPassword(pool, { username: "zonal-bulk", password: "pass", role: "DATA_ENTRY", zoneIds: [rows[0]?.zone_id ?? ""] });
   const cookie = await login(zonal.username, zonal.password);
 
   const response = await fetch(`${baseUrl}/api/export/records.pdf`, { headers: { Cookie: cookie } });
@@ -682,4 +696,54 @@ test("SPEC-24 a zonal user's bulk PDF holds only their zones' MoUs", async () =>
 test("SPEC-24 the bulk record PDF needs a session", async () => {
   const response = await fetch(`${baseUrl}/api/export/records.pdf`);
   assert.equal(response.status, 401);
+});
+
+// --- SPEC-32: section-wise access ---------------------------------------------------
+
+test("SPEC-32 a VIEWER may search but every export answers 403", async () => {
+  const cookie = await viewerCookie();
+  assert.equal((await fetch(`${baseUrl}/api/search`, { headers: { Cookie: cookie } })).status, 200);
+  for (const path of ["/api/export/excel", "/api/export/pdf?scope=all_zones", "/api/export/records.pdf", "/api/export/contacts"]) {
+    const response = await fetch(`${baseUrl}${path}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 403, path);
+  }
+});
+
+test("SPEC-32 a VIEWER's search rows carry no HR contact", async () => {
+  const zoneId = await insertZone(pool);
+  const creator = await insertUserWithPassword(pool, { username: `creator-rbac${Math.random()}`, password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, creator.id, { companyName: "Rbac Search Co" });
+  await insertMou(pool, companyId, await insertPlant(pool, companyId));
+  const cookie = await viewerCookie();
+
+  const response = await fetch(`${baseUrl}/api/search?by=company&q=Rbac Search`, { headers: { Cookie: cookie } });
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { rows: { hrContactName: string; hrContactNumber: string }[] };
+  assert.equal(body.rows.length, 1);
+  assert.equal(body.rows[0]?.hrContactName, "");
+  assert.equal(body.rows[0]?.hrContactNumber, "");
+});
+
+test("SPEC-32 the Excel Companies sheet has contact columns for an Admin, not for Data Entry", async () => {
+  const zoneId = await insertZone(pool);
+  const creator = await insertUserWithPassword(pool, { username: `creator-rbac${Math.random()}`, password: "pass" });
+  const companyId = await insertCompany(pool, zoneId, creator.id, { companyName: "Rbac Excel Co" });
+  await insertMou(pool, companyId, await insertPlant(pool, companyId));
+
+  async function companyHeaders(cookie: string): Promise<unknown[]> {
+    const response = await fetch(`${baseUrl}/api/export/excel?by=company&q=Rbac Excel`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 202);
+    const { jobId } = (await response.json()) as { jobId: string };
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load((await downloadReadyExport(jobId, cookie)) as never);
+    return (workbook.getWorksheet("Companies")?.getRow(1).values ?? []) as unknown[];
+  }
+
+  const adminHeaders = await companyHeaders(await cookieAs("ADMIN"));
+  const dataEntryHeaders = await companyHeaders(await dataEntryCookie());
+  assert.ok(adminHeaders.includes("HR Contact Name"));
+  assert.ok(adminHeaders.includes("Zonal Manager"));
+  assert.ok(!dataEntryHeaders.includes("HR Contact Name"));
+  assert.ok(!dataEntryHeaders.includes("Zonal Manager"));
+  assert.ok(dataEntryHeaders.includes("Company Name"));
 });

@@ -12,14 +12,18 @@
  * the editable payload this route reads from the client - the scheme is
  * always re-derived from the MOU's own current row, so sending a different
  * one has no effect (AC6).
+ * SPEC-32: the route needs "agreement.edit", and a section the role may only
+ * view (HR: commercial, Finance: contacts) must come back unchanged, or 403.
+ * SPEC-34: a YSF agreement may not gain a YSI-only fee; one it already held may be kept.
  */
 
 import {
-  AGREEMENT_EDIT_ROLES,
   COMPANY_CONTACT_FIELDS,
   EDIT_AGREEMENT_REASONS,
+  forbiddenEditSections,
   validateCommercialDetails,
   validateCompanyContacts,
+  validateOrganisationFields,
   validatePayrollDetails,
 } from "@mou/domain";
 import type {
@@ -38,7 +42,7 @@ import type { Pool } from "pg";
 
 import {
   requireAuth,
-  requireRole,
+  requirePermission,
   requireSession,
 } from "../auth/middleware.ts";
 import { notFoundError, requireInScope } from "../auth/zone-scope.ts";
@@ -114,8 +118,8 @@ function sameContacts(a: CompanyContacts, b: CompanyContacts): boolean {
 export function createEditAgreementRouter(db: Database, pool: Pool): Router {
   const router = Router();
   const requireAuthSession = requireSession(pool);
-  /** SPEC-26: Admin, HR and Finance. */
-  const requireEditor = requireRole(...AGREEMENT_EDIT_ROLES);
+  /** SPEC-26: Admin, HR and Finance (SPEC-32: read from the permission matrix). */
+  const requireEditor = requirePermission("agreement.edit");
 
   /** POST /api/mous/:mouId/edit-request — SPEC-10 section 7. */
   router.post(
@@ -376,6 +380,32 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
         return;
       }
 
+      // SPEC-34: YSF agreements carry no YSI-only fee - except one the agreement already held.
+      const organisationErrors = validateOrganisationFields({
+        scheme: current.scheme,
+        charges: commercialDetails.charges,
+        keepCharges: Object.entries(current.commercial.charges)
+          .filter(([, amount]) => amount.trim() !== "")
+          .map(([key]) => key),
+        // SPEC-35: an Other row the agreement already held may stay.
+        otherItems: commercialDetails.otherItems,
+        keepOtherLabels: current.commercial.otherItems.map((row) => row.label),
+      });
+      if (organisationErrors.charges !== undefined || organisationErrors.otherItems !== undefined) {
+        response
+          .status(422)
+          .json({
+            error: "Commercial details are not valid",
+            errors: {
+              ...(organisationErrors.charges === undefined ? {} : { charges: organisationErrors.charges }),
+              ...(organisationErrors.otherItems === undefined
+                ? {}
+                : { otherItems: organisationErrors.otherItems.map((label) => (label === undefined ? undefined : { label })) }),
+            },
+          });
+        return;
+      }
+
       // SPEC-28: the HR and Finance contacts, held to Page 1's own rules.
       const contacts = readContacts(body["contacts"], current.contacts);
       const contactErrors = validateCompanyContacts(contacts);
@@ -417,17 +447,31 @@ export function createEditAgreementRouter(db: Database, pool: Pool): Router {
         Number(commercialDetails.stipendDate) ===
           Number(current.commercial.stipendDate);
 
-      // AC12: applying with nothing changed is rejected outright.
-      if (
+      const commercialUnchanged =
         scalarUnchanged &&
-        contactsUnchanged &&
-        sameDerivedRows(newCommercialRows, currentCommercialRows) &&
+        sameDerivedRows(newCommercialRows, currentCommercialRows);
+      const payrollUnchanged =
         sameDerivedRows(newPayrollRows, currentPayrollRows) &&
         sameTraineeCategories(
           traineeCategories,
           current.payroll.traineeCategories,
-        )
-      ) {
+        );
+
+      // SPEC-32: a section this role may only view must come back unchanged.
+      const forbidden = forbiddenEditSections(auth.permissions, {
+        contacts: !contactsUnchanged,
+        commercial: !commercialUnchanged,
+        payroll: !payrollUnchanged,
+      });
+      if (forbidden.length > 0) {
+        response
+          .status(403)
+          .json({ error: `You can't change ${forbidden.join(", ")}` });
+        return;
+      }
+
+      // AC12: applying with nothing changed is rejected outright.
+      if (contactsUnchanged && commercialUnchanged && payrollUnchanged) {
         response.status(422).json({ error: "No changes to apply" });
         return;
       }

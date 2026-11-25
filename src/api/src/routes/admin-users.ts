@@ -10,10 +10,10 @@
 import { validateUserAccount } from "@mou/domain";
 import type { UserAccountInput, UserAccountMode, UserAccountValues } from "@mou/domain";
 import { Router } from "express";
-import type { NextFunction, Request, Response } from "express";
+import type { Request, Response } from "express";
 import type { Pool } from "pg";
 
-import { requireAuth, requireRole, requireSession } from "../auth/middleware.ts";
+import { requireAuth, requirePermission, requireSession, requireSuperAdmin } from "../auth/middleware.ts";
 import { hashPassword } from "../auth/password.ts";
 import type { Database } from "../db/client.ts";
 import {
@@ -30,15 +30,6 @@ import { asRecord, isUuid } from "./request-parse.ts";
 
 const UNIQUE_VIOLATION = "23505";
 const NOT_FOUND = { error: "User not found" };
-
-/** SPEC-21 section 2.2: an ADMIN limited to zones is not a super admin. */
-function requireSuperAdmin(request: Request, response: Response, next: NextFunction): void {
-  if (!requireAuth(request).allZones) {
-    response.status(403).json({ error: "Forbidden" });
-    return;
-  }
-  next();
-}
 
 /** A field of the wrong JSON type is kept as an invalid value, never silently dropped. */
 function readInput(body: unknown): UserAccountInput {
@@ -117,7 +108,7 @@ const CLASH = { error: "That username or email is already in use" };
 
 export function createAdminUsersRouter(db: Database, pool: Pool): Router {
   const router = Router();
-  const guards = [requireSession(pool), requireRole("ADMIN"), requireSuperAdmin];
+  const guards = [requireSession(pool), requirePermission("users.manage"), requireSuperAdmin];
 
   /** GET /api/admin/users — section 5.2. */
   router.get("/admin/users", ...guards, async (_request: Request, response: Response) => {
